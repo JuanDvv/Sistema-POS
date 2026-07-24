@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Logs de Auditoría</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            background-color: #f9fafb;
+            box-sizing: border-box;
+        }
+
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 15px;
+        }
+
+        .section-card {
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        /* Controles de Filtros (mismo patrón que gestion.html) */
+        .filters-panel {
+            background-color: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #475569;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            color: #334155;
+            background-color: #f8fafc;
+        }
+
+        #filtro-busqueda {
+            min-width: 260px;
+        }
+
+        .btn-query {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 9px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .btn-query:hover {
+            background-color: #2563eb;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--bg-accent);
+        }
+
+        th {
+            background-color: #f9fafb;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        tbody tr:hover {
+            background-color: #e0f2fe;
+        }
+
+        td.detalles-cell {
+            max-width: 380px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            color: #475569;
+        }
+
+        .rol-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        .pagination-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .pagination-bar .btn-page {
+            background-color: #f1f5f9;
+            color: #334155;
+            border: 1px solid #cbd5e1;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .pagination-bar .btn-page:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-bar .btn-page:hover:not(:disabled) {
+            background-color: #e2e8f0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <header class="header-title">
+            <h1 style="margin: 0; color: var(--text-primary);">📜 Logs de Auditoría</h1>
+            <span
+                style="color: var(--text-secondary); font-weight: bold; background: #e5e7eb; padding: 6px 12px; border-radius: 20px; font-size: 0.9em;">Solo
+                Administradores</span>
+        </header>
+
+        <!-- Filtros -->
+        <div class="filters-panel">
+            <div class="filter-group">
+                <label for="filtro-usuario">Usuario</label>
+                <select id="filtro-usuario">
+                    <option value="">-- Todos los Usuarios --</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filtro-sucursal">Sucursal</label>
+                <select id="filtro-sucursal">
+                    <option value="">-- Todas las Sucursales --</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filtro-accion">Acción</label>
+                <select id="filtro-accion">
+                    <option value="">-- Todas las Acciones --</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filtro-detalles">Detalles</label>
+                <input type="text" id="filtro-detalles" placeholder="Buscar texto libre en detalles...">
+            </div>
+
+            <div class="filter-group">
+                <label for="filtro-fecha-desde">Desde</label>
+                <input type="date" id="filtro-fecha-desde">
+            </div>
+
+            <div class="filter-group">
+                <label for="filtro-fecha-hasta">Hasta</label>
+                <input type="date" id="filtro-fecha-hasta">
+            </div>
+
+            <button class="btn-query" id="btn-limpiar-filtros" type="button">✖️ Limpiar Filtros</button>
+        </div>
+
+        <div class="section-card">
+            <div class="table-container">
+                <table id="table-auditoria">
+                    <thead>
+                        <tr>
+                            <th>Fecha (Hora Bogotá)</th>
+                            <th>Usuario</th>
+                            <th>Rol</th>
+                            <th>Sucursal</th>
+                            <th>Acción</th>
+                            <th>Detalles</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination-bar">
+                <span id="paginacion-resumen" style="font-size: 0.85rem; color: #64748b;"></span>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-page" id="btn-pagina-anterior" type="button">⬅️ Anterior</button>
+                    <button class="btn-page" id="btn-pagina-siguiente" type="button">Siguiente ➡️</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="./sidebar.js"></script>
+    <script src="./admin-audit-logs.js"></script>
+</body>
+
+</html>

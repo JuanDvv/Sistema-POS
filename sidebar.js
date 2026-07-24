@@ -1,0 +1,608 @@
+(function () {
+    // Inyectar estilos modernos y limpios para el Sidebar
+    const styleId = 'sidebar-modern-styles';
+    if (!document.getElementById(styleId)) {
+        const styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.innerHTML = `
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .spinning {
+                animation: spin 1s linear infinite;
+                display: inline-block;
+            }
+
+            /* Ocultar flechas de inputs numéricos */
+            input::-webkit-outer-spin-button,
+            input::-webkit-inner-spin-button {
+                -webkit-appearance: none !important;
+                margin: 0 !important;
+            }
+            input[type=number] {
+                -moz-appearance: textfield !important;
+            }
+
+            /* Estilos Generales de Botones del Sidebar */
+            .nav-btn {
+                position: relative;
+                display: flex !important;
+                align-items: center !important;
+                width: 100%;
+                padding: 10px 12px;
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: #94a3b8;
+                cursor: pointer;
+                font-family: inherit;
+                font-size: 0.95rem;
+                font-weight: 500;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                gap: 12px;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+            .nav-btn[style*="display: none"],
+            .nav-btn[style*="display:none"] {
+                display: none !important;
+            }
+            .nav-btn:hover {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #f8fafc;
+            }
+            .nav-btn.active {
+                background-color: rgba(59, 130, 246, 0.12);
+                color: #3b82f6;
+                font-weight: 600;
+            }
+            .nav-btn.active::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 25%;
+                height: 50%;
+                width: 4px;
+                background-color: #3b82f6;
+                border-radius: 0 4px 4px 0;
+            }
+            .nav-btn span:first-child {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+                font-size: 1.2rem;
+                flex-shrink: 0;
+            }
+
+            /* Botón de Sincronización */
+            .nav-btn-sync-new {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                padding: 10px 12px;
+                background-color: rgba(16, 185, 129, 0.08);
+                color: #10b981;
+                border: 1px solid rgba(16, 185, 129, 0.15);
+                border-radius: 8px;
+                cursor: pointer;
+                font-family: inherit;
+                font-size: 0.95rem;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                gap: 12px;
+                box-sizing: border-box;
+                overflow: hidden;
+                margin-top: 10px;
+            }
+            .nav-btn-sync-new:hover:not(:disabled) {
+                background-color: #10b981;
+                color: white;
+                border-color: #10b981;
+            }
+            .nav-btn-sync-new:disabled {
+                background-color: rgba(16, 185, 129, 0.04);
+                color: rgba(16, 185, 129, 0.4);
+                border-color: rgba(16, 185, 129, 0.08);
+                cursor: not-allowed;
+            }
+            .nav-btn-sync-new > span:first-child {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+                font-size: 1.2rem;
+                flex-shrink: 0;
+            }
+            .nav-btn-sync-new .sync-text-col {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                overflow: hidden;
+                min-width: 0;
+            }
+            .nav-btn-sync-new .sync-next-time {
+                font-size: 10px;
+                font-weight: 400;
+                color: rgba(16, 185, 129, 0.7);
+                line-height: 1.2;
+                white-space: nowrap;
+            }
+            .nav-btn-sync-new:hover:not(:disabled) .sync-next-time {
+                color: rgba(255, 255, 255, 0.8);
+            }
+
+            /* Botón Cerrar Sesión */
+            .btn-logout-new {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                padding: 10px 12px;
+                background-color: rgba(239, 68, 68, 0.08);
+                color: #ef4444;
+                border: 1px solid rgba(239, 68, 68, 0.15);
+                border-radius: 8px;
+                cursor: pointer;
+                font-family: inherit;
+                font-size: 0.95rem;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                gap: 12px;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+            .btn-logout-new:hover {
+                background-color: #ef4444;
+                color: white;
+                border-color: #ef4444;
+            }
+            .btn-logout-new span:first-child {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+                font-size: 1.2rem;
+                flex-shrink: 0;
+            }
+
+            /* Lista de navegación: única zona con scroll dentro del sidebar (h-full/flex-column),
+               para que la sección inferior (Sincronizar/Cerrar Sesión) quede siempre fija y visible
+               sin importar cuántos ítems de menú haya ni la altura de la ventana. */
+            .sidebar .nav-menu {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+            }
+            .sidebar .nav-menu::-webkit-scrollbar {
+                width: 0px !important;
+                background: transparent !important;
+            }
+            .sidebar .sidebar-footer {
+                flex-shrink: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 8px !important;
+                padding-top: 10px !important;
+            }
+
+            /* Estilos del Sidebar Autocolapsable (Escritorio) */
+            @media (min-width: 501px) {
+                .sidebar {
+                    position: fixed !important;
+                    left: 0 !important;
+                    top: 0 !important;
+                    bottom: 0 !important;
+                    z-index: 1000 !important;
+                    width: 80px !important;
+                    padding: 20px 14px !important;
+                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15) !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    box-sizing: border-box !important;
+                    background-color: #0f172a !important;
+                    border-right: 1px solid #1e293b !important;
+                    color: white !important;
+                    overflow-x: hidden !important;
+                    overflow-y: hidden !important;
+                }
+
+                .sidebar-spacer {
+                    width: 80px !important;
+                    flex-shrink: 0 !important;
+                    display: block !important;
+                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                }
+
+                /* Fading and static positioning for elements inside collapsed sidebar */
+                .sidebar .sidebar-header-info,
+                .sidebar .nav-text,
+                .sidebar .sync-text,
+                .sidebar .sync-next-time {
+                    opacity: 0 !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                    white-space: nowrap !important;
+                    transition: opacity 0.15s ease, transform 0.15s ease !important;
+                    transform: translateX(-10px) !important;
+                    will-change: opacity, transform;
+                }
+
+                /* Al hacer Hover en Sidebar */
+                .sidebar:hover {
+                    width: 260px !important;
+                }
+
+                .sidebar:hover .sidebar-header-info,
+                .sidebar:hover .nav-text,
+                .sidebar:hover .sync-text,
+                .sidebar:hover .sync-next-time {
+                    opacity: 1 !important;
+                    visibility: visible !important;
+                    pointer-events: auto !important;
+                    transform: translateX(0) !important;
+                    transition: opacity 0.2s ease 0.1s, transform 0.2s ease 0.1s !important;
+                }
+            }
+
+            /* Responsive Móvil */
+            @media (max-width: 500px) {
+                .sidebar-spacer {
+                    display: none !important;
+                }
+                .sidebar {
+                    position: fixed !important;
+                    left: -260px !important;
+                    top: 0 !important;
+                    height: 100vh !important;
+                    width: 260px !important;
+                    z-index: 1000 !important;
+                    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                    box-shadow: 4px 0 25px rgba(0,0,0,0.3) !important;
+                    background-color: #0f172a !important;
+                    color: white !important;
+                    padding: 24px 20px !important;
+                    box-sizing: border-box !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    border-right: 1px solid #1e293b !important;
+                    overflow-x: hidden !important;
+                    overflow-y: hidden !important;
+                }
+                .sidebar.open {
+                    left: 0 !important;
+                }
+                .sidebar .sidebar-header-info,
+                .sidebar .nav-text,
+                .sidebar .sync-text {
+                    opacity: 1 !important;
+                    visibility: visible !important;
+                    pointer-events: auto !important;
+                    transform: translateX(0) !important;
+                }
+            }
+        `;
+        document.head.appendChild(styleEl);
+    }
+
+    // 1. Encontrar el contenedor o crear el sidebar antes del contenido principal
+    let container = document.getElementById('sidebar-container');
+    if (!container) {
+        const existingSidebar = document.querySelector('.sidebar');
+        if (existingSidebar) {
+            container = existingSidebar;
+        } else {
+            container = document.createElement('div');
+            container.className = 'sidebar';
+            document.body.insertBefore(container, document.body.firstChild);
+        }
+    }
+
+    // Inyectar el spacer si no existe
+    let spacer = document.getElementById('sidebar-spacer-el');
+    if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.id = 'sidebar-spacer-el';
+        spacer.className = 'sidebar-spacer';
+        container.parentNode.insertBefore(spacer, container.nextSibling);
+    }
+
+    // Datos de sesión activa
+    const currentUser = localStorage.getItem('currentUser') || 'Invitado';
+    const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+
+    // Determinar qué botón está activo
+    const path = window.location.pathname;
+    const isDashboard = path.includes('dashboard.html');
+    const isVentas = path.includes('ventas.html');
+    const isGastos = path.includes('gastos.html');
+    const isTransferencias = path.includes('transferencias.html');
+    const isReportes = path.includes('reportes.html');
+    const isArqueo = path.includes('arqueo.html');
+    const isAdmin = path.includes('admin.html') && !path.includes('admin-audit-logs.html');
+    const isGestion = path.includes('gestion.html');
+    const isVentasAnteriores = path.includes('ventas-anteriores.html');
+    const isAuditLogs = path.includes('admin-audit-logs.html');
+
+    // Título dinámico de la ventana: "[App] - [Página] | Sucursal: [Sucursal]"
+    const paginaActual =
+        isDashboard ? 'Inventario' :
+        isVentas ? 'Registrar Venta' :
+        isGastos ? 'Registrar Gasto' :
+        isTransferencias ? 'Traslado de Productos' :
+        isReportes ? 'Reporte Diario' :
+        isArqueo ? 'Cuadre de Caja' :
+        isAdmin ? 'Administración' :
+        isGestion ? 'Gestión' :
+        isVentasAnteriores ? 'Ventas Días Anteriores' :
+        isAuditLogs ? 'Logs de Auditoría' :
+        'Sistema Principal';
+
+    if (window.api && window.api.obtenerSucursalId) {
+        window.api.obtenerSucursalId().then(res => {
+            const nombreSucursal = (res && res.success && res.id) ? res.id : 'Sin asignar';
+            document.title = `POS Delipostres Turbaco - ${paginaActual} | Sucursal: ${nombreSucursal}`;
+        }).catch(() => { });
+    }
+
+    // Inyectar la estructura del sidebar
+    container.className = 'sidebar';
+    container.innerHTML = `
+        <div class="sidebar-header" style="display: flex; align-items: center; margin-bottom: 20px; gap: 12px; height: 50px; overflow: hidden; flex-shrink: 0;">
+            <span style="font-size: 1.6rem; flex-shrink: 0; display: block; text-align: center; width: 24px;">🧁</span>
+            <div class="sidebar-header-info" style="display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+                <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">POS Delipostres</h2>
+                <span style="font-size: 0.8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; margin-top: 1px;">
+                    <strong id="display-user">${currentUser}</strong>
+                    <span id="display-role" style="color: #FCF9F5; opacity: 0.8; font-weight: 600;">(${currentRole})</span>
+                </span>
+            </div>
+        </div>
+
+        <div class="nav-menu" style="display: flex; flex-direction: column; gap: 8px;">
+            <button class="nav-btn ${isDashboard ? 'active' : ''}" onclick="location.href='dashboard.html'"><span>📋</span> <span class="nav-text">Ver Inventario</span></button>
+            <div style="display: flex; gap: 4px; width: 100%;">
+                <button class="nav-btn ${isVentas ? 'active' : ''}" onclick="location.href='ventas.html'" style="flex-grow: 1;"><span>🛒</span> <span class="nav-text">Registrar Venta</span></button>
+                <button class="nav-btn" onclick="window.api.abrirVentanaVentas().then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
+            </div>
+            <button class="nav-btn ${isGastos ? 'active' : ''}" onclick="location.href='gastos.html'"><span>💸</span> <span class="nav-text">Registrar Gasto</span></button>
+            <button class="nav-btn ${isTransferencias ? 'active' : ''}" onclick="location.href='transferencias.html'"><span>🔄</span> <span class="nav-text">Traslado de Productos</span></button>
+            <button class="nav-btn ${isArqueo ? 'active' : ''}" onclick="location.href='arqueo.html'"><span>🪙</span> <span class="nav-text">Cuadre de Caja</span></button>
+            <button class="nav-btn ${isVentasAnteriores ? 'active' : ''}" onclick="location.href='ventas-anteriores.html'"><span>🗓️</span> <span class="nav-text">Edición Ventas Anteriores</span></button>
+            <button class="nav-btn ${isReportes ? 'active' : ''}" onclick="location.href='reportes.html'"><span>📊</span> <span class="nav-text">Reporte Diario</span></button>
+            <button class="nav-btn ${isGestion ? 'active' : ''}" id="btn-nav-gestion" onclick="location.href='gestion.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'};"><span>📈</span> <span class="nav-text">Reportes Gestión</span></button>
+            <button class="nav-btn ${isAdmin ? 'active' : ''}" id="btn-nav-admin" onclick="location.href='admin.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'}; position: relative;"><span>⚙️</span> <span class="nav-text">Administración</span> <span id="badge-solicitudes-pendientes" style="display: none; position: absolute; top: 4px; right: 6px; background-color: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; min-width: 8px; text-align: center;"></span></button>
+            <button class="nav-btn ${isAuditLogs ? 'active' : ''}" id="btn-nav-audit-logs" onclick="location.href='admin-audit-logs.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'};"><span>📜</span> <span class="nav-text">Logs de Auditoría</span></button>
+        </div>
+
+        <div class="sidebar-footer">
+            <button class="nav-btn-sync-new" id="btn-sync-now">
+                <span class="sync-icon">🔄</span>
+                <span class="sync-text-col">
+                    <span class="sync-text">Sincronizar Nube</span>
+                    <span class="sync-next-time" id="sync-next-time"></span>
+                </span>
+            </button>
+            <button id="btn-logout" class="btn-logout-new"><span>🚪</span> <span class="nav-text">Cerrar Sesión</span></button>
+        </div>
+    `;
+
+    // Configurar listeners de menú hamburguesa móvil
+    const toggleBtn = document.getElementById('menu-toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            container.classList.toggle('open');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (container.classList.contains('open') && !container.contains(e.target) && e.target !== toggleBtn) {
+                container.classList.remove('open');
+            }
+        });
+    }
+
+    // Indicador sutil de "próxima sincronización" bajo el botón. No es un timer aparte: se
+    // recalcula como "ahora + intervalo del rol" cada vez que corre un ciclo de sincronización
+    // (manual o automático), así el usuario siempre ve una referencia razonable de cuándo
+    // volverá a sincronizar aunque haya disparado una manual entre medio. Si el rol no tiene
+    // cadencia automática asignada (o no hay window.api), el indicador queda vacío.
+    function formatearHoraProxima(ts) {
+        const d = new Date(ts);
+        const minutos = String(d.getMinutes()).padStart(2, '0');
+        const sufijo = d.getHours() >= 12 ? 'PM' : 'AM';
+        const horas12 = d.getHours() % 12 || 12;
+        return `Próxima: ${String(horas12).padStart(2, '0')}:${minutos} ${sufijo}`;
+    }
+
+    function actualizarProximaSincronizacion() {
+        const el = document.getElementById('sync-next-time');
+        if (!el || !intervaloRolMs) return;
+        el.innerText = formatearHoraProxima(Date.now() + intervaloRolMs);
+    }
+
+    // Ejecuta la sincronización y, sin importar quién la disparó (botón manual, intervalo
+    // automático por rol o el cierre de sesión), propaga el resultado de la misma forma:
+    // invalida el estado de todas las vistas abiertas (evento 'pos-sincronizacion-completa',
+    // escuchado por dashboard/ventas/transferencias/ventas-anteriores; Reporte Diario además
+    // recibe el push IPC 'sincronizacion-completa' desde el proceso principal) y deja rastro
+    // en consola si algo falló, en vez de tragarse el error con un catch vacío.
+    async function ejecutarSincronizacion({ mostrarAlertas } = {}) {
+        try {
+            const res = await window.api.forzarSincronizacion();
+            actualizarProximaSincronizacion();
+
+            // procesarSincronizacion() reporta success:false cuando falla puntualmente la
+            // subida/descarga de ventas o gastos, pero el resto de entidades (productos,
+            // inventario, transferencias, clientes, etc.) ya corrieron en ese mismo ciclo y
+            // pudieron cambiar datos locales -- solo se omite si ni siquiera llegó a ejecutarse
+            // (ej. "ya hay una sincronización en curso"), en cuyo caso no hay nada que invalidar.
+            const huboCiclo = res.success || res.message !== 'La sincronización ya está en curso.';
+            if (huboCiclo) {
+                // No recargamos la página: eso destruiría el carrito activo y cualquier
+                // edición en curso. Cada vista decide qué refrescar escuchando este evento.
+                window.dispatchEvent(new Event('pos-sincronizacion-completa'));
+                actualizarBadgeSolicitudes();
+            }
+
+            if (res.success) {
+                if (mostrarAlertas) alert('Sincronización exitosa con la nube.');
+            } else {
+                console.error('[Sync] Sincronización con error:', res.message || 'Error desconocido');
+                if (mostrarAlertas) alert('Sincronización parcial: ' + (res.message || 'Error desconocido') + (huboCiclo ? '\n(El resto de los datos sí se sincronizó correctamente.)' : ''));
+            }
+            return res;
+        } catch (err) {
+            console.error('[Sync] Fallo al conectar con el sincronizador:', err.message);
+            actualizarProximaSincronizacion();
+            if (mostrarAlertas) alert('Error al conectar con el sincronizador: ' + err.message);
+            return { success: false, message: err.message };
+        }
+    }
+
+    // Sincronización automática en segundo plano, con cadencia según el rol de la sesión:
+    // Operador cada 1 min (cambios más frecuentes/urgentes de confirmar), Administrador cada 5 min.
+    const INTERVALOS_SYNC_POR_ROL = { Operador: 60000, Administrador: 300000 };
+    let intervalSincronizacionRol = null;
+    const intervaloRolMs = INTERVALOS_SYNC_POR_ROL[currentRole];
+    if (intervaloRolMs && window.api && window.api.forzarSincronizacion) {
+        intervalSincronizacionRol = setInterval(() => {
+            ejecutarSincronizacion({ mostrarAlertas: false });
+        }, intervaloRolMs);
+        window.addEventListener('beforeunload', () => clearInterval(intervalSincronizacionRol));
+        actualizarProximaSincronizacion();
+    }
+
+    // Configurar listener para Cerrar Sesión
+    const btnLogout = container.querySelector('#btn-logout');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', async (evt) => {
+            // Cada página (ventas.js, admin.js, gastos.js, etc.) registra su propio listener extra
+            // sobre este mismo #btn-logout que solo limpia localStorage y redirige. Al ser este handler
+            // 'async', cede el control en el primer 'await' y ese listener synchronous alcanzaría a
+            // redirigir antes de que termine la sincronización o la alerta de inventario negativo de
+            // abajo. stopImmediatePropagation() evita que se dispare.
+            evt.stopImmediatePropagation();
+            if (intervalSincronizacionRol) clearInterval(intervalSincronizacionRol);
+            btnLogout.disabled = true;
+            try {
+                await window.api.forzarSincronizacion();
+            } catch (e) {
+                console.error('Sincronización previa al cierre de sesión falló:', e);
+            }
+
+            // Avisar si quedaron productos con inventario negativo (ventas registradas sin stock
+            // suficiente, permitidas con confirmación desde ventas.js/ventas-anteriores.js) antes de
+            // cerrar la sesión, dando la opción de cancelar el cierre para ir a abastecer primero.
+            try {
+                const resId = await window.api.obtenerSucursalId();
+                if (resId.success && window.api.getInventory) {
+                    const resInv = await window.api.getInventory(resId.id);
+                    if (resInv.success) {
+                        const negativos = (resInv.data || []).filter(p => Number(p.stock) < 0);
+                        if (negativos.length > 0) {
+                            const listado = negativos.map(p => `• ${p.nombre}: ${p.stock}`).join('\n');
+                            const cerrarIgual = confirm(
+                                `Atención: los siguientes productos quedaron con inventario negativo por ventas registradas sin stock suficiente:\n\n${listado}\n\n¿Deseas cerrar sesión de todas formas? Cancela para ir a abastecerlos primero.`
+                            );
+                            // Corrige el bug de pérdida de foco en Electron al cerrar diálogos nativos en
+                            // Windows (mismo fix que usan ventas.js/reportes.js/ventas-anteriores.js).
+                            if (window.api && window.api.forceRefocus) window.api.forceRefocus();
+                            if (!cerrarIgual) {
+                                // El usuario decidió quedarse a abastecer: se restaura el intervalo de
+                                // sincronización y el botón, sin limpiar la sesión ni redirigir.
+                                btnLogout.disabled = false;
+                                if (intervaloRolMs && window.api && window.api.forzarSincronizacion) {
+                                    intervalSincronizacionRol = setInterval(() => {
+                                        ejecutarSincronizacion({ mostrarAlertas: false });
+                                    }, intervaloRolMs);
+                                    actualizarProximaSincronizacion();
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('No se pudo verificar inventario negativo al cerrar sesión:', err);
+            }
+
+            localStorage.clear();
+            window.location.href = 'index.html';
+        });
+    }
+
+    // Estado del botón de Sincronizar: reacciona al flag global de sincronización
+    // (isSyncing), sea disparada manualmente desde este botón, por el intervalo por
+    // rol, por un evento crítico (venta/gasto/aprobación) o desde otra ventana.
+    const btnSync = container.querySelector('#btn-sync-now');
+    if (btnSync) {
+        const icon = btnSync.querySelector('.sync-icon');
+        const text = btnSync.querySelector('.sync-text');
+
+        function aplicarEstadoSincronizando(enCurso) {
+            btnSync.disabled = enCurso;
+            if (icon) icon.classList.toggle('spinning', enCurso);
+            if (text) text.innerText = enCurso ? 'Sincronizando...' : 'Sincronizar Nube';
+        }
+
+        if (window.api && window.api.onSincronizacionEstado) {
+            window.api.onSincronizacionEstado(aplicarEstadoSincronizando);
+        }
+        if (window.api && window.api.isSincronizando) {
+            window.api.isSincronizando().then(aplicarEstadoSincronizando).catch(() => { });
+        }
+
+        btnSync.addEventListener('click', () => ejecutarSincronizacion({ mostrarAlertas: true }));
+    }
+
+    // Mostrar en el botón de Administración la cantidad de solicitudes de venta pendientes de aprobar
+    function actualizarBadgeSolicitudes() {
+        if (!(currentRole === 'Administrador' && window.api && window.api.contarSolicitudesPendientes)) return;
+        window.api.contarSolicitudesPendientes().then(res => {
+            const badge = document.getElementById('badge-solicitudes-pendientes');
+            if (!badge) return;
+            if (res && res.success && res.count > 0) {
+                badge.innerText = res.count > 99 ? '99+' : String(res.count);
+                badge.style.display = 'block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }).catch(() => { });
+    }
+    actualizarBadgeSolicitudes();
+
+    // Seleccionar automáticamente todo el texto al enfocar inputs numéricos y buscadores
+    document.addEventListener('focus', function (e) {
+        if (e.target && e.target.tagName === 'INPUT') {
+            const shouldSelectAll = e.target.type === 'number' ||
+                e.target.getAttribute('inputmode') === 'numeric' ||
+                e.target.id.includes('monto') ||
+                e.target.id.includes('precio') ||
+                e.target.id.includes('cantidad') ||
+                e.target.id.includes('search');
+            if (shouldSelectAll) {
+                e.target.select();
+
+                // Evitar que el evento mouseup inmediatamente posterior deseleccione el texto
+                const preventMouseUp = function (event) {
+                    event.preventDefault();
+                    e.target.removeEventListener('mouseup', preventMouseUp);
+                };
+                e.target.addEventListener('mouseup', preventMouseUp);
+
+                const clearPrevent = function () {
+                    e.target.removeEventListener('mouseup', preventMouseUp);
+                    e.target.removeEventListener('blur', clearPrevent);
+                };
+                e.target.addEventListener('blur', clearPrevent);
+            }
+        }
+    }, true);
+})();
+

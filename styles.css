@@ -1,0 +1,464 @@
+/* Estilos globales reutilizables — POS Delipostres Turbaco.
+   El sidebar (.sidebar, .nav-btn, .btn-logout-new, .menu-toggle en móvil, etc.) lo
+   inyecta sidebar.js en runtime con !important; no se redefine aquí. */
+
+:root {
+    --brand-color: #ec4899;
+    --brand-hover: #db2777;
+    --bg-primary: #f3f4f6;
+    --bg-secondary: #ffffff;
+    --text-primary: #1f2937;
+    --text-secondary: #4b5563;
+    --border-color: #e5e7eb;
+    --accent-green: #10b981;
+    --accent-red: #ef4444;
+}
+
+body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol', 'Apple Color Emoji';
+    margin: 0;
+    display: flex;
+    background-color: var(--bg-primary);
+    height: 100vh;
+}
+
+/* Botón hamburguesa (móvil). El slide del .sidebar lo controla sidebar.js. */
+.menu-toggle-btn {
+    display: none;
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 1001;
+    background-color: #1f2937;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 6px;
+    font-size: 1.2em;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition: background-color 0.2s;
+}
+
+.menu-toggle-btn:hover {
+    background-color: #374151;
+}
+
+@media (max-width: 500px) {
+    .menu-toggle-btn {
+        display: block !important;
+    }
+}
+
+/* Modales de formulario (alta/edición) */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.4);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background-color: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    width: 450px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    position: relative;
+    /* En ventanas de poca altura, el contenido del modal (ej. formularios largos) puede
+       superar el alto disponible; sin esto quedaba cortado y sin forma de llegar a los
+       campos/botones de más abajo. Los modales que ya fijan su propio height/max-height
+       inline (ej. previsualización de abastecimiento masivo) siguen mandando sobre esto. */
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 10px;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #111827;
+}
+
+.close-btn {
+    font-size: 1.5rem;
+    font-weight: bold;
+    cursor: pointer;
+    color: #9ca3af;
+    border: none;
+    background: none;
+}
+
+.close-btn:hover {
+    color: #374151;
+}
+
+/* Botones de acción reutilizados en tablas y formularios */
+.btn-primary {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.9em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-primary:hover {
+    background-color: #2563eb;
+}
+
+.btn-edit {
+    background-color: #f59e0b;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-edit:hover {
+    background-color: #d97706;
+}
+
+.btn-delete {
+    background-color: #ef4444;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-delete:hover {
+    background-color: #dc2626;
+}
+
+/* Catálogo de productos en grilla (ventas, ventas-anteriores, transferencias) */
+.grid-products {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+    overflow-y: auto;
+    margin-top: 15px;
+    padding-right: 5px;
+    flex: 1;
+    align-content: start;
+}
+
+.product-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    background-color: white !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-sizing: border-box;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    min-height: 190px;
+}
+
+.product-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: #f9fafb !important;
+}
+
+.product-card:hover:not(.disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-color: #3b82f6;
+}
+
+.product-card img {
+    width: 100% !important;
+    height: 90px !important;
+    object-fit: cover !important;
+    border-radius: 6px !important;
+    border: 1px solid #f3f4f6 !important;
+    margin-bottom: 6px !important;
+    box-sizing: border-box !important;
+    display: block !important;
+}
+
+.product-card-body {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    box-sizing: border-box !important;
+}
+
+.product-card h4 {
+    margin: 0;
+    color: #1f2937;
+    font-size: 0.8em;
+    font-weight: 600;
+    line-height: 1.3;
+    width: 100%;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+}
+
+.product-price {
+    color: #059669;
+    font-weight: 700;
+    font-size: 0.95em;
+    margin: 0;
+}
+
+.product-stock {
+    font-size: 0.75em;
+    color: #6b7280;
+    margin: 0;
+}
+
+@media (max-width: 1200px) {
+    .grid-products {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
+        gap: 8px !important;
+    }
+}
+
+/* Previsualización de imagen ampliada (ventas, ventas-anteriores) */
+.image-preview-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.75);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    cursor: zoom-out;
+}
+
+.image-preview-overlay img {
+    max-width: 90%;
+    max-height: 90%;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    object-fit: contain;
+    border: 3px solid white;
+}
+
+/* Ticket térmico (Comprobante Informativo, no fiscal). Reglas de contenido
+   compartidas entre la vista previa en pantalla (.ticket-preview, dentro del
+   modal) y la impresión real (#area-ticket-impresion, oculto hasta imprimir). */
+.ticket-centro { text-align: center; }
+.ticket-negrita { font-weight: 600; }
+.ticket-aviso { font-weight: 600; text-align: center; font-size: 10px; margin: 3px 0; }
+.ticket-separador { border-top: 1px dashed #000; margin: 4px 0; }
+.ticket-tabla { width: 100%; border-collapse: collapse; }
+.ticket-tabla td { padding: 1px 0; font-size: 10.5px; font-weight: 400; vertical-align: top; }
+.ticket-tabla .col-cant { width: 22px; }
+.ticket-tabla .col-sub { text-align: right; white-space: nowrap; }
+.ticket-total { font-weight: 600; font-size: 13px; text-align: right; margin-top: 4px; }
+
+/* Vista previa en pantalla, dentro del modal de impresión */
+.ticket-preview {
+    width: 80mm;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 3mm;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    font-family: 'Courier New', Courier, monospace, sans-serif;
+    font-weight: 400;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #000;
+}
+
+#area-ticket-impresion {
+    display: none;
+}
+
+@page {
+    margin: 0;
+}
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #area-ticket-impresion,
+    #area-ticket-impresion * {
+        visibility: visible;
+    }
+
+    #area-ticket-impresion,
+    #area-ticket-impresion * {
+        font-family: 'Courier New', Courier, monospace !important;
+        font-weight: 600 !important;
+        color: #000000 !important;
+    }
+
+    #area-ticket-impresion {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 80mm;
+        padding: 2mm;
+        font-size: 11px;
+        line-height: 1.35;
+        text-shadow: none;
+        -webkit-font-smoothing: none;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+}
+
+/* Selector múltiple de categorías (ver categoriaFiltro.js) */
+.cat-multiselect {
+    position: relative;
+    display: inline-block;
+}
+
+.cat-multiselect-trigger {
+    padding: 6px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.9em;
+    background-color: white;
+    color: #374151;
+    box-sizing: border-box;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+}
+
+.cat-multiselect-trigger:hover {
+    border-color: #3b82f6;
+}
+
+.cat-multiselect-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 260px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    z-index: 50;
+    padding: 6px 0;
+}
+
+.cat-multiselect-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 0.9em;
+    color: #374151;
+    cursor: pointer;
+}
+
+.cat-multiselect-item:hover {
+    background-color: #f3f4f6;
+}
+
+.cat-multiselect-item-sub {
+    padding-left: 26px;
+    color: #4b5563;
+}
+
+.cat-multiselect-item input[type="checkbox"] {
+    cursor: pointer;
+    margin: 0;
+}
+
+.cat-multiselect-clear {
+    padding: 6px 12px;
+    font-size: 0.85em;
+    color: #2563eb;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+    margin-bottom: 4px;
+}
+
+.cat-multiselect-clear:hover {
+    text-decoration: underline;
+}
+
+/* Panel de sugerencias de descripción de gastos recurrentes (ver gastos.js) */
+.sugerencias-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    z-index: 50;
+    margin-top: 2px;
+}
+
+.sugerencia-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    color: #374151;
+    cursor: pointer;
+}
+
+.sugerencia-item:hover {
+    background-color: #f3f4f6;
+}
+
+.sugerencia-item .sugerencia-usos {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    color: #9ca3af;
+}

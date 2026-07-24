@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Sistema Principal</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        th,
+        td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        th {
+            background-color: #4b5563;
+            color: white;
+            font-weight: 600;
+        }
+
+        .badge-alert {
+            background-color: #fee2e2;
+            color: #dc2626;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .badge-ok {
+            background-color: #d1fae5;
+            color: #065f46;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #374151;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            height: 60px;
+        }
+
+        .actions-cell {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-start;
+            align-items: center;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                padding: 15px !important;
+            }
+            th, td {
+                padding: 8px 10px !important;
+                font-size: 0.85em !important;
+            }
+            #table-products th:nth-child(4),
+            #table-products td:nth-child(4),
+            #table-products th:nth-child(7),
+            #table-products td:nth-child(7) {
+                display: none !important;
+            }
+        }
+
+        @media (max-width: 500px) {
+            .main-content {
+                padding: 15px !important;
+                padding-top: 70px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <button id="menu-toggle" class="menu-toggle-btn">☰</button>
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <header class="header-title">
+            <h1 style="margin: 0; color: #111827;">Control de Inventario</h1>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="search-productos" placeholder="🔍 Buscar producto..."
+                    style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 220px; font-family: inherit; font-size: 0.9em;">
+                <div id="filter-categoria"></div>
+                <button id="btn-nuevo-producto" class="btn-primary" style="display: none;">➕ Nuevo Producto</button>
+                <button id="btn-plantilla-abastecimiento" class="btn-primary" style="display: none; background-color: #6b7280;">📤 Plantilla de Abastecimiento</button>
+                <button id="btn-cargar-abastecimiento" class="btn-primary" style="display: none; background-color: #0891b2;">📥 Cargar Abastecimiento (Archivo)</button>
+                <span id="display-sucursal"
+                    style="color: #6b7280; font-weight: bold; background: #e5e7eb; padding: 6px 12px; border-radius: 20px; font-size: 0.9em;">Cargando
+                    Sucursal...</span>
+                <select id="select-sucursal-inventario"
+                    style="display: none; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.9em; background-color: white; color: #374151; font-weight: bold;"></select>
+            </div>
+        </header>
+
+        <!-- Resumen de Inventario -->
+        <div id="inventory-summary-cards" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #3b82f6; box-sizing: border-box;">
+                <div style="font-size: 0.85em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Variedad de Productos</div>
+                <div id="summary-total-variedad" style="font-size: 1.8em; font-weight: bold; color: #1f2937; margin-top: 5px;">0</div>
+            </div>
+            <div style="flex: 1; min-width: 200px; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #10b981; box-sizing: border-box;">
+                <div style="font-size: 0.85em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Unidades en Stock</div>
+                <div id="summary-total-unidades" style="font-size: 1.8em; font-weight: bold; color: #1f2937; margin-top: 5px;">0</div>
+            </div>
+            <div style="flex: 1; min-width: 200px; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #f59e0b; box-sizing: border-box;">
+                <div style="font-size: 0.85em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Valor Total de Inventario</div>
+                <div id="summary-valor-total" style="font-size: 1.8em; font-weight: bold; color: #1f2937; margin-top: 5px;">$0</div>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto; width: 100%;">
+            <table id="table-products">
+                <thead>
+                    <tr>
+                        <th style="width: 80px;">Foto</th>
+                        <th>Producto</th>
+                        <th>Categoría</th>
+                        <th>Descripción</th>
+                        <th>Precio</th>
+                        <th>Stock Actual</th>
+                        <th>Estado Stock</th>
+                        <th id="th-acciones" style="display: none; width: 140px;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- Modal para nuevo producto -->
+    <div id="modal-producto" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Agregar Nuevo Producto</h3>
+                <button class="close-btn" id="btn-close-modal">&times;</button>
+            </div>
+            <form id="form-producto">
+                <div class="form-group">
+                    <label for="prod-nombre">Nombre del Producto *</label>
+                    <input type="text" id="prod-nombre" required placeholder="Ej. Piñata Estrella Grande">
+                </div>
+                <div class="form-group">
+                    <label for="prod-descripcion">Descripción *</label>
+                    <textarea id="prod-descripcion" required
+                        placeholder="Ej. Piñata reforzada de cartón decorada"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="prod-precio">Precio de Venta ($ COP) *</label>
+                    <input type="text" inputmode="numeric" id="prod-precio" required placeholder="Ej. 120.000">
+                </div>
+                <div class="form-group">
+                    <label for="prod-stock">Stock Inicial *</label>
+                    <input type="number" id="prod-stock" required min="0" placeholder="Ej. 10">
+                </div>
+                <div class="form-group">
+                    <label for="prod-stock-minimo">Stock Mínimo Alerta *</label>
+                    <input type="number" id="prod-stock-minimo" required min="0" placeholder="Ej. 3">
+                </div>
+                <div class="form-group">
+                    <label for="prod-categoria">Categoría del Producto</label>
+                    <select id="prod-categoria">
+                        <!-- Llenado dinámicamente -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="prod-foto">Foto del Producto (Opcional)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="prod-foto" placeholder="URL de internet o ruta local">
+                        <input type="file" id="prod-foto-file" accept="image/*" style="display: none;">
+                        <button type="button" id="btn-buscar-foto" class="btn-primary"
+                            style="padding: 0 15px; white-space: nowrap;">Buscar...</button>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px;">Guardar Producto</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para abastecer stock -->
+    <div id="modal-abastecer" class="modal">
+        <div class="modal-content" style="width: 350px;">
+            <div class="modal-header">
+                <h3>Abastecer Inventario</h3>
+                <button class="close-btn" id="btn-close-abastecer-modal">&times;</button>
+            </div>
+            <form id="form-abastecer">
+                <p id="abastecer-prod-nombre" style="font-weight: bold; margin-bottom: 15px; color: #374151;"></p>
+                <div class="form-group">
+                    <label for="abastecer-cantidad">Cantidad que llega *</label>
+                    <input type="number" id="abastecer-cantidad" required min="1" placeholder="Ej. 10"
+                        style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Agregar al
+                    Stock</button>
+            </form>
+        </div>
+    </div>
+    <!-- Modal de previsualización del abastecimiento masivo (carga parcial desde archivo) -->
+    <div id="modal-abastecimiento-masivo" class="modal">
+        <div class="modal-content"
+            style="width: 700px; max-width: 92vw; height: 600px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <h3>Confirmar Abastecimiento Masivo</h3>
+                <button class="close-btn" id="btn-close-abastecimiento-masivo-modal">&times;</button>
+            </div>
+            <p id="abastecimiento-masivo-archivo" style="color: #6b7280; font-size: 0.85em; flex-shrink: 0; margin: 0 0 10px 0;"></p>
+            <div style="overflow-y: auto; flex: 1; min-height: 0;">
+                <table id="table-abastecimiento-masivo">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Stock Actual</th>
+                            <th>Cantidad a Ingresar</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="flex-shrink: 0; padding-top: 12px; border-top: 1px solid #e5e7eb; margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; font-weight: 700; padding: 6px 0;">
+                    <span id="abastecimiento-masivo-resumen">0 productos - 0 unidades en total</span>
+                </div>
+                <button type="button" class="btn-primary" id="btn-confirmar-abastecimiento-masivo"
+                    style="width: 100%; justify-content: center; padding: 12px;">✅ Confirmar e Ingresar al Inventario</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./sidebar.js"></script>
+    <script src="./categoriaFiltro.js"></script>
+    <script src="./dashboard.js"></script>
+</body>
+
+</html>

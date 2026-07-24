@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Edición Ventas Anteriores</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            display: flex;
+            gap: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .products-section {
+            flex: 1.2;
+            min-width: 0;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .cart-section {
+            flex: 2;
+            min-width: 0;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #f3f4f6;
+            padding-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background-color: #f3f4f6;
+            padding: 3px;
+            border-radius: 8px;
+        }
+
+        .tab-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            background-color: white;
+            color: #111827;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        #input-fecha-venta {
+            padding: 6px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.85em;
+        }
+
+        .btn-link-solicitudes {
+            border: none;
+            background: transparent;
+            color: #3b82f6;
+            font-size: 0.82em;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .tabla-ventas-dia {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .tabla-simple {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .tabla-simple th,
+        .tabla-simple td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.85em;
+        }
+
+        .tabla-simple th {
+            color: #6b7280;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            background: white;
+        }
+
+        .btn-mini {
+            border: none;
+            padding: 5px 9px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin-right: 6px;
+        }
+
+        .btn-mini-edit {
+            background-color: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .btn-mini-delete {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        .pill-estado {
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.78em;
+            font-weight: 700;
+        }
+
+        .pill-pendiente {
+            background-color: #fef3c7;
+            color: #b45309;
+        }
+
+        .pill-aprobada {
+            background-color: #dcfce7;
+            color: #15803d;
+        }
+
+        .pill-rechazada {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .editor-banner {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 0.82em;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .editor-banner button {
+            border: none;
+            background-color: #1e40af;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+
+        .cart-list {
+            flex: 1;
+            overflow-y: auto;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 15px;
+            padding-right: 5px;
+        }
+
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .cart-item h5 {
+            margin: 0;
+            font-size: 0.95em;
+        }
+
+        .cart-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .cart-btn {
+            background-color: #e5e7eb;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .cart-btn:hover {
+            background-color: #d1d5db;
+        }
+
+        .cart-summary {
+            background: #f9fafb;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.05em;
+            margin-bottom: 8px;
+        }
+
+        .pay-btn {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 10px;
+            width: 100%;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .pay-btn:hover {
+            background-color: #059669;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                padding: 15px !important;
+                gap: 10px !important;
+            }
+
+            .products-section {
+                flex: 1.1 !important;
+                padding: 12px !important;
+            }
+
+            .cart-section {
+                flex: 1.5 !important;
+                padding: 12px !important;
+            }
+        }
+
+        @media (max-width: 500px) {
+            .main-content {
+                padding: 15px !important;
+                padding-top: 70px !important;
+                box-sizing: border-box !important;
+                flex-direction: column !important;
+            }
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.4);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-box {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            width: min(700px, 92vw);
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-box-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        .modal-box-close {
+            border: none;
+            background: none;
+            font-size: 1.4rem;
+            cursor: pointer;
+            color: #9ca3af;
+        }
+
+    </style>
+</head>
+
+<body>
+    <button id="menu-toggle" class="menu-toggle-btn">☰</button>
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <div class="products-section">
+            <div class="header-row">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h2 style="margin: 0; color: #111827; font-size: 1.4rem;">🗓️ Edición Ventas Anteriores</h2>
+                </div>
+                <div class="controls-row">
+                    <div class="tabs">
+                        <button type="button" id="tab-btn-nueva" class="tab-btn active">➕ Nueva</button>
+                        <button type="button" id="tab-btn-editar" class="tab-btn">✏️ Editar / Eliminar</button>
+                    </div>
+                    <input type="date" id="input-fecha-venta" title="Fecha de la venta">
+                    <button type="button" class="btn-link-solicitudes" id="btn-ver-mis-solicitudes">📋 Mis
+                        solicitudes</button>
+                </div>
+            </div>
+            <div class="header-row" style="border-bottom: none; padding-bottom: 0;" id="fila-busqueda-catalogo">
+                <div id="filter-categoria"></div>
+                <input type="text" id="search-productos" placeholder="🔍 Buscar producto..."
+                    style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 200px; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
+            </div>
+
+            <div class="grid-products" id="grid-products"></div>
+
+            <div class="tabla-ventas-dia" id="panel-lista-ventas" style="display: none;">
+                <table class="tabla-simple" id="table-ventas-dia">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Productos</th>
+                            <th>Método</th>
+                            <th>Total</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:#6b7280;">Elige una fecha anterior para
+                                ver las ventas de ese día.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="cart-section">
+            <div class="editor-banner" id="editor-banner">
+                <span id="editor-banner-texto">Editando una venta existente</span>
+                <button type="button" id="btn-cancelar-edicion">Cancelar</button>
+            </div>
+            <h3 style="margin-top: 0; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px; color: #111827;">
+                Carrito de Compras</h3>
+
+            <div class="cart-list" id="cart-list">
+                <p style="color: #6b7280; text-align: center; margin-top: 40px;">El carrito está vacío.</p>
+            </div>
+
+            <div>
+                <div class="cart-summary">
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                        <div
+                            style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-domicilio"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-domicilio"
+                                    style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🛵
+                                    Domicilio</label>
+                            </div>
+                            <div id="domicilio-input-container"
+                                style="display: none; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px;">
+                                <input type="text" inputmode="numeric" id="input-valor-domicilio" placeholder="Valor $"
+                                    style="width: 100%; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.85em; text-align: right; box-sizing: border-box;">
+                            </div>
+                        </div>
+
+                        <div
+                            style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-credito"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-credito"
+                                    style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">💳
+                                    Crédito</label>
+                            </div>
+                            <div id="credito-input-container"
+                                style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                <select id="select-cliente-credito"
+                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                                    <option value="">-- Cliente --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div
+                            style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-descuento"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-descuento"
+                                    style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🏷️
+                                    Descuento</label>
+                            </div>
+                            <div id="descuento-input-container"
+                                style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                <select id="select-descuento"
+                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                                    <option value="">-- Porcentaje --</option>
+                                    <option value="10">10%</option>
+                                    <option value="15">15%</option>
+                                    <option value="20">20%</option>
+                                    <option value="25">25%</option>
+                                    <option value="30">30%</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="summary-row">
+                        <span>Total:</span>
+                        <strong id="cart-total" style="color: #10b981; font-size: 1.3em;">$0.00</strong>
+                    </div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #4b5563;">Método de
+                        Pago:</label>
+                    <div style="display: flex; gap: 8px; margin-top: 5px;" id="payment-methods-container">
+                        <button type="button" id="btn-pay-efectivo"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #3b82f6; background-color: #3b82f6; color: white; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">💵
+                            Efectivo</button>
+                        <button type="button" id="btn-pay-transferencia"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; background-color: white; color: #374151; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">📱
+                            Transferencia</button>
+                        <button type="button" id="btn-pay-mixto"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; background-color: white; color: #374151; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">💵📱
+                            Mixto</button>
+                    </div>
+                    <div id="mixto-inputs-container"
+                        style="display: none; flex-direction: column; gap: 8px; margin-top: 10px; padding: 10px; background-color: #f3f4f6; border-radius: 6px; box-sizing: border-box;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.85em; font-weight: 500; color: #4b5563;">Efectivo ($):</label>
+                            <input type="text" inputmode="numeric" id="input-mixto-efectivo" placeholder="Monto"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.85em; font-weight: 500; color: #4b5563;">Transferencia
+                                ($):</label>
+                            <input type="text" inputmode="numeric" id="input-mixto-transferencia" placeholder="Monto"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box;">
+                        </div>
+                    </div>
+                    <div id="cash-change-container"
+                        style="margin-top: 10px; padding: 10px; background-color: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0; display: none; flex-direction: column; gap: 8px; box-sizing: border-box;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label id="lbl-paga-con"
+                                style="font-size: 0.85em; font-weight: 600; color: #166534;">Cliente Paga con
+                                ($):</label>
+                            <input type="text" inputmode="numeric" id="input-paga-con" placeholder="Recibido"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #166534; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box; background: white;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.85em; font-weight: 600; color: #166534;">Cambio a devolver:</span>
+                            <strong id="display-cambio" style="color: #15803d; font-size: 1.1em;">$0</strong>
+                        </div>
+                    </div>
+                </div>
+                <button class="pay-btn" id="btn-guardar-venta">Guardar Venta</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal de Mis Solicitudes -->
+    <div id="modal-solicitudes" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-box-header">
+                <h3 style="margin: 0;">📋 Mis Solicitudes Recientes</h3>
+                <button class="modal-box-close" id="btn-cerrar-modal-solicitudes">&times;</button>
+            </div>
+            <div style="overflow-y: auto;">
+                <table class="tabla-simple" id="table-mis-solicitudes">
+                    <thead>
+                        <tr>
+                            <th>Fecha Solicitud</th>
+                            <th>Tipo</th>
+                            <th>Fecha Venta</th>
+                            <th>Estado</th>
+                            <th>Motivo Rechazo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="text-align:center; color:#6b7280;">Sin solicitudes registradas.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="image-preview-modal" class="image-preview-overlay">
+        <img id="image-preview-src" src="" alt="Vista previa">
+    </div>
+
+    <script src="./sidebar.js"></script>
+    <script src="./categoriaFiltro.js"></script>
+    <script src="./ventas-anteriores.js"></script>
+</body>
+
+</html>
