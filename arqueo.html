@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Cuadre de Caja</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex-grow: 1;
+            padding: 25px;
+            overflow-y: auto;
+            box-sizing: border-box;
+            display: flex;
+            gap: 20px;
+        }
+
+        /* Paneles */
+        .arqueo-panel {
+            background-color: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+            border: 1px solid var(--border-color);
+            box-sizing: border-box;
+        }
+
+        .cash-grid-section {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .summary-section {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        h2, h3 {
+            margin-top: 0;
+            color: var(--text-primary);
+        }
+
+        .denom-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .denom-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: #f9fafb;
+        }
+
+        .denom-label {
+            font-weight: 600;
+            font-size: 0.95em;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .denom-input {
+            width: 70px;
+            padding: 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            text-align: center;
+            font-family: inherit;
+            font-size: 0.95em;
+            font-weight: bold;
+        }
+
+        .denom-total {
+            font-size: 0.9em;
+            color: var(--text-primary);
+            font-weight: bold;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        /* Resumen derecho */
+        .summary-card {
+            background-color: #f9fafb;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 5px solid var(--brand-color);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.05em;
+        }
+
+        .summary-row.total {
+            font-size: 1.3em;
+            font-weight: bold;
+            border-top: 2px solid var(--border-color);
+            padding-top: 10px;
+            margin-top: 5px;
+        }
+
+        .alert-card {
+            border-radius: 8px;
+            padding: 15px;
+            font-weight: bold;
+            text-align: center;
+            border: 1px solid transparent;
+            font-size: 1.1em;
+            transition: all 0.2s ease;
+        }
+
+        .alert-card.cuadrada {
+            background-color: #ecfdf5;
+            color: #047857;
+            border-color: #a7f3d0;
+        }
+
+        .alert-card.diferencia-menor {
+            background-color: #fef2f2;
+            color: #b91c1c;
+            border-color: #fca5a5;
+        }
+
+        .alert-card.diferencia-mayor {
+            background-color: #fffbeb;
+            color: #b45309;
+            border-color: #fde68a;
+        }
+
+        .btn-reset {
+            background-color: var(--bg-primary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+
+        .btn-reset:hover {
+            background-color: #e5e7eb;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                flex-direction: column;
+                padding-top: 70px;
+            }
+            .menu-toggle-btn {
+                display: block;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <button id="menu-toggle" class="menu-toggle-btn">☰</button>
+    <nav id="sidebar-container"></nav>
+
+    <main class="main-content">
+        <!-- Panel Izquierdo: Denominaciones -->
+        <div class="arqueo-panel cash-grid-section">
+            <h2>Conteo de Caja Físico</h2>
+
+            <h3>💵 Billetes</h3>
+            <div class="denom-group" id="billetes-group">
+                <div class="denom-row">
+                    <span class="denom-label">💵 $100.000</span>
+                    <input type="number" class="denom-input" data-value="100000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">💵 $50.000</span>
+                    <input type="number" class="denom-input" data-value="50000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">💵 $20.000</span>
+                    <input type="number" class="denom-input" data-value="20000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">💵 $10.000</span>
+                    <input type="number" class="denom-input" data-value="10000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">💵 $5.000</span>
+                    <input type="number" class="denom-input" data-value="5000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">💵 $2.000</span>
+                    <input type="number" class="denom-input" data-value="2000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+            </div>
+
+            <h3>🪙 Monedas</h3>
+            <div class="denom-group" id="monedas-group">
+                <div class="denom-row">
+                    <span class="denom-label">🪙 $1.000</span>
+                    <input type="number" class="denom-input" data-value="1000" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">🪙 $500</span>
+                    <input type="number" class="denom-input" data-value="500" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">🪙 $200</span>
+                    <input type="number" class="denom-input" data-value="200" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">🪙 $100</span>
+                    <input type="number" class="denom-input" data-value="100" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+                <div class="denom-row">
+                    <span class="denom-label">🪙 $50</span>
+                    <input type="number" class="denom-input" data-value="50" min="0" value="0">
+                    <span class="denom-total">$0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel Derecho: Comparativa y Alerta Silenciosa -->
+        <div class="arqueo-panel summary-section">
+            <h2>Resultados del Cuadre</h2>
+
+            <div class="summary-card">
+                <div class="summary-row">
+                    <span>Base de Caja:</span>
+                    <strong id="val-base-caja">$300.000</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Efectivo Esperado (Sistema):</span>
+                    <strong id="val-esperado">$0</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Total Billetes:</span>
+                    <strong id="val-billetes">$0</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Total Monedas:</span>
+                    <strong id="val-monedas">$0</strong>
+                </div>
+                <div class="summary-row total">
+                    <span>Total Contado:</span>
+                    <strong id="val-contado">$0</strong>
+                </div>
+            </div>
+
+            <div id="alert-resultado" class="alert-card cuadrada">
+                Calculando diferencia...
+            </div>
+
+            <button class="btn-reset" id="btn-resetear">Limpiar Campos / Reiniciar</button>
+        </div>
+    </main>
+
+    <script src="./sidebar.js"></script>
+    <script src="./arqueo.js"></script>
+</body>
+
+</html>

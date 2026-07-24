@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Iniciar Sesión</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            justify-content: center;
+            align-items: center;
+        }
+
+        .login-card {
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            width: 350px;
+            box-sizing: border-box;
+        }
+
+        .login-card h2 {
+            margin-top: 0;
+            color: #1f2937;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #4b5563;
+            font-size: 0.9em;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .password-wrapper {
+            position: relative;
+        }
+
+        .password-wrapper input {
+            padding-right: 40px;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            width: auto;
+            padding: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            line-height: 1;
+            color: #6b7280;
+        }
+
+        .toggle-password:hover {
+            background: none;
+            color: #374151;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #2563eb;
+        }
+
+        #error-msg {
+            color: #dc2626;
+            font-size: 0.9em;
+            text-align: center;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <form class="login-card" id="login-form">
+            <h2>Ingreso al Sistema</h2>
+            <div class="form-group">
+                <label for="username">Usuario</label>
+                <input type="text" id="username" placeholder="Ej: admin">
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <div class="password-wrapper">
+                    <input type="password" id="password" placeholder="Ej: admin123">
+                    <button type="button" class="toggle-password" id="btn-toggle-password" aria-label="Mostrar contraseña">👁️</button>
+                </div>
+            </div>
+            <button type="submit" id="btn-login">Ingresar</button>
+            <div id="error-msg"></div>
+        </form>
+    </main>
+
+    <script src="./renderer.js"></script>
+</body>
+
+</html>

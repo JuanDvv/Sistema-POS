@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Registrar Venta</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            display: flex;
+            gap: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .products-section {
+            flex: 1.2;
+            min-width: 0;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .cart-section {
+            flex: 2;
+            min-width: 0;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .cart-list {
+            flex: 1;
+            overflow-y: auto;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 15px;
+            padding-right: 5px;
+        }
+
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .cart-item h5 {
+            margin: 0;
+            font-size: 0.95em;
+        }
+
+        .cart-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .cart-btn {
+            background-color: #e5e7eb;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .cart-btn:hover {
+            background-color: #d1d5db;
+        }
+
+        .cart-summary {
+            background: #f9fafb;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.05em;
+            margin-bottom: 8px;
+        }
+
+        .pay-btn {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 10px;
+            width: 100%;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .pay-btn:hover {
+            background-color: #059669;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                padding: 15px !important;
+                gap: 10px !important;
+            }
+            .products-section {
+                flex: 1.1 !important;
+                padding: 12px !important;
+            }
+            .cart-section {
+                flex: 1.5 !important;
+                padding: 12px !important;
+            }
+            .grid-products {
+                grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
+                gap: 8px !important;
+            }
+            .products-section > div:first-child > div:last-child {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                width: 100% !important;
+            }
+            .products-section > div:first-child > div:last-child select,
+            .products-section > div:first-child > div:last-child input {
+                width: 100% !important;
+            }
+        }
+
+        @media (max-width: 500px) {
+            .main-content {
+                padding: 15px !important;
+                padding-top: 70px !important;
+                box-sizing: border-box !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <button id="menu-toggle" class="menu-toggle-btn">☰</button>
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <div class="products-section">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h2 style="margin: 0; color: #111827; font-size: 1.4rem;">Productos Disponibles</h2>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <div id="filter-categoria"></div>
+                    <input type="text" id="search-productos" placeholder="🔍 Buscar producto..."
+                        style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 200px; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
+                </div>
+            </div>
+            <div class="grid-products" id="grid-products">
+            </div>
+        </div>
+
+        <div class="cart-section">
+            <h3 style="margin-top: 0; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px; color: #111827;">Carrito
+                de Compras</h3>
+
+            <div class="cart-list" id="cart-list">
+                <p style="color: #6b7280; text-align: center; margin-top: 40px;">El carrito está vacío.</p>
+            </div>
+
+            <div>
+                <div class="cart-summary">
+                    <!-- Opciones de Venta (Domicilio, Crédito y Descuentos) -->
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                        <!-- Domicilio / Delivery Checkbox & Input -->
+                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-domicilio" style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-domicilio" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🛵 Domicilio</label>
+                            </div>
+                            <div id="domicilio-input-container" style="display: none; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px;">
+                                <input type="text" inputmode="numeric" id="input-valor-domicilio" placeholder="Valor $"
+                                    style="width: 100%; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.85em; text-align: right; box-sizing: border-box;">
+                            </div>
+                        </div>
+
+                        <!-- Crédito Checkbox & Selector -->
+                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-credito" style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-credito" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">💳 Crédito</label>
+                            </div>
+                            <div id="credito-input-container" style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                <select id="select-cliente-credito"
+                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                                    <option value="">-- Cliente --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Descuento Checkbox & Selector -->
+                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chk-descuento" style="width: 16px; height: 16px; cursor: pointer;">
+                                <label for="chk-descuento" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🏷️ Descuento</label>
+                            </div>
+                            <div id="descuento-input-container" style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                <select id="select-descuento"
+                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                                    <option value="">-- Porcentaje --</option>
+                                    <option value="10">10%</option>
+                                    <option value="15">15%</option>
+                                    <option value="20">20%</option>
+                                    <option value="25">25%</option>
+                                    <option value="30">30%</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="summary-row">
+                        <span>Total a Pagar:</span>
+                        <strong id="cart-total" style="color: #10b981; font-size: 1.3em;">$0.00</strong>
+                    </div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #4b5563;">Método de
+                        Pago:</label>
+                    <div style="display: flex; gap: 8px; margin-top: 5px;" id="payment-methods-container">
+                        <button type="button" id="btn-pay-efectivo"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #3b82f6; background-color: #3b82f6; color: white; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">💵
+                            Efectivo</button>
+                        <button type="button" id="btn-pay-transferencia"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; background-color: white; color: #374151; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">📱
+                            Transferencia</button>
+                        <button type="button" id="btn-pay-mixto"
+                            style="flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; background-color: white; color: #374151; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.85em; transition: all 0.2s;">💵📱
+                            Mixto</button>
+                    </div>
+                    <div id="mixto-inputs-container"
+                        style="display: none; flex-direction: column; gap: 8px; margin-top: 10px; padding: 10px; background-color: #f3f4f6; border-radius: 6px; box-sizing: border-box;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.85em; font-weight: 500; color: #4b5563;">Efectivo ($):</label>
+                            <input type="text" inputmode="numeric" id="input-mixto-efectivo" placeholder="Monto"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.85em; font-weight: 500; color: #4b5563;">Transferencia
+                                ($):</label>
+                            <input type="text" inputmode="numeric" id="input-mixto-transferencia" placeholder="Monto"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box;">
+                        </div>
+                    </div>
+                    <div id="cash-change-container"
+                        style="margin-top: 10px; padding: 10px; background-color: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0; display: none; flex-direction: column; gap: 8px; box-sizing: border-box;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <label id="lbl-paga-con"
+                                style="font-size: 0.85em; font-weight: 600; color: #166534;">Cliente Paga con
+                                ($):</label>
+                            <input type="text" inputmode="numeric" id="input-paga-con" placeholder="Recibido"
+                                style="width: 120px; padding: 4px 8px; border: 1px solid #166534; border-radius: 4px; font-family: inherit; font-size: 0.9em; text-align: right; box-sizing: border-box; background: white;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.85em; font-weight: 600; color: #166534;">Cambio a devolver:</span>
+                            <strong id="display-cambio" style="color: #15803d; font-size: 1.1em;">$0</strong>
+                        </div>
+                    </div>
+                </div>
+                <button class="pay-btn" id="btn-cobrar">Registrar y Cobrar</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Div para previsualización de imagen ampliada -->
+    <div id="image-preview-modal" class="image-preview-overlay">
+        <img id="image-preview-src" src="" alt="Vista previa">
+    </div>
+
+    <!-- Modal tras registrar la venta: ofrece imprimir el comprobante informativo -->
+    <div id="modal-post-venta" class="modal">
+        <div class="modal-content" style="width: 360px; text-align: center;">
+            <h3 style="margin-top: 0;">✅ Venta Registrada</h3>
+            <p id="post-venta-msg" style="color: #6b7280; font-size: 0.9em;"></p>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-primary" id="btn-imprimir-comprobante" style="flex: 1; justify-content: center;">🖨️ Imprimir Comprobante</button>
+                <button class="btn-primary" id="btn-cerrar-post-venta" style="flex: 1; justify-content: center; background-color: #6b7280;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ticket térmico: solo visible al imprimir (ver styles.css @media print) -->
+    <div id="area-ticket-impresion"></div>
+
+    <script src="./sidebar.js"></script>
+    <script src="./categoriaFiltro.js"></script>
+    <script src="./ventas.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Gestión</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            background-color: #f9fafb;
+            box-sizing: border-box;
+        }
+
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 15px;
+        }
+
+        /* Controles de Filtros */
+        .filters-panel {
+            background-color: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #475569;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            color: #334155;
+            background-color: #f8fafc;
+        }
+
+        .btn-query {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 9px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .btn-query:hover {
+            background-color: #2563eb;
+        }
+
+        /* Tabs */
+        .tabs-header {
+            display: flex;
+            gap: 10px;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 25px;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: #1e293b;
+        }
+
+        .tab-btn.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* KPIs */
+        .kpis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .kpi-card {
+            background-color: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            border-left: 5px solid #cbd5e1;
+        }
+
+        .kpi-card.income {
+            border-left-color: #10b981;
+        }
+
+        .kpi-card.expense {
+            border-left-color: #f59e0b;
+        }
+
+        .kpi-card.net-positive {
+            border-left-color: #10b981;
+            background-color: #f0fdf4;
+        }
+
+        .kpi-card.net-negative {
+            border-left-color: #ef4444;
+            background-color: #fef2f2;
+        }
+
+        .kpi-card h4 {
+            margin: 0 0 10px 0;
+            color: #64748b;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .kpi-card .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #1e293b;
+        }
+
+        .kpi-card .desc {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 5px;
+        }
+
+        /* Tables & Cards Layout */
+        .sections-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 1024px) {
+            .sections-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card-panel {
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-panel h3 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #334155;
+            font-size: 1.1rem;
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background-color: #f8fafc;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        tbody tr:hover {
+            background-color: #f8fafc;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                padding: 15px !important;
+            }
+            th, td {
+                padding: 8px 10px !important;
+                font-size: 0.85em !important;
+            }
+            .kpi-card {
+                padding: 12px !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <header class="header-bar">
+            <h1 style="margin: 0; color: var(--text-primary);">Reportes de Gestión</h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="btn-export" id="btn-exportar"
+                    style="background-color: #10b981; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;">📥
+                    Exportar Excel</button>
+                <button class="btn-pdf" id="btn-pdf"
+                    style="background-color: #ef4444; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;">📄
+                    Descargar PDF</button>
+                <span
+                    style="color: var(--text-secondary); font-weight: bold; background: #e5e7eb; padding: 6px 12px; border-radius: 20px; font-size: 0.9em; margin-left: 10px;">Panel
+                    Administrativo</span>
+            </div>
+        </header>
+
+        <!-- Filtros -->
+        <div class="filters-panel">
+            <div class="filter-group">
+                <label for="select-tipo-filtro">Tipo de Filtro</label>
+                <select id="select-tipo-filtro">
+                    <option value="mes">Por Mes y Año</option>
+                    <option value="anio">Por Año</option>
+                    <option value="rango">Rango de Fechas</option>
+                </select>
+            </div>
+
+            <!-- Controles para Rango de Fechas -->
+            <div class="filter-group" id="filter-rango-group" style="display: none;">
+                <div style="display: flex; gap: 10px;">
+                    <div>
+                        <label for="fecha-desde"
+                            style="display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 600; color: #475569;">Desde</label>
+                        <input type="date" id="fecha-desde">
+                    </div>
+                    <div>
+                        <label for="fecha-hasta"
+                            style="display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 600; color: #475569;">Hasta</label>
+                        <input type="date" id="fecha-hasta">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controles para Mes y Año / Año -->
+            <div class="filter-group" id="filter-mes-group">
+                <div style="display: flex; gap: 10px;">
+                    <div id="filter-select-mes-wrapper">
+                        <label for="select-mes"
+                            style="display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 600; color: #475569;">Mes</label>
+                        <select id="select-mes">
+                            <!-- Llenado dinámico -->
+                        </select>
+                    </div>
+                    <div>
+                        <label for="select-anio"
+                            style="display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 600; color: #475569;">Año</label>
+                        <select id="select-anio">
+                            <!-- Llenado dinámico -->
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <label for="select-sucursal">Sucursal</label>
+                <select id="select-sucursal">
+                    <option value="">-- Todas las Sucursales --</option>
+                </select>
+            </div>
+
+        </div>
+
+        <!-- Pestañas -->
+        <div class="tabs-header">
+            <button class="tab-btn active" id="tab-balance" onclick="switchTab('balance')">📊 Balance
+                Financiero</button>
+            <button class="tab-btn" id="tab-ranking" onclick="switchTab('ranking')">🏆 Ranking de Productos</button>
+            <button class="tab-btn" id="tab-creditos" onclick="switchTab('creditos')">🤝 Ventas a Crédito y Abonos</button>
+        </div>
+
+        <!-- Contenido Pestaña 1: Balance -->
+        <div id="content-balance" class="tab-content active">
+            <div class="filters-panel" style="margin-bottom: 20px;">
+                <div class="filter-group">
+                    <label for="select-metodo-ingreso">Método de Ingreso</label>
+                    <select id="select-metodo-ingreso">
+                        <option value="">-- Todos los Métodos --</option>
+                        <option value="Efectivo">💵 Efectivo</option>
+                        <option value="Transferencia">📱 Transferencia</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="select-tipo-gasto">Tipo de Gasto</label>
+                    <select id="select-tipo-gasto">
+                        <option value="">-- Todos los Gastos --</option>
+                        <option value="Gastos Administrativos">🏢 Gastos Administrativos</option>
+                        <option value="Operativo">💸 Operativo</option>
+                        <option value="Gasto de Inventario">🗓️ Gasto de Inventario</option>
+                        <option value="Devolución de Producto">↩️ Devolución de Producto</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="input-concepto-gasto">Concepto / Descripción</label>
+                    <input type="text" id="input-concepto-gasto" placeholder="Ej: arriendo, aseo...">
+                </div>
+            </div>
+            <div class="kpis-grid">
+                <div class="kpi-card income">
+                    <h4>Ingresos Consolidados</h4>
+                    <div class="value" id="kpi-total-ingresos">$0</div>
+                    <div class="desc" id="kpi-ingresos-desc">Efectivo + Transferencias</div>
+                </div>
+                <div class="kpi-card expense">
+                    <h4>Gastos Consolidados</h4>
+                    <div class="value" id="kpi-total-gastos">$0</div>
+                    <div class="desc" id="kpi-gastos-desc">Operativos + Administrativos</div>
+                </div>
+                <div class="kpi-card" id="kpi-card-net">
+                    <h4>Utilidad Neta</h4>
+                    <div class="value" id="kpi-total-utilidad">$0</div>
+                    <div class="desc">Ingresos Menos Gastos</div>
+                </div>
+            </div>
+
+            <div class="sections-row">
+                <div class="card-panel">
+                    <h3>Desglose de Ingresos por Venta</h3>
+                    <table id="table-desglose-ingresos">
+                        <thead>
+                            <tr>
+                                <th>Método de Pago</th>
+                                <th>Total Recaudado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Insertado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card-panel">
+                    <h3>Desglose de Gastos</h3>
+                    <table id="table-desglose-gastos">
+                        <thead>
+                            <tr>
+                                <th>Clasificación del Gasto</th>
+                                <th>Total Egresado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Insertado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenido Pestaña 2: Ranking -->
+        <div id="content-ranking" class="tab-content">
+            <div class="filters-panel" style="margin-bottom: 20px;">
+                <div class="filter-group">
+                    <label for="select-categoria-ranking">Categoría</label>
+                    <select id="select-categoria-ranking">
+                        <option value="">-- Todas las Categorías --</option>
+                        <option value="sin-categoria">Sin Categoría</option>
+                        <!-- Llenado dinámico -->
+                    </select>
+                </div>
+            </div>
+            <div class="card-panel" style="width: 100%;">
+                <h3>Ranking de los Productos más Vendidos</h3>
+                <table id="table-ranking-productos">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px; text-align: center;">Puesto</th>
+                            <th>Producto</th>
+                            <th>Categoría</th>
+                            <th>Cantidad Vendida</th>
+                            <th>Total Generado ($ COP)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Contenido Pestaña 3: Créditos y Abonos -->
+        <div id="content-creditos" class="tab-content">
+            <!-- Selector de Clientes y Botón Pago -->
+            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; box-sizing: border-box;">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 0.85rem; font-weight: 600; color: #475569;">Filtrar por Cliente:</label>
+                    <select id="select-filtro-cliente-reporte" style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.9rem; color: #334155; background-color: #f8fafc; min-width: 250px;">
+                        <option value="">-- Todos los Clientes --</option>
+                    </select>
+                </div>
+                <button class="btn-query" id="btn-registrar-abono-directo" style="background-color: #10b981; margin-top: 18px;">💵 Registrar Pago/Abono</button>
+            </div>
+
+            <!-- KPIs de Crédito -->
+            <div class="kpis-grid">
+                <div class="kpi-card Net" style="border-left-color: #3b82f6;">
+                    <h4>Total Créditos Otorgados</h4>
+                    <div class="value" id="kpi-total-creditos">$0</div>
+                    <div class="desc">Ventas registradas a crédito</div>
+                </div>
+                <div class="kpi-card Net" style="border-left-color: #10b981;">
+                    <h4>Total Abonos Recibidos</h4>
+                    <div class="value" id="kpi-total-abonos">$0</div>
+                    <div class="desc">Pagos registrados a la fecha</div>
+                </div>
+                <div class="kpi-card Net" id="kpi-card-net-saldo" style="border-left-color: #ef4444; background-color: #fef2f2;">
+                    <h4>Saldo Pendiente por Cobrar</h4>
+                    <div class="value" id="kpi-saldo-pendiente" style="color: #ef4444;">$0</div>
+                    <div class="desc">Créditos menos abonos</div>
+                </div>
+            </div>
+
+            <!-- Tabla de Clientes con Cartera -->
+            <div class="card-panel" style="margin-bottom: 25px; width: 100%; box-sizing: border-box;">
+                <h3>Estado de Cuentas por Cliente</h3>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table id="table-estado-clientes">
+                        <thead>
+                            <tr>
+                                <th>Cliente</th>
+                                <th>Tipo</th>
+                                <th>Identificación</th>
+                                <th>Total Créditos</th>
+                                <th>Domicilios</th>
+                                <th>Total Abonos</th>
+                                <th>Saldo Pendiente</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Insertado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tabla de Movimientos (Ventas y Pagos) -->
+            <div class="card-panel" style="width: 100%; box-sizing: border-box;">
+                <h3>Historial Detallado de Movimientos (Créditos y Abonos)</h3>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table id="table-movimientos-creditos">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Cliente</th>
+                                <th>Tipo Movimiento</th>
+                                <th>Referencia / ID Venta</th>
+                                <th>Monto</th>
+                                <th>Método de Pago</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Insertado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal para Registrar Abonos -->
+    <div id="modal-abono" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-abono-title">Registrar Pago / Abono</h3>
+                <button class="close-btn" id="btn-close-abono-modal">&times;</button>
+            </div>
+            <form id="form-abono">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="abono-cliente-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Cliente *</label>
+                    <select id="abono-cliente-select" required style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: inherit;">
+                        <!-- Dinámico -->
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="abono-monto" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Monto a Abonar ($ COP) *</label>
+                    <input type="text" id="abono-monto" required placeholder="Ej. 50.000" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: inherit; font-weight: bold; text-align: right;">
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="abono-metodo" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Método de Pago *</label>
+                    <select id="abono-metodo" required style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: inherit;">
+                        <option value="Efectivo">💵 Efectivo</option>
+                        <option value="Transferencia">📱 Transferencia</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="abono-fecha" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Fecha del Pago</label>
+                    <input type="date" id="abono-fecha" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: inherit;">
+                </div>
+                <button type="submit" class="btn-primary" style="background-color: #10b981; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; justify-content: center; margin-top: 10px;">Guardar Registro de Pago</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Detalle de Ventas a Crédito por Cliente -->
+    <div id="modal-detalle-cliente" class="modal">
+        <div class="modal-content"
+            style="width: 650px; max-width: 92vw; height: 550px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <h3 id="modal-detalle-cliente-title">Ventas a Crédito</h3>
+                <button class="close-btn" id="btn-close-detalle-cliente-modal">&times;</button>
+            </div>
+            <div style="overflow-y: auto; flex: 1; min-height: 0;">
+                <table id="table-detalle-cliente">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Productos</th>
+                            <th>Total</th>
+                            <th>Método de Pago</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estilos propios de los modales de Gestión (el resto viene de styles.css) -->
+    <style>
+        .modal-content {
+            width: 400px;
+        }
+
+        .modal-header {
+            border-bottom-color: #cbd5e1;
+        }
+
+        .modal-header h3 {
+            color: #1e293b;
+        }
+
+        .close-btn:hover {
+            color: #1e293b;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #475569;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+    </style>
+
+    <script src="./sidebar.js"></script>
+    <script src="./gestion.js"></script>
+</body>
+
+</html>

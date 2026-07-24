@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Registrar Gasto</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 35px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .form-card {
+            background-color: var(--bg-secondary);
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+            width: 450px;
+        }
+
+        .form-card h2 {
+            margin-top: 0;
+            margin-bottom: 25px;
+            color: var(--text-primary);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-family: inherit;
+            background-color: #fff;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 12px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn-submit:hover {
+            background-color: #2563eb;
+        }
+
+        .btn-link {
+            background: none;
+            border: none;
+            color: #2563eb;
+            cursor: pointer;
+            padding: 0;
+            font-weight: 600;
+        }
+
+        .btn-remove-producto {
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 10px;
+            cursor: pointer;
+        }
+
+        .producto-vencido-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .producto-vencido-row input,
+        .producto-vencido-row select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-family: inherit;
+            background-color: #fff;
+        }
+
+        .helper-text {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-top: 6px;
+        }
+
+        .sucursal-badge {
+            display: inline-block;
+            color: #6b7280;
+            font-weight: bold;
+            background: #e5e7eb;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                padding: 15px !important;
+            }
+
+            .form-card {
+                padding: 20px !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <div class="form-card">
+            <h2>Registrar Egreso / Gasto</h2>
+            <div class="form-group">
+                <label for="gasto-sucursal">Sucursal</label>
+                <select id="gasto-sucursal" style="display: none;"></select>
+                <span id="gasto-sucursal-display" class="sucursal-badge">Cargando sucursal...</span>
+            </div>
+            <div class="form-group">
+                <label for="gasto-tipo">Clasificación del Gasto</label>
+                <select id="gasto-tipo">
+                    <option value="Gastos Administrativos">🏢 Gastos Administrativos (Arriendo, servicios, mercancía, aseo)</option>
+                    <option value="Operativo">💸 Gasto Operativo (Día a día en sucursal, sale dinero de caja)</option>
+                    <option value="Gasto de Inventario">🗓️ Gasto de Inventario (Vencidos o retirados por administradores)
+                    </option>
+                    <option value="Devolución de Producto">↩️ Devolución de Producto (Mala calidad, seguimiento)</option>
+                </select>
+            </div>
+            <div class="form-group" id="container-productos-vencidos" style="display: none;">
+                <label id="label-productos-vencidos">Productos a descontar del inventario</label>
+                <datalist id="productos-vencidos-datalist"></datalist>
+                <div id="lista-productos-vencidos"></div>
+                <button type="button" class="btn-link" id="btn-agregar-producto-vencido" style="margin-top: 8px;">+
+                    Agregar producto vencido</button>
+                <div class="helper-text">El valor se calcula automáticamente según la cantidad y el precio del producto.
+                </div>
+            </div>
+            <div class="form-group" id="container-monto-gasto">
+                <label for="gasto-monto">Monto ($)</label>
+                <input type="text" inputmode="numeric" id="gasto-monto" placeholder="Ej: 45.000">
+            </div>
+            <div class="form-group" style="position: relative;">
+                <label for="gasto-descripcion">Concepto / Descripción</label>
+                <textarea id="gasto-descripcion" rows="3" autocomplete="off"
+                    placeholder="Ej: Compra de harina para pasteles o Recibo de luz eléctrica"></textarea>
+                <div id="gasto-descripcion-sugerencias" class="sugerencias-panel" style="display: none;"></div>
+                <div class="helper-text" id="gasto-descripcion-helper" style="display: none;">
+                    Gastos operativos frecuentes: haz clic en un concepto o sigue escribiendo el tuyo.
+                </div>
+            </div>
+            <button class="btn-submit" id="btn-guardar-gasto">Guardar Gasto</button>
+        </div>
+    </main>
+
+    <script src="./sidebar.js"></script>
+    <script src="./gastos.js"></script>
+</body>
+
+</html>

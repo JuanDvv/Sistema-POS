@@ -1,0 +1,77 @@
+========================================================================
+GUÍA DE INSTALACIÓN DEL SISTEMA POS EN OTROS COMPUTADORES (WINDOWS)
+========================================================================
+
+Este documento explica paso a paso cómo compilar, empaquetar e instalar la aplicación en un nuevo computador. Debido a la arquitectura offline-first con sincronización automática de Supabase, la instalación en un nuevo PC es sumamente sencilla.
+
+------------------------------------------------------------------------
+PASO 1: COMPILAR Y EMPAQUETAR EL PROYECTO (En el equipo de desarrollo)
+------------------------------------------------------------------------
+
+1. Abre una terminal (PowerShell o CMD) en la carpeta raíz del proyecto.
+2. Ejecuta el comando de compilación para Windows:
+   
+   npm run build
+
+3. Espera a que finalice el empaquetado. Electron Builder creará una carpeta llamada "dist" en la raíz del proyecto.
+4. Dentro de la carpeta "dist/", localiza el instalador ejecutable, que tendrá un nombre similar a:
+   
+   POSDelipostresTurbaco Setup 1.0.0.exe  (o la versión que esté configurada)
+
+------------------------------------------------------------------------
+PASO 2: TRASLADAR E INSTALAR EN EL NUEVO COMPUTADOR
+------------------------------------------------------------------------
+
+1. Copia el archivo ejecutable (.exe) de la carpeta "dist/" a una memoria USB o envíalo al nuevo computador.
+2. En el nuevo computador, ejecuta el archivo (.exe) haciendo doble clic en él.
+3. Sigue los pasos del asistente de instalación (es un proceso rápido que instala la aplicación en el sistema).
+4. Al finalizar, se creará un acceso directo en el Escritorio y en el Menú de Inicio con el nombre del POS.
+
+------------------------------------------------------------------------
+PASO 3: PRIMER ARRANQUE Y DESCARGA AUTOMÁTICA DE DATOS
+------------------------------------------------------------------------
+
+Dado que el POS está diseñado con sincronización automática en la nube:
+
+1. Asegúrate de que el nuevo computador tenga una conexión activa a Internet en su primer inicio.
+2. Abre la aplicación.
+3. El sistema creará de forma automática e invisible la base de datos local SQLite y las carpetas internas necesarias.
+4. El motor de sincronización se activará en segundo plano y descargará automáticamente desde Supabase:
+   - El catálogo de productos y fotos asociadas.
+   - Las categorías y subcategorías.
+   - Los usuarios registrados (roles y contraseñas).
+   - Los niveles de stock asignados a esa sucursal.
+5. ¡Listo! Ya puedes iniciar sesión con los usuarios normales y empezar a vender. El sistema funcionará perfectamente incluso si posteriormente se pierde la conexión a Internet.
+
+------------------------------------------------------------------------
+PASO 4: CÓMO REALIZAR ACTUALIZACIONES DE LA APLICACIÓN
+------------------------------------------------------------------------
+
+Cuando realices cambios en el código y necesites actualizar la aplicación en los computadores donde ya está instalada:
+
+1. **Incrementar la versión (Recomendado):**
+   Abre el archivo "package.json" en el PC de desarrollo e incrementa el número en la propiedad "version" (por ejemplo, de "1.0.0" a "1.0.1").
+
+2. **Compilar el nuevo instalador:**
+   Ejecuta nuevamente el comando:
+   npm run build
+
+3. **Instalar en los computadores clientes:**
+   Envía el nuevo archivo ejecutable (.exe) generado en la carpeta "dist/" al computador cliente y ejecútalo directamente.
+   
+   *IMPORTANTE:*
+   - **No es necesario desinstalar la versión anterior.** El asistente sobrescribirá los archivos del programa conservando intactos la base de datos local y los datos del usuario.
+   - **Los datos locales no se pierden:** La base de datos SQLite persistente (ubicada en %APPDATA%) se mantiene exactamente como estaba, con todas las ventas, inventarios locales y configuraciones intactas.
+   - **Migración de base de datos automática:** Si el código nuevo incluye cambios en la estructura de la base de datos (por ejemplo, nuevas tablas o columnas), la aplicación detectará esto al iniciarse y realizará las modificaciones necesarias de forma automática.
+
+------------------------------------------------------------------------
+NOTAS Y SOLUCIÓN DE PROBLEMAS
+------------------------------------------------------------------------
+
+* Sucursal por defecto:
+  Al instalar en un nuevo PC, este actuará bajo la sucursal activa. Si deseas configurar el nombre de la sucursal o cambiar de sucursal en el nuevo equipo, inicia sesión con un usuario Administrador y ve a la sección de configuración correspondiente.
+
+* Base de datos local:
+  Si por algún motivo necesitas ver o respaldar la base de datos local en el nuevo computador, esta se guarda en la siguiente ruta del sistema Windows:
+  %APPDATA%/POSDelipostresTurbaco/pos_local_v4.db
+  (Puedes abrir la carpeta escribiendo %APPDATA% en el explorador de archivos de Windows).

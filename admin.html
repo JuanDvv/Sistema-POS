@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Administración</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            background-color: #f9fafb;
+            box-sizing: border-box;
+        }
+
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 15px;
+        }
+
+        .section-card {
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        .section-card h3 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+            font-size: 1.25rem;
+            border-bottom: 1px solid var(--bg-accent);
+            padding-bottom: 10px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+
+        .btn-primary {
+            padding: 10px 20px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--bg-accent);
+        }
+
+        th {
+            background-color: #f9fafb;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        tbody tr {
+            transition: background-color 0.2s ease, transform 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background-color: #e0f2fe;
+            transform: translateX(2px);
+        }
+
+        .actions-cell {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-activate {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-activate:hover {
+            background-color: #059669;
+        }
+
+        /* Modal Styles (base en styles.css; aquí solo las variantes de esta página) */
+        .modal-content {
+            width: 400px;
+        }
+
+        .modal-header {
+            border-bottom: 1px solid var(--bg-accent);
+        }
+
+        .modal-header h3 {
+            color: var(--text-primary);
+        }
+
+        .close-btn:hover {
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <header class="header-title">
+            <h1 style="margin: 0; color: var(--text-primary);">Panel de Administración</h1>
+            <span
+                style="color: var(--text-secondary); font-weight: bold; background: #e5e7eb; padding: 6px 12px; border-radius: 20px; font-size: 0.9em;">Ajustes
+                de Sistema</span>
+        </header>
+
+        <!-- 0. Sección de Solicitudes de Ventas de Fecha Anterior -->
+        <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🗓️ Solicitudes de Ventas de Fecha Anterior</h3>
+                <select id="filtro-solicitudes"
+                    style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                    <option value="pendiente">Pendientes</option>
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div class="table-container">
+                <table id="table-solicitudes">
+                    <thead>
+                        <tr>
+                            <th>Fecha Solicitud</th>
+                            <th>Tipo</th>
+                            <th>Fecha de la Venta</th>
+                            <th>Solicitante</th>
+                            <th>Resumen</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 1. Sección de Sucursales -->
+        <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🏢 Gestión de Sucursales</h3>
+                <button id="btn-nueva-sucursal" class="btn-primary">➕ Nueva Sucursal</button>
+            </div>
+            <div class="table-container">
+                <table id="table-sucursales">
+                    <thead>
+                        <tr>
+                            <th>ID Técnico</th>
+                            <th>Nombre</th>
+                            <th>Dirección</th>
+                            <th>Teléfono</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 2. Sección de Usuarios -->
+        <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">👥 Cuentas de Usuario</h3>
+                <button id="btn-nuevo-usuario" class="btn-primary">➕ Nuevo Usuario</button>
+            </div>
+            <div class="table-container">
+                <table id="table-users">
+                    <thead>
+                        <tr>
+                            <th>Nombre de Usuario</th>
+                            <th>Rol</th>
+                            <th>Contraseña</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 3. Sección de Categorías -->
+        <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🏷️ Categorías y Subcategorías</h3>
+                <button id="btn-nueva-categoria" class="btn-primary">➕ Nueva Categoría/Subcategoría</button>
+            </div>
+            <div class="table-container">
+                <table id="table-categorias">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Tipo / Dependencia</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. Sección de Clientes -->
+        <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito)</h3>
+                <button id="btn-nuevo-cliente" class="btn-primary">➕ Nuevo Cliente</button>
+            </div>
+            <div class="table-container">
+                <table id="table-clientes">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Tipo</th>
+                            <th>Identificación</th>
+                            <th>Teléfono</th>
+                            <th>Email</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal para Sucursales -->
+    <div id="modal-sucursal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-sucursal-title">Agregar Sucursal</h3>
+                <button class="close-btn" id="btn-close-sucursal-modal">&times;</button>
+            </div>
+            <form id="form-sucursal">
+                <div class="form-group">
+                    <label for="sucursal-id-input">ID de la Sucursal (Identificador técnico en Supabase) *</label>
+                    <input type="text" id="sucursal-id-input" required placeholder="Ej. sucursal-sur">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-nombre">Nombre de la Sucursal *</label>
+                    <input type="text" id="sucursal-nombre" required placeholder="Ej. Sucursal Sur">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-direccion">Dirección</label>
+                    <input type="text" id="sucursal-direccion" placeholder="Ej. Avenida Principal 789">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-telefono">Teléfono</label>
+                    <input type="text" id="sucursal-telefono" placeholder="Ej. 3009876543">
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
+                    Sucursal</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Usuarios -->
+    <div id="modal-usuario" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Agregar Nuevo Usuario</h3>
+                <button class="close-btn" id="btn-close-modal">&times;</button>
+            </div>
+            <form id="form-usuario">
+                <div class="form-group">
+                    <label for="user-name">Nombre de Usuario *</label>
+                    <input type="text" id="user-name" required placeholder="Ej. juanita">
+                </div>
+                <div class="form-group">
+                    <label for="user-password">Contraseña *</label>
+                    <input type="text" id="user-password" required placeholder="Contraseña de acceso">
+                </div>
+                <div class="form-group">
+                    <label for="user-rol">Rol *</label>
+                    <select id="user-rol" required>
+                        <option value="Operador">Operador (Solo facturar y ver reportes locales)</option>
+                        <option value="Administrador">Administrador (Acceso total al sistema)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
+                    Usuario</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Categorías -->
+    <div id="modal-categoria" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-categoria-title">Agregar Categoría/Subcategoría</h3>
+                <button class="close-btn" id="btn-close-categoria-modal">&times;</button>
+            </div>
+            <form id="form-categoria">
+                <div class="form-group">
+                    <label for="categoria-nombre">Nombre de la Categoría *</label>
+                    <input type="text" id="categoria-nombre" required placeholder="Ej. Pastelería o Tortas">
+                </div>
+                <div class="form-group">
+                    <label for="categoria-padre-select">Categoría Padre (Dejar en blanco si es Categoría
+                        Principal)</label>
+                    <select id="categoria-padre-select">
+                        <!-- Llenado dinámicamente -->
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
+                    Categoría</button>
+            </form>
+        </div>
+    </div>
+    <!-- Modal para Clientes -->
+    <div id="modal-cliente" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-cliente-title">Agregar Cliente</h3>
+                <button class="close-btn" id="btn-close-cliente-modal">&times;</button>
+            </div>
+            <form id="form-cliente">
+                <div class="form-group">
+                    <label for="cliente-nombre">Nombre Completo / Razón Social *</label>
+                    <input type="text" id="cliente-nombre" required placeholder="Ej. Distribuidora SAS o Juan Pérez">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-tipo">Tipo de Cliente *</label>
+                    <select id="cliente-tipo" required>
+                        <option value="Empresa">Empresa</option>
+                        <option value="Persona">Persona</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="cliente-identificacion">Identificación (NIT / CC)</label>
+                    <input type="text" id="cliente-identificacion" placeholder="Ej. 900.123.456-7 o 1.045.223.112">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-telefono">Teléfono de Contacto</label>
+                    <input type="text" id="cliente-telefono" placeholder="Ej. 3004567890">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-email">Correo Electrónico</label>
+                    <input type="email" id="cliente-email" placeholder="Ej. contacto@cliente.com">
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar Cliente</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Detalle de Solicitud de Venta de Fecha Anterior -->
+    <div id="modal-detalle-solicitud" class="modal">
+        <div class="modal-content" style="width: 560px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3 id="modal-detalle-solicitud-title">Detalle de la Solicitud</h3>
+                <button class="close-btn" id="btn-close-detalle-solicitud-modal">&times;</button>
+            </div>
+            <div id="modal-detalle-solicitud-body"></div>
+        </div>
+    </div>
+
+    <script src="./sidebar.js"></script>
+    <script src="./admin.js"></script>
+</body>
+
+</html>
