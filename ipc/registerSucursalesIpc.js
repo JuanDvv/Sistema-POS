@@ -87,6 +87,7 @@ function registerSucursalesIpc() {
     // Guardar/Crear información de la sucursal (Soporta modificación de ID)
     ipcMain.handle('guardar-sucursal', async (event, datos) => {
         const { oldId, newId, nombre, direccion, telefono } = datos;
+        const ahora = new Date().toISOString();
         try {
             await runQuery("BEGIN TRANSACTION", []);
 
@@ -94,8 +95,8 @@ function registerSucursalesIpc() {
                 // Registrar nueva sucursal copiando el estado 'activa' de la anterior
                 await runQuery(
                     `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, (SELECT activa FROM config_sucursal WHERE id = ?), 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                    [newId, nombre, direccion, telefono, oldId]
+                     VALUES (?, ?, ?, ?, (SELECT activa FROM config_sucursal WHERE id = ?), 'pending', ?)`,
+                    [newId, nombre, direccion, telefono, oldId, ahora]
                 );
                 // Eliminar anterior
                 await runQuery(`DELETE FROM config_sucursal WHERE id = ?`, [oldId]);
@@ -107,13 +108,14 @@ function registerSucursalesIpc() {
                 // Si es nueva sucursal, se crea por defecto como inactiva (activa = 0)
                 await runQuery(
                     `INSERT INTO config_sucursal (id, nombre, direccion, telefono, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                     VALUES (?, ?, ?, ?, 'pending', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         direccion = excluded.direccion,
                         telefono = excluded.telefono,
-                        sync_status = 'pending'`,
-                    [newId, nombre, direccion, telefono]
+                        sync_status = 'pending',
+                        updated_at = excluded.updated_at`,
+                    [newId, nombre, direccion, telefono, ahora]
                 );
             }
             await runQuery("COMMIT", []);
@@ -128,7 +130,7 @@ function registerSucursalesIpc() {
                 }
                 const { data: filasActualizadas, error: errorUpsert } = await supabase
                     .from('config_sucursal')
-                    .upsert({ id: newId, nombre, direccion, telefono })
+                    .upsert({ id: newId, nombre, direccion, telefono, updated_at: ahora })
                     .select('id');
                 if (errorUpsert) throw errorUpsert;
                 if (!filasActualizadas || filasActualizadas.length === 0) {

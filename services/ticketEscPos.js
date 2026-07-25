@@ -137,4 +137,68 @@ function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucur
     return Buffer.concat(partes);
 }
 
-module.exports = { construirTicketBuffer };
+// Comprobante de Pedido/Apartado: documento distinto al comprobante informativo de venta (arriba),
+// ya que certifica una reserva con abono, no una venta concretada. Reutiliza los mismos comandos
+// ESC/POS y helpers de formato de línea, pero con encabezado, secciones de cliente/entrega y
+// abonado/saldo propios.
+function construirTicketPedidoBuffer({ pedidoId, clienteNombre, clienteIdentificacion, clienteTelefono, fechaPedido, fechaEntregaEstimada, items, total, abonado, saldoPendiente, sucursalNombre, direccion, telefono } = {}) {
+    const formatCOP = (val) => `$${Math.round(Number(val) || 0).toLocaleString('es-CO')}`;
+    const formatFecha = (val) => new Date(val).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+    // Cuando no se especifica hora de entrega, pedidos.js guarda el día con las 23:59:59 locales como
+    // marca (un <input type="time"> nunca produce segundos != 00), así que se omite la hora al imprimir.
+    const formatFechaEntrega = (val) => {
+        const d = new Date(val);
+        const opciones = d.getSeconds() === 59 ? { dateStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' };
+        return d.toLocaleString('es-CO', opciones);
+    };
+
+    const partes = [INIT];
+    const linea = (texto) => partes.push(Buffer.from(`${limpiar(texto)}\n`, 'ascii'));
+    const sep = () => linea(separador());
+
+    partes.push(ALIGN_CENTER);
+    linea('*** COMPROBANTE DE PEDIDO ***');
+    linea('*** APARTADO CON ABONO ***');
+    partes.push(ALIGN_LEFT);
+    sep();
+    partes.push(ALIGN_CENTER, BOLD_ON);
+    linea(`Delipostres Venecia ${sucursalNombre || ''}`.trim());
+    partes.push(BOLD_OFF);
+    if (direccion) linea(direccion);
+    if (telefono) linea(`Tel: ${telefono}`);
+    partes.push(ALIGN_LEFT);
+    sep();
+    linea(`Pedido ID: ${String(pedidoId || '').slice(0, 8)}`);
+    linea(`Fecha pedido: ${formatFecha(fechaPedido)}`);
+    partes.push(BOLD_ON);
+    linea(`Entrega estimada: ${formatFechaEntrega(fechaEntregaEstimada)}`);
+    partes.push(BOLD_OFF);
+    sep();
+    linea(`Cliente: ${clienteNombre || ''}`);
+    if (clienteIdentificacion) linea(`Identificacion: ${clienteIdentificacion}`);
+    linea(`Telefono: ${clienteTelefono || ''}`);
+    sep();
+
+    (items || []).forEach(item => {
+        const precioTexto = formatCOP((item.precio || 0) * (item.cantidad || 0));
+        formatearFilaProducto(item.cantidad, item.nombre, precioTexto).forEach(linea);
+    });
+
+    sep();
+    linea(`Total pedido: ${formatCOP(total)}`);
+    linea(`Abonado: ${formatCOP(abonado)}`);
+    partes.push(BOLD_ON);
+    linea(`Saldo pendiente: ${formatCOP(saldoPendiente)}`);
+    partes.push(BOLD_OFF);
+    sep();
+    partes.push(ALIGN_CENTER);
+    linea('Presente este comprobante al recoger su pedido.');
+    linea('*** NO ES FACTURA DE VENTA ***');
+    partes.push(ALIGN_LEFT);
+    partes.push(AVANCE_PAPEL(6));
+    partes.push(CORTE_PARCIAL);
+
+    return Buffer.concat(partes);
+}
+
+module.exports = { construirTicketBuffer, construirTicketPedidoBuffer };

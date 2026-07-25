@@ -30,7 +30,7 @@ function registerClientesIpc() {
             } else {
                 const nuevoId = 'cli-' + uuidv4().substring(0, 8);
                 await runQuery(
-                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Credito', 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
                     [nuevoId, nombre, tipo, identificacion, telefono, email]
                 );
                 return { success: true, message: 'Cliente creado exitosamente.' };
@@ -184,6 +184,19 @@ function registerClientesIpc() {
                 }
             }
 
+            const gruposPorFecha = [];
+            const gruposPorFechaMap = new Map();
+            items.forEach(item => {
+                const fechaKey = String(item.fecha || '').split('T')[0].split(' ')[0];
+                let grupo = gruposPorFechaMap.get(fechaKey);
+                if (!grupo) {
+                    grupo = { fecha: item.fecha, items: [] };
+                    gruposPorFechaMap.set(fechaKey, grupo);
+                    gruposPorFecha.push(grupo);
+                }
+                grupo.items.push(item);
+            });
+
             const fechaActual = new Date();
             const numeroCuenta = `CC-${fechaActual.getFullYear()}${String(fechaActual.getMonth() + 1).padStart(2, '0')}${String(fechaActual.getDate()).padStart(2, '0')}-${String(ventasCredito.length + 1).padStart(4, '0')}`;
 
@@ -207,6 +220,7 @@ function registerClientesIpc() {
     th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
     th { background: #f8fafc; }
     th.num, td.num { text-align: right; }
+    tr.fecha-row td { background: #f1f5f9; font-weight: 600; color: #374151; }
     tfoot td { font-weight: bold; text-align: right; }
     .signature-section { margin-top: 60px; }
     .signature-line { border-top: 1px solid #111827; width: 280px; margin-top: 48px; }
@@ -236,13 +250,16 @@ function registerClientesIpc() {
       </tr>
     </thead>
     <tbody>
-      ${items.map(item => `
-        <tr>
-          <td>${item.producto}</td>
-          <td class="num">${item.cantidad}</td>
-          <td class="num">${formatearCOP(item.precio)}</td>
-          <td class="num">${formatearCOP(item.subtotal)}</td>
-        </tr>
+      ${gruposPorFecha.map(grupo => `
+        <tr class="fecha-row"><td colspan="4">${new Date(grupo.fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</td></tr>
+        ${grupo.items.map(item => `
+          <tr>
+            <td>${item.producto}</td>
+            <td class="num">${item.cantidad}</td>
+            <td class="num">${formatearCOP(item.precio)}</td>
+            <td class="num">${formatearCOP(item.subtotal)}</td>
+          </tr>
+        `).join('')}
       `).join('')}
     </tbody>
     <tfoot>

@@ -77,5 +77,17 @@ contextBridge.exposeInMainWorld('api', {
 
     // Módulo de impresión térmica
     imprimirTicket: (datosTicket, printerName) => ipcRenderer.invoke('imprimir-ticket', { printerName, datosTicket }),
-    onImpresionFallida: (callback) => ipcRenderer.on('impresion-fallida', (event, mensaje) => callback(mensaje))
+    imprimirTicketPedido: (datosTicket, printerName) => ipcRenderer.invoke('imprimir-ticket-pedido', { printerName, datosTicket }),
+    onImpresionFallida: (callback) => ipcRenderer.on('impresion-fallida', (event, mensaje) => callback(mensaje)),
+
+    // Módulo de Pedidos/Apartados
+    crearPedido: (datos) => ipcRenderer.invoke('crear-pedido', datos),
+    obtenerPedidos: (filtros) => ipcRenderer.invoke('obtener-pedidos', filtros),
+    obtenerDetallePedido: (pedidoId) => ipcRenderer.invoke('obtener-detalle-pedido', pedidoId),
+    editarPedido: (datos) => ipcRenderer.invoke('editar-pedido', datos),
+    registrarAbonoPedido: (datos) => ipcRenderer.invoke('registrar-abono-pedido', datos),
+    eliminarAbonoPedido: (datos) => ipcRenderer.invoke('eliminar-abono-pedido', datos),
+    entregarPedido: (datos) => ipcRenderer.invoke('entregar-pedido', datos),
+    cancelarPedido: (datos) => ipcRenderer.invoke('cancelar-pedido', datos),
+    contarPedidosAtrasados: () => ipcRenderer.invoke('contar-pedidos-atrasados')
 });

@@ -111,8 +111,14 @@ function registerGastosIpc() {
         try {
             // Obtener la sucursal del gasto original antes de modificarlo para auditoría
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, descripcion FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
+            // "Domicilio (Descuento de Caja)" lo genera y reconcilia automáticamente
+            // insertarVentaTx/editarVentaCompletaTx (ver services/ventaService.js); editarlo aquí lo
+            // desincronizaría de su venta asociada, así que se bloquea aunque la UI ya no ofrezca el botón.
+            if (gasto && gasto.descripcion === 'Domicilio (Descuento de Caja)') {
+                return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede editar aquí.' };
+            }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
 
             await runQuery(
@@ -136,6 +142,11 @@ function registerGastosIpc() {
             const gasto = await new Promise((resolve) => {
                 db.get(`SELECT sucursal_id, tipo, monto, descripcion FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
+            // Igual que en editar-gasto: este gasto se borra automáticamente al quitar el domicilio
+            // de su venta (ver editarVentaCompletaTx en services/ventaService.js), no manualmente aquí.
+            if (gasto && gasto.descripcion === 'Domicilio (Descuento de Caja)') {
+                return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede borrar aquí.' };
+            }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
 
             await runQuery('BEGIN TRANSACTION', []);

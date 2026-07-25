@@ -17,6 +17,7 @@ const { registerReportesIpc } = require('./ipc/registerReportesIpc');
 const { registerSistemaIpc } = require('./ipc/registerSistemaIpc');
 const { registerAuditoriaIpc } = require('./ipc/registerAuditoriaIpc');
 const { registerImpresionIpc } = require('./ipc/registerImpresionIpc');
+const { registerPedidosIpc } = require('./ipc/registerPedidosIpc');
 
 // main.js es exclusivamente el "composition root": ciclo de vida de la app/ventanas y el cableado
 // de los módulos de dominio (db, servicios, sincronización, handlers IPC). La lógica de negocio y
@@ -56,6 +57,7 @@ function registerAllIpcHandlers() {
     registerSistemaIpc();
     registerAuditoriaIpc();
     registerImpresionIpc();
+    registerPedidosIpc();
 }
 
 app.whenReady().then(async () => {

@@ -186,7 +186,10 @@ function renderizarProductos(productos) {
                 <td><span style="background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; color: #4b5563;">${prod.categoria_nombre || '<span style="color:#9ca3af; font-style:italic;">Sin categoría</span>'}</span></td>
                 <td>${prod.descripcion}</td>
                 <td>${formatCOP(prod.precio)}</td>
-                <td style="${stockBajo ? 'color: #dc2626; font-weight: bold;' : ''}">${prod.stock} unidades</td>
+                <td style="${stockBajo ? 'color: #dc2626; font-weight: bold;' : ''}">
+                    ${prod.stock} unidades
+                    ${Number(prod.stock_reservado || 0) > 0 ? `<br><span style="font-size: 0.8em; font-weight: normal; color: #d97706;">📦 Apartado: ${prod.stock_reservado} (disp: ${Number(prod.stock) - Number(prod.stock_reservado)})</span>` : ''}
+                </td>
                 <td>${badge}</td>
             `;
 

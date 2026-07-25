@@ -1,5 +1,5 @@
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
-let datosReporteGlobal = { ventas: [], gastos: [], ranking: [], abonos: [] };
+let datosReporteGlobal = { ventas: [], gastos: [], ranking: [], abonos: [], abonosPedido: [] };
 let gFechaInicio = '';
 let gFechaFin = '';
 
@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        const { ventas, gastos, ranking, abonos } = datosReporteGlobal;
+        const { ventas, gastos, ranking, abonos, abonosPedido } = datosReporteGlobal;
 
         if (!ventas && !gastos && !ranking) {
             alert("No hay datos para exportar.");
@@ -289,10 +289,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
+        // Abonos de Pedidos/Apartados: dinero real cobrado de pedidos aún no entregados, reconocido
+        // el día del pago (mismo criterio que los abonos de cartera de arriba).
+        let subtotalAbonosPedido = 0;
+        if (abonosPedido) {
+            abonosPedido.forEach(a => {
+                totalIngresos += a.total;
+                subtotalAbonosPedido += a.total;
+                if (a.metodo_pago === 'Efectivo') {
+                    subtotalEfectivo += a.total;
+                } else {
+                    subtotalTransferencia += a.total;
+                }
+            });
+        }
+
         csvContent += `Periodo;${gFechaInicio} a ${gFechaFin}\n`;
         csvContent += `Ingresos Efectivo;${subtotalEfectivo}\n`;
         csvContent += `Ingresos Transferencia;${subtotalTransferencia}\n`;
         csvContent += `(de los cuales, Abonos de Cartera Cobrados);${subtotalAbonos}\n`;
+        csvContent += `(de los cuales, Abonos de Pedidos Cobrados);${subtotalAbonosPedido}\n`;
         csvContent += `Total Ingresos;${totalIngresos}\n`;
         csvContent += `Total Gastos;${totalGastos}\n`;
         csvContent += `Utilidad Neta;${totalIngresos - totalGastos}\n\n`;
@@ -535,6 +551,7 @@ async function cargarReportesGestion() {
         datosReporteGlobal.ventas = resBalance.ventas;
         datosReporteGlobal.gastos = resBalance.gastos;
         datosReporteGlobal.abonos = resBalance.abonos || [];
+        datosReporteGlobal.abonosPedido = resBalance.abonosPedido || [];
         let totalIngresos = 0;
         let totalGastos = 0;
 
@@ -547,7 +564,7 @@ async function cargarReportesGestion() {
         const ventasPorDia = {};
         const ensureDia = (dia) => {
             if (!ventasPorDia[dia]) {
-                ventasPorDia[dia] = { efectivo: 0, transferencia: 0, abonoEfectivo: 0, abonoTransferencia: 0, total: 0 };
+                ventasPorDia[dia] = { efectivo: 0, transferencia: 0, abonoEfectivo: 0, abonoTransferencia: 0, abonoPedidoEfectivo: 0, abonoPedidoTransferencia: 0, total: 0 };
             }
             return ventasPorDia[dia];
         };
@@ -591,6 +608,20 @@ async function cargarReportesGestion() {
                 data.abonoEfectivo += a.total;
             } else {
                 data.abonoTransferencia += a.total;
+            }
+            data.total += a.total;
+            totalIngresos += a.total;
+        });
+
+        (resBalance.abonosPedido || []).forEach(a => {
+            if (metodoIngreso === 'Efectivo' && a.metodo_pago !== 'Efectivo') return;
+            if (metodoIngreso === 'Transferencia' && a.metodo_pago === 'Efectivo') return;
+
+            const data = ensureDia(a.dia || 'Sin Fecha');
+            if (a.metodo_pago === 'Efectivo') {
+                data.abonoPedidoEfectivo += a.total;
+            } else {
+                data.abonoPedidoTransferencia += a.total;
             }
             data.total += a.total;
             totalIngresos += a.total;
@@ -644,6 +675,24 @@ async function cargarReportesGestion() {
                         <td style="font-weight: 600; color: #10b981;">${formatCOP(data.abonoTransferencia)}</td>
                     `;
                     tbodyIngresos.appendChild(trAbTr);
+                }
+
+                if (data.abonoPedidoEfectivo > 0) {
+                    const trAbPedEf = document.createElement('tr');
+                    trAbPedEf.innerHTML = `
+                        <td style="padding-left: 35px; color: #92400e; font-weight: 500; padding-top: 8px; padding-bottom: 8px;">📦 Abono de Pedido (Efectivo)</td>
+                        <td style="font-weight: 600; color: #d97706;">${formatCOP(data.abonoPedidoEfectivo)}</td>
+                    `;
+                    tbodyIngresos.appendChild(trAbPedEf);
+                }
+
+                if (data.abonoPedidoTransferencia > 0) {
+                    const trAbPedTr = document.createElement('tr');
+                    trAbPedTr.innerHTML = `
+                        <td style="padding-left: 35px; color: #92400e; font-weight: 500; padding-top: 8px; padding-bottom: 8px;">📦 Abono de Pedido (Transferencia)</td>
+                        <td style="font-weight: 600; color: #d97706;">${formatCOP(data.abonoPedidoTransferencia)}</td>
+                    `;
+                    tbodyIngresos.appendChild(trAbPedTr);
                 }
             });
         } else {
@@ -957,7 +1006,10 @@ function renderizarTabCreditos() {
         
         // Renderizar en la tabla de estados por cliente si no está filtrado
         if (filterClienteId && item.cliente.id !== filterClienteId) return;
-        
+
+        // Solo mostrar clientes con créditos activos (saldo pendiente > 0)
+        if (item.saldo <= 0) return;
+
         if (tbodyClientes) {
             const tr = document.createElement('tr');
             const escId = item.cliente.id.replace(/'/g, "\\'");

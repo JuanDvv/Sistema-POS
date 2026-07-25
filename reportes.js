@@ -146,10 +146,11 @@ async function cargarReporte(fecha) {
     });
 
     if (response.success) {
-        datosReporteGlobal = { 
-            ventas: response.ventas || [], 
-            gastos: response.gastos || [], 
-            transferencias: response.transferencias || [] 
+        datosReporteGlobal = {
+            ventas: response.ventas || [],
+            gastos: response.gastos || [],
+            transferencias: response.transferencias || [],
+            abonosPedido: response.abonosPedido || []
         };
 
         const ventasVisibles = filtrarVentasPorMetodo(datosReporteGlobal.ventas, metodoFiltroVentas);
@@ -165,7 +166,12 @@ async function cargarReporte(fecha) {
             tbodyVentas.innerHTML = '';
 
             ventasVisibles.forEach(venta => {
-                if (venta.metodo_pago === 'Efectivo') {
+                // El dinero de un pedido/apartado entregado ya se contó día a día con sus abonos (ver
+                // más abajo), así que la venta que genera la entrega NO se vuelve a sumar aquí -- solo
+                // se lista para que quede constancia de qué salió hoy.
+                if (venta.es_pedido) {
+                    // no suma a totalEfectivo/totalTransferencia
+                } else if (venta.metodo_pago === 'Efectivo') {
                     totalEfectivo += venta.total;
                 } else if (venta.metodo_pago === 'Transferencia') {
                     totalTransferencia += venta.total;
@@ -183,7 +189,7 @@ async function cargarReporte(fecha) {
                 const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 let botonesEdicion = '';
-                if (userRole === 'Administrador') {
+                if (userRole === 'Administrador' && !venta.es_pedido) {
                     const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
                     botonesEdicion = `
                         <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
@@ -208,6 +214,9 @@ async function cargarReporte(fecha) {
                     metodoPagoText = `Mixto (Efectivo: ${Math.round(cashVal).toLocaleString('es-CO')}, Transferencia: ${Math.round(transVal).toLocaleString('es-CO')})`;
                 } else if (venta.metodo_pago === 'Crédito') {
                     metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
+                }
+                if (venta.es_pedido) {
+                    metodoPagoText = `📦 Pedido Entregado (ya cobrado en abonos)`;
                 }
 
                 const tr = document.createElement('tr');
@@ -235,6 +244,40 @@ async function cargarReporte(fecha) {
                     ? 'No hay ventas hoy.'
                     : `No hay ventas con método ${metodoFiltroVentas.toLowerCase()}.`;
                 tbodyVentas.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#9ca3af;">${mensaje}</td></tr>`;
+            }
+        }
+
+        // 1.5. Abonos de Pedidos recibidos hoy: dinero real cobrado que aún no aparece como venta
+        // (el pedido puede entregarse otro día), reconocido el día en que se recibió.
+        const tbodyAbonosPedido = document.querySelector('#table-abonos-pedido-dia tbody');
+        const abonosPedidoVisibles = (datosReporteGlobal.abonosPedido || []).filter(a => {
+            if (metodoFiltroVentas === 'Efectivo') return a.metodo_pago === 'Efectivo';
+            if (metodoFiltroVentas === 'Transferencia') return a.metodo_pago !== 'Efectivo';
+            return true;
+        });
+        abonosPedidoVisibles.forEach(abono => {
+            if (abono.metodo_pago === 'Efectivo') {
+                totalEfectivo += Number(abono.monto);
+            } else {
+                totalTransferencia += Number(abono.monto);
+            }
+        });
+        if (tbodyAbonosPedido) {
+            tbodyAbonosPedido.innerHTML = '';
+            if (abonosPedidoVisibles.length > 0) {
+                abonosPedidoVisibles.forEach(abono => {
+                    const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${hora}</td>
+                        <td>${abono.cliente_nombre || '(Sin nombre)'}</td>
+                        <td>${abono.metodo_pago}</td>
+                        <td><strong>${formatCOP(abono.monto)}</strong></td>
+                    `;
+                    tbodyAbonosPedido.appendChild(tr);
+                });
+            } else {
+                tbodyAbonosPedido.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">No hay abonos de pedidos hoy.</td></tr>';
             }
         }
 
@@ -298,9 +341,20 @@ async function cargarReporte(fecha) {
                     : '';
                 // El modal de edición solo soporta Gastos Administrativos/Operativo (monto y método de pago);
                 // Inventario y Devolución se editan/gestionan por sus propios flujos para no corromper el tipo.
-                const botonEditar = esNoFinanciero
+                // "Domicilio (Descuento de Caja)" tampoco se edita/borra aquí: lo genera y reconcilia
+                // automáticamente insertarVentaTx/editarVentaCompletaTx (ver services/ventaService.js) según
+                // el domicilio de su venta asociada, así que modificarlo desde este listado lo desincronizaría
+                // de la venta (la próxima edición de esa venta lo pisaría o duplicaría).
+                const esGastoDomicilioAutomatico = gasto.descripcion === 'Domicilio (Descuento de Caja)';
+                const botonEditar = (esNoFinanciero || esGastoDomicilioAutomatico)
                     ? ''
                     : `<button class="btn-edit" onclick="iniciarEdicionGasto('${gasto.id}', '${gasto.tipo}', '${escDesc}', ${gasto.monto})">✏️ Editar</button>`;
+                const botonBorrar = esGastoDomicilioAutomatico
+                    ? ''
+                    : `<button class="btn-delete" onclick="eliminarGasto('${gasto.id}')">🗑️ Borrar</button>`;
+                const notaAutomatico = esGastoDomicilioAutomatico
+                    ? `<span style="color:#9ca3af; font-size:0.85em;">Se gestiona desde la venta</span>`
+                    : '';
                 tr.innerHTML = `
                     <td>
                         <span style="font-weight:600; color:${colorTipo};">${gasto.tipo}</span>
@@ -313,7 +367,8 @@ async function cargarReporte(fecha) {
                         <div class="actions-cell">
                             ${accionesDevolucion}
                             ${botonEditar}
-                            <button class="btn-delete" onclick="eliminarGasto('${gasto.id}')">🗑️ Borrar</button>
+                            ${botonBorrar}
+                            ${notaAutomatico}
                         </div>
                     </td>
                 `;
@@ -952,7 +1007,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnExportar = document.getElementById('btn-exportar');
     if (btnExportar) {
         btnExportar.addEventListener('click', () => {
-            const { ventas, gastos, transferencias } = datosReporteGlobal;
+            const { ventas, gastos, transferencias, abonosPedido } = datosReporteGlobal;
 
             if (!ventas && !gastos && !transferencias) {
                 alert("No hay datos para exportar.");
@@ -968,7 +1023,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (ventas) {
                 ventas.forEach(v => {
                     const prodsEscaped = `"${(v.productos_vendidos || '').replace(/"/g, '""').replace(/;/g, ',')}"`;
-                    csvContent += `${v.id};${prodsEscaped};${v.metodo_pago};${v.total};${v.fecha}\n`;
+                    const metodo = v.es_pedido ? 'Pedido Entregado (ya cobrado en abonos)' : v.metodo_pago;
+                    csvContent += `${v.id};${prodsEscaped};${metodo};${v.total};${v.fecha}\n`;
+                });
+            }
+
+            csvContent += "\n--- REPORTE DE ABONOS DE PEDIDOS ---\n";
+            csvContent += "ID Abono;Cliente;Metodo Pago;Monto;Fecha\n";
+            if (abonosPedido) {
+                abonosPedido.forEach(a => {
+                    csvContent += `${a.id};${a.cliente_nombre || ''};${a.metodo_pago};${a.monto};${a.fecha}\n`;
                 });
             }
 

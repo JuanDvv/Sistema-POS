@@ -97,6 +97,10 @@ function registerVentasIpc() {
                 categoriaIds.forEach(id => queryParamsVentas.push(id));
             }
 
+            // El dinero de un pedido/apartado ya se reconoció día a día vía sus abonos (ver
+            // `abonosPedido` más abajo), así que la venta que se genera al entregarlo (ver
+            // entregarPedidoTx) se marca con `es_pedido` (detectada por el JOIN con `pedidos`) para
+            // que el frontend la liste mas NO la sume de nuevo al efectivo/transferencia del día.
             const ventas = await allQuery(
                 `SELECT
                     v.id,
@@ -105,11 +109,13 @@ function registerVentasIpc() {
                     v.total,
                     v.cliente_id,
                     cli.nombre as cliente_nombre,
-                    group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos
+                    group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
+                    CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido
                  FROM ventas v
                  LEFT JOIN detalle_ventas dv ON v.id = dv.venta_id
                  LEFT JOIN productos p ON dv.producto_id = p.id
                  LEFT JOIN clientes cli ON v.cliente_id = cli.id
+                 LEFT JOIN pedidos ped ON ped.venta_id = v.id
                  WHERE v.sucursal_id = ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                  ${categoryFilterSql}
                  GROUP BY v.id
@@ -119,6 +125,19 @@ function registerVentasIpc() {
 
             const gastos = await allQuery(
                 `SELECT * FROM gastos WHERE sucursal_id = ? AND strftime('%Y-%m-%d', fecha, 'localtime') = ? AND (sync_status IS NULL OR sync_status <> 'deleted') ORDER BY fecha DESC`,
+                [sucursalId, fecha]
+            );
+
+            // Abonos de Pedidos/Apartados recibidos este día: dinero real cobrado (efectivo/transferencia)
+            // que aún no se refleja en `ventas` porque el pedido puede entregarse otro día. Se reconoce
+            // el día del abono para que el efectivo esperado de caja cuadre con lo recibido ese día.
+            const abonosPedido = await allQuery(
+                `SELECT ap.id, ap.monto, ap.metodo_pago, ap.fecha, p.id as pedido_id, cli.nombre as cliente_nombre
+                 FROM abonos_pedido ap
+                 JOIN pedidos p ON ap.pedido_id = p.id
+                 LEFT JOIN clientes cli ON p.cliente_id = cli.id
+                 WHERE p.sucursal_id = ? AND strftime('%Y-%m-%d', ap.fecha, 'localtime') = ? AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
+                 ORDER BY ap.fecha DESC`,
                 [sucursalId, fecha]
             );
 
@@ -200,7 +219,7 @@ function registerVentasIpc() {
                 queryParamsProductos
             );
 
-            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen };
+            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, abonosPedido };
         } catch (error) {
             return { success: false, message: error.message };
         }

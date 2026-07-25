@@ -512,12 +512,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resClientes = await window.api.obtenerClientes();
         if (resClientes.success && resClientes.data) {
             selectClienteCredito.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
-            resClientes.data.forEach(cli => {
-                const opt = document.createElement('option');
-                opt.value = cli.id;
-                opt.innerText = `${cli.nombre} (${cli.tipo} - ${cli.identificacion || 'Sin ID'})`;
-                selectClienteCredito.appendChild(opt);
-            });
+            resClientes.data
+                .filter(cli => (cli.origen || 'Credito') === 'Credito')
+                .forEach(cli => {
+                    const opt = document.createElement('option');
+                    opt.value = cli.id;
+                    opt.innerText = `${cli.nombre} (${cli.tipo} - ${cli.identificacion || 'Sin ID'})`;
+                    selectClienteCredito.appendChild(opt);
+                });
         }
 
         chkCredito.addEventListener('change', () => {

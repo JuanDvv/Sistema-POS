@@ -36,6 +36,30 @@ async function upsertConLWW(tabla, payload, columnaId = 'id') {
     return !!(data && data.length > 0);
 }
 
+// Descarga TODAS las filas de `tabla`, paginando con .range(). PostgREST (API de Supabase)
+// capa cada respuesta a un máximo de filas por defecto (1000): un .select('*') plano se trunca en
+// silencio -- sin error -- apenas la tabla supera ese tamaño, y las filas que quedan fuera dependen
+// del orden interno de Postgres (no garantizado), así que pueden ser justo las más nuevas. Bug real
+// detectado en detalle_ventas (1032 filas en la nube): ventas del día no bajaban a los equipos que
+// solo consumen por sync, aunque sí existían en Supabase.
+const TAMANO_PAGINA_DESCARGA = 1000;
+async function descargarTodo(tabla) {
+    let desde = 0;
+    let filas = [];
+    while (true) {
+        const { data, error } = await supabase
+            .from(tabla)
+            .select('*')
+            .range(desde, desde + TAMANO_PAGINA_DESCARGA - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        filas = filas.concat(data);
+        if (data.length < TAMANO_PAGINA_DESCARGA) break;
+        desde += TAMANO_PAGINA_DESCARGA;
+    }
+    return filas;
+}
+
 // Igual que upsertConLWW pero para un soft delete (marca deleted_at en vez de borrar la fila).
 async function softDeleteConLWW(tabla, filtro) {
     const ahora = nowISO();
@@ -224,11 +248,7 @@ async function syncVentasEliminaciones() {
 // --- 1.7. DESCARGAR VENTAS DESDE LA NUBE (Supabase -> Local, con LWW) ---
 async function syncVentasDescargar() {
     try {
-        const { data: ventasNube, error: errVentasNube } = await supabase
-            .from('ventas')
-            .select('*');
-
-        if (errVentasNube) throw errVentasNube;
+        const ventasNube = await descargarTodo('ventas');
 
         if (ventasNube) {
             for (const venta of ventasNube) {
@@ -255,11 +275,7 @@ async function syncVentasDescargar() {
             }
         }
 
-        const { data: detVentasNube, error: errDetVentasNube } = await supabase
-            .from('detalle_ventas')
-            .select('*');
-
-        if (errDetVentasNube) throw errDetVentasNube;
+        const detVentasNube = await descargarTodo('detalle_ventas');
 
         if (detVentasNube) {
             for (const det of detVentasNube) {
@@ -336,6 +352,7 @@ async function syncGastosSubir() {
                 metodo_pago: gasto.metodo_pago,
                 estado: gasto.estado,
                 venta_id: gasto.venta_id || null,
+                pedido_id: gasto.pedido_id || null,
                 updated_at: gasto.updated_at
             });
 
@@ -385,8 +402,8 @@ async function syncGastosEliminaciones() {
                     // Hay una versión más reciente y viva en la nube: la adoptamos localmente en
                     // lugar de insistir en el borrado, y queda 'synced' para no reintentar.
                     await runQuery(
-                        `UPDATE gastos SET sucursal_id = ?, tipo = ?, descripcion = ?, monto = ?, fecha = ?, metodo_pago = ?, estado = ?, venta_id = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
-                        [filaNube.sucursal_id, filaNube.tipo, filaNube.descripcion, filaNube.monto, filaNube.fecha, filaNube.metodo_pago, filaNube.estado, filaNube.venta_id, filaNube.updated_at, gasto.id]
+                        `UPDATE gastos SET sucursal_id = ?, tipo = ?, descripcion = ?, monto = ?, fecha = ?, metodo_pago = ?, estado = ?, venta_id = ?, pedido_id = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
+                        [filaNube.sucursal_id, filaNube.tipo, filaNube.descripcion, filaNube.monto, filaNube.fecha, filaNube.metodo_pago, filaNube.estado, filaNube.venta_id, filaNube.pedido_id, filaNube.updated_at, gasto.id]
                     );
                     console.log(`[Sincronizador] Eliminación del gasto ${gasto.id} pospuesta: se adoptó la versión más reciente de la nube en vez de reintentar indefinidamente.`);
                 }
@@ -403,11 +420,7 @@ async function syncGastosEliminaciones() {
 // --- 2.7. DESCARGAR GASTOS DESDE LA NUBE (Supabase -> Local, con LWW) ---
 async function syncGastosDescargar() {
     try {
-        const { data: gastosNube, error: errGastosNube } = await supabase
-            .from('gastos')
-            .select('*');
-
-        if (errGastosNube) throw errGastosNube;
+        const gastosNube = await descargarTodo('gastos');
 
         if (gastosNube) {
             for (const gasto of gastosNube) {
@@ -416,8 +429,8 @@ async function syncGastosDescargar() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, estado, venta_id, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, estado, venta_id, pedido_id, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         sucursal_id = excluded.sucursal_id,
                         tipo = excluded.tipo,
@@ -427,10 +440,11 @@ async function syncGastosDescargar() {
                         metodo_pago = excluded.metodo_pago,
                         estado = excluded.estado,
                         venta_id = excluded.venta_id,
+                        pedido_id = excluded.pedido_id,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [gasto.id, gasto.sucursal_id, gasto.tipo, gasto.descripcion, gasto.monto, gasto.fecha, gasto.metodo_pago, gasto.estado, gasto.venta_id || null, gasto.updated_at]
+                    [gasto.id, gasto.sucursal_id, gasto.tipo, gasto.descripcion, gasto.monto, gasto.fecha, gasto.metodo_pago, gasto.estado, gasto.venta_id || null, gasto.pedido_id || null, gasto.updated_at]
                 );
             }
             console.log("[Sincronizador] Gastos descargados desde la nube.");
@@ -523,6 +537,7 @@ async function syncInventarioSubir() {
                 producto_id: inv.producto_id,
                 sucursal_id: inv.sucursal_id,
                 stock: inv.stock,
+                stock_reservado: inv.stock_reservado || 0,
                 updated_at: inv.updated_at
             }, 'producto_id');
 
@@ -548,6 +563,9 @@ async function syncInventarioSubir() {
 // degradar en silencio (sin romper el resto del ciclo de sincronización) y evitar reintentar
 // contra la red en cada ciclo mientras la tabla siga sin existir.
 let movimientosInventarioTablaDisponible = true;
+// Mismo caso que movimientos_inventario: mientras el usuario no corra el SQL de las tablas del
+// módulo de Pedidos/Apartados en Supabase, se degrada en silencio en vez de romper el ciclo.
+let pedidosTablasDisponibles = true;
 
 function esErrorTablaInexistente(error) {
     if (!error) return false;
@@ -615,11 +633,7 @@ async function syncProductosEliminaciones() {
 // --- 4.5. DESCARGAR CATEGORÍAS DESDE SUPABASE (con LWW) ---
 async function syncCategoriasDescargar() {
     try {
-        const { data: categoriasNube, error } = await supabase
-            .from('categorias')
-            .select('*');
-
-        if (error) throw error;
+        const categoriasNube = await descargarTodo('categorias');
 
         if (categoriasNube) {
             for (const cat of categoriasNube) {
@@ -649,11 +663,7 @@ async function syncCategoriasDescargar() {
 // --- 5. DESCARGAR ACTUALIZACIONES DEL CATÁLOGO GLOBAL (Supabase -> Local, con LWW) ---
 async function syncProductosDescargar() {
     try {
-        const { data: productosNube, error } = await supabase
-            .from('productos')
-            .select('*');
-
-        if (error) throw error;
+        const productosNube = await descargarTodo('productos');
 
         if (productosNube) {
             for (const prod of productosNube) {
@@ -688,11 +698,7 @@ async function syncProductosDescargar() {
 // --- 5.5. DESCARGAR ACTUALIZACIONES DE INVENTARIO POR SUCURSAL (Supabase -> Local, con LWW) ---
 async function syncInventarioDescargar() {
     try {
-        const { data: invNube, error } = await supabase
-            .from('inventario_sucursal')
-            .select('*');
-
-        if (error) throw error;
+        const invNube = await descargarTodo('inventario_sucursal');
 
         if (invNube) {
             for (const inv of invNube) {
@@ -704,14 +710,15 @@ async function syncInventarioDescargar() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
-                     VALUES (?, ?, ?, 'synced', ?)
+                    `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, stock_reservado, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
                         stock = excluded.stock,
+                        stock_reservado = excluded.stock_reservado,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [inv.producto_id, inv.sucursal_id, inv.stock, inv.updated_at]
+                    [inv.producto_id, inv.sucursal_id, inv.stock, inv.stock_reservado || 0, inv.updated_at]
                 );
             }
             console.log("[Sincronizador] Existencias por sucursal actualizadas desde la nube.");
@@ -725,11 +732,7 @@ async function syncInventarioDescargar() {
 async function syncMovimientosInventarioDescargar() {
     if (!movimientosInventarioTablaDisponible) return;
     try {
-        const { data: movsNube, error } = await supabase
-            .from('movimientos_inventario')
-            .select('*');
-
-        if (error) throw error;
+        const movsNube = await descargarTodo('movimientos_inventario');
 
         if (movsNube) {
             for (const mov of movsNube) {
@@ -790,11 +793,7 @@ async function syncSucursales() {
 
     // B. Descargar cambios de la nube a local (solo si no hay error de red)
     try {
-        const { data: sucursalesNube, error } = await supabase
-            .from('config_sucursal')
-            .select('*');
-
-        if (error) throw error;
+        const sucursalesNube = await descargarTodo('config_sucursal');
 
         if (sucursalesNube) {
             for (const suc of sucursalesNube) {
@@ -849,11 +848,7 @@ async function syncUsuarios() {
 
         // B. Descargar cambios de la nube a local (solo si no hay error de red)
         try {
-            const { data: usuariosNube, error } = await supabase
-                .from('usuarios')
-                .select('*');
-
-            if (error) throw error;
+            const usuariosNube = await descargarTodo('usuarios');
 
             if (usuariosNube) {
                 // Si en la nube ya existe un usuario con username 'admin' (con otro ID),
@@ -955,11 +950,7 @@ async function syncTransferenciasEliminaciones() {
 // --- 8.5. DESCARGAR TRANSFERENCIAS (Supabase -> Local, con LWW) ---
 async function syncTransferenciasDescargar() {
     try {
-        const { data: transNube, error: errTrans } = await supabase
-            .from('transferencias')
-            .select('*');
-
-        if (errTrans) throw errTrans;
+        const transNube = await descargarTodo('transferencias');
 
         if (transNube) {
             for (const trans of transNube) {
@@ -984,11 +975,7 @@ async function syncTransferenciasDescargar() {
             }
         }
 
-        const { data: detNube, error: errDet } = await supabase
-            .from('detalle_transferencias')
-            .select('*');
-
-        if (errDet) throw errDet;
+        const detNube = await descargarTodo('detalle_transferencias');
 
         if (detNube) {
             for (const det of detNube) {
@@ -1028,6 +1015,7 @@ async function syncClientes() {
                 identificacion: cli.identificacion,
                 telefono: cli.telefono,
                 email: cli.email,
+                origen: cli.origen,
                 updated_at: cli.updated_at
             });
             if (!gano) {
@@ -1046,8 +1034,7 @@ async function syncClientes() {
         }
 
         // C. Descargar clientes
-        const { data: clientesNube, error: errCliNube } = await supabase.from('clientes').select('*');
-        if (errCliNube) throw errCliNube;
+        const clientesNube = await descargarTodo('clientes');
         if (clientesNube) {
             for (const cli of clientesNube) {
                 if (cli.deleted_at) {
@@ -1055,18 +1042,19 @@ async function syncClientes() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         tipo = excluded.tipo,
                         identificacion = excluded.identificacion,
                         telefono = excluded.telefono,
                         email = excluded.email,
+                        origen = excluded.origen,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cli.id, cli.nombre, cli.tipo, cli.identificacion, cli.telefono, cli.email, cli.updated_at]
+                    [cli.id, cli.nombre, cli.tipo, cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
                 );
             }
         }
@@ -1105,8 +1093,7 @@ async function syncAbonos() {
         }
 
         // C. Descargar abonos
-        const { data: abonosNube, error: errAbNube } = await supabase.from('abonos_credito').select('*');
-        if (errAbNube) throw errAbNube;
+        const abonosNube = await descargarTodo('abonos_credito');
         if (abonosNube) {
             for (const ab of abonosNube) {
                 if (ab.deleted_at) {
@@ -1130,6 +1117,197 @@ async function syncAbonos() {
         }
     } catch (errAb) {
         console.log("[Sincronizador] Abonos no sincronizados:", obtenerMensajeSync(errAb, 'abonos_credito'));
+    }
+}
+
+// --- 10.5. SINCRONIZAR PEDIDOS/APARTADOS (Bidireccional, con LWW) ---
+// pedidos no tiene una función de "eliminaciones" propia: cancelar un pedido solo cambia su
+// `estado` (nunca sync_status='deleted'), así que sube/baja como cualquier UPDATE normal.
+async function syncPedidosSubir() {
+    if (!pedidosTablasDisponibles) return;
+    try {
+        const pedidosPendientes = await allQuery(`SELECT * FROM pedidos WHERE sync_status = 'pending'`, []);
+        for (const ped of pedidosPendientes) {
+            const gano = await upsertConLWW('pedidos', {
+                id: ped.id,
+                sucursal_id: ped.sucursal_id,
+                cliente_id: ped.cliente_id,
+                fecha_pedido: ped.fecha_pedido,
+                fecha_entrega_estimada: ped.fecha_entrega_estimada,
+                fecha_entrega_real: ped.fecha_entrega_real,
+                estado: ped.estado,
+                total: ped.total,
+                notas: ped.notas,
+                venta_id: ped.venta_id,
+                usuario_creo: ped.usuario_creo,
+                cliente_nombre_registro: ped.cliente_nombre_registro,
+                cliente_identificacion_registro: ped.cliente_identificacion_registro,
+                cliente_telefono_registro: ped.cliente_telefono_registro,
+                updated_at: ped.updated_at
+            });
+
+            if (!gano) {
+                console.log(`[Sincronizador] Pedido ${ped.id} no subido: hay una versión más reciente en la nube.`);
+                continue;
+            }
+
+            const detalles = await allQuery(`SELECT * FROM detalle_pedidos WHERE pedido_id = ?`, [ped.id]);
+
+            // Igual que con detalle_ventas: se borran las líneas remotas previas antes de
+            // reinsertar, porque editarPedidoTx reemplaza detalle_pedidos localmente (DELETE +
+            // INSERT con ids nuevos) y sin este paso las líneas viejas quedarían huérfanas en
+            // Supabase, duplicando productos y total al descargar en otro equipo.
+            const { error: errorLimpiezaDetalle } = await supabase
+                .from('detalle_pedidos')
+                .delete()
+                .eq('pedido_id', ped.id);
+            if (errorLimpiezaDetalle) throw errorLimpiezaDetalle;
+
+            for (const det of detalles) {
+                const { error: errorDetalle } = await supabase
+                    .from('detalle_pedidos')
+                    .upsert({
+                        id: det.id,
+                        pedido_id: det.pedido_id,
+                        producto_id: det.producto_id,
+                        cantidad: det.cantidad,
+                        precio_unitario: det.precio_unitario,
+                        updated_at: nowISO()
+                    });
+                if (errorDetalle) throw errorDetalle;
+            }
+
+            await runQuery(`UPDATE pedidos SET sync_status = 'synced' WHERE id = ?`, [ped.id]);
+            console.log(`[Sincronizador] Pedido ${ped.id} sincronizado con la nube.`);
+        }
+    } catch (err) {
+        if (esErrorTablaInexistente(err)) {
+            pedidosTablasDisponibles = false;
+            console.log("[Sincronizador] Las tablas de Pedidos/Apartados no existen en Supabase (o el cache de esquema no las reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        console.log("[Sincronizador] Pedidos no sincronizados (Modo Offline o error de red):", err.message);
+    }
+}
+
+async function syncPedidosDescargar() {
+    if (!pedidosTablasDisponibles) return;
+    try {
+        const pedidosNube = await descargarTodo('pedidos');
+
+        if (pedidosNube) {
+            for (const ped of pedidosNube) {
+                await runQuery(
+                    `INSERT INTO pedidos (id, sucursal_id, cliente_id, fecha_pedido, fecha_entrega_estimada, fecha_entrega_real, estado, total, notas, venta_id, usuario_creo, cliente_nombre_registro, cliente_identificacion_registro, cliente_telefono_registro, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        sucursal_id = excluded.sucursal_id,
+                        cliente_id = excluded.cliente_id,
+                        fecha_pedido = excluded.fecha_pedido,
+                        fecha_entrega_estimada = excluded.fecha_entrega_estimada,
+                        fecha_entrega_real = excluded.fecha_entrega_real,
+                        estado = excluded.estado,
+                        total = excluded.total,
+                        notas = excluded.notas,
+                        venta_id = excluded.venta_id,
+                        usuario_creo = excluded.usuario_creo,
+                        cliente_nombre_registro = excluded.cliente_nombre_registro,
+                        cliente_identificacion_registro = excluded.cliente_identificacion_registro,
+                        cliente_telefono_registro = excluded.cliente_telefono_registro,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [ped.id, ped.sucursal_id, ped.cliente_id, ped.fecha_pedido, ped.fecha_entrega_estimada, ped.fecha_entrega_real, ped.estado, ped.total, ped.notas, ped.venta_id, ped.usuario_creo, ped.cliente_nombre_registro, ped.cliente_identificacion_registro, ped.cliente_telefono_registro, ped.updated_at]
+                );
+            }
+        }
+
+        const detPedidosNube = await descargarTodo('detalle_pedidos');
+
+        if (detPedidosNube) {
+            for (const det of detPedidosNube) {
+                await runQuery(
+                    `INSERT INTO detalle_pedidos (id, pedido_id, producto_id, cantidad, precio_unitario, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        pedido_id = excluded.pedido_id,
+                        producto_id = excluded.producto_id,
+                        cantidad = excluded.cantidad,
+                        precio_unitario = excluded.precio_unitario,
+                        updated_at = excluded.updated_at
+                     WHERE excluded.updated_at > updated_at`,
+                    [det.id, det.pedido_id, det.producto_id, det.cantidad, det.precio_unitario, det.updated_at]
+                );
+            }
+        }
+        console.log("[Sincronizador] Pedidos y detalles descargados desde la nube.");
+    } catch (err) {
+        if (esErrorTablaInexistente(err)) {
+            pedidosTablasDisponibles = false;
+            console.log("[Sincronizador] Las tablas de Pedidos/Apartados no existen en Supabase (o el cache de esquema no las reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        console.log("[Sincronizador] No se pudieron descargar pedidos (Modo Offline):", err.message);
+    }
+}
+
+// --- 10.6. SINCRONIZAR ABONOS DE PEDIDO (Bidireccional, con LWW) ---
+async function syncAbonosPedido() {
+    if (!pedidosTablasDisponibles) return;
+    try {
+        const abonosPendientes = await allQuery(`SELECT * FROM abonos_pedido WHERE sync_status = 'pending'`, []);
+        for (const ab of abonosPendientes) {
+            const gano = await upsertConLWW('abonos_pedido', {
+                id: ab.id,
+                pedido_id: ab.pedido_id,
+                monto: ab.monto,
+                fecha: ab.fecha,
+                metodo_pago: ab.metodo_pago,
+                updated_at: ab.updated_at
+            });
+            if (!gano) {
+                console.log(`[Sincronizador] Abono de pedido ${ab.id} no subido: hay una versión más reciente en la nube.`);
+                continue;
+            }
+            await runQuery(`UPDATE abonos_pedido SET sync_status = 'synced' WHERE id = ?`, [ab.id]);
+        }
+
+        const abonosEliminados = await allQuery(`SELECT * FROM abonos_pedido WHERE sync_status = 'deleted'`, []);
+        for (const ab of abonosEliminados) {
+            const gano = await softDeleteConLWW('abonos_pedido', { id: ab.id });
+            if (!gano) continue;
+            await runQuery(`DELETE FROM abonos_pedido WHERE id = ?`, [ab.id]);
+        }
+
+        const abonosNube = await descargarTodo('abonos_pedido');
+        if (abonosNube) {
+            for (const ab of abonosNube) {
+                if (ab.deleted_at) {
+                    await runQuery(`DELETE FROM abonos_pedido WHERE id = ? AND sync_status <> 'pending'`, [ab.id]);
+                    continue;
+                }
+                await runQuery(
+                    `INSERT INTO abonos_pedido (id, pedido_id, monto, fecha, metodo_pago, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        pedido_id = excluded.pedido_id,
+                        monto = excluded.monto,
+                        fecha = excluded.fecha,
+                        metodo_pago = excluded.metodo_pago,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [ab.id, ab.pedido_id, ab.monto, ab.fecha, ab.metodo_pago, ab.updated_at]
+                );
+            }
+        }
+    } catch (err) {
+        if (esErrorTablaInexistente(err)) {
+            pedidosTablasDisponibles = false;
+            console.log("[Sincronizador] Las tablas de Pedidos/Apartados no existen en Supabase (o el cache de esquema no las reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        console.log("[Sincronizador] Abonos de pedido no sincronizados:", obtenerMensajeSync(err, 'abonos_pedido'));
     }
 }
 
@@ -1164,8 +1342,7 @@ async function syncSolicitudesVenta() {
         }
 
         // B. Descargar solicitudes creadas/revisadas desde otras terminales
-        const { data: solicitudesNube, error: errSolNube } = await supabase.from('solicitudes_venta').select('*');
-        if (errSolNube) throw errSolNube;
+        const solicitudesNube = await descargarTodo('solicitudes_venta');
         if (solicitudesNube) {
             for (const sol of solicitudesNube) {
                 if (sol.deleted_at) {
@@ -1276,6 +1453,9 @@ async function procesarSincronizacion() {
         await syncTransferenciasDescargar();
         await syncClientes();
         await syncAbonos();
+        await syncPedidosSubir();
+        await syncPedidosDescargar();
+        await syncAbonosPedido();
         await syncSolicitudesVenta();
     } finally {
         estaSincronizando = false;

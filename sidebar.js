@@ -30,7 +30,7 @@
                 display: flex !important;
                 align-items: center !important;
                 width: 100%;
-                padding: 10px 12px;
+                padding: 9px 12px;
                 background: transparent;
                 border: none;
                 border-radius: 8px;
@@ -75,6 +75,12 @@
                 height: 24px;
                 font-size: 1.2rem;
                 flex-shrink: 0;
+            }
+
+            /* Separación uniforme entre TODOS los ítems del menú (botones sueltos y la fila
+               agrupada de Registrar Venta), en vez de depender solo de flex gap. */
+            .sidebar .nav-menu > *:not(:last-child) {
+                margin-bottom: 6px;
             }
 
             /* Botón de Sincronización */
@@ -328,6 +334,7 @@
     const isGestion = path.includes('gestion.html');
     const isVentasAnteriores = path.includes('ventas-anteriores.html');
     const isAuditLogs = path.includes('admin-audit-logs.html');
+    const isPedidos = path.includes('pedidos.html');
 
     // Título dinámico de la ventana: "[App] - [Página] | Sucursal: [Sucursal]"
     const paginaActual =
@@ -341,6 +348,7 @@
         isGestion ? 'Gestión' :
         isVentasAnteriores ? 'Ventas Días Anteriores' :
         isAuditLogs ? 'Logs de Auditoría' :
+        isPedidos ? 'Pedidos / Apartados' :
         'Sistema Principal';
 
     if (window.api && window.api.obtenerSucursalId) {
@@ -353,7 +361,7 @@
     // Inyectar la estructura del sidebar
     container.className = 'sidebar';
     container.innerHTML = `
-        <div class="sidebar-header" style="display: flex; align-items: center; margin-bottom: 20px; gap: 12px; height: 50px; overflow: hidden; flex-shrink: 0;">
+        <div class="sidebar-header" style="display: flex; align-items: center; margin-bottom: 16px; gap: 12px; height: 50px; overflow: hidden; flex-shrink: 0;">
             <span style="font-size: 1.6rem; flex-shrink: 0; display: block; text-align: center; width: 24px;">🧁</span>
             <div class="sidebar-header-info" style="display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
                 <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">POS Delipostres</h2>
@@ -364,7 +372,7 @@
             </div>
         </div>
 
-        <div class="nav-menu" style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="nav-menu" style="display: flex; flex-direction: column;">
             <button class="nav-btn ${isDashboard ? 'active' : ''}" onclick="location.href='dashboard.html'"><span>📋</span> <span class="nav-text">Ver Inventario</span></button>
             <div style="display: flex; gap: 4px; width: 100%;">
                 <button class="nav-btn ${isVentas ? 'active' : ''}" onclick="location.href='ventas.html'" style="flex-grow: 1;"><span>🛒</span> <span class="nav-text">Registrar Venta</span></button>
@@ -372,6 +380,7 @@
             </div>
             <button class="nav-btn ${isGastos ? 'active' : ''}" onclick="location.href='gastos.html'"><span>💸</span> <span class="nav-text">Registrar Gasto</span></button>
             <button class="nav-btn ${isTransferencias ? 'active' : ''}" onclick="location.href='transferencias.html'"><span>🔄</span> <span class="nav-text">Traslado de Productos</span></button>
+            <button class="nav-btn ${isPedidos ? 'active' : ''}" id="btn-nav-pedidos" onclick="location.href='pedidos.html'" style="position: relative;"><span>📦</span> <span class="nav-text">Pedidos / Apartados</span> <span id="badge-pedidos-atrasados" style="display: none; position: absolute; top: 4px; right: 6px; background-color: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; min-width: 8px; text-align: center;"></span></button>
             <button class="nav-btn ${isArqueo ? 'active' : ''}" onclick="location.href='arqueo.html'"><span>🪙</span> <span class="nav-text">Cuadre de Caja</span></button>
             <button class="nav-btn ${isVentasAnteriores ? 'active' : ''}" onclick="location.href='ventas-anteriores.html'"><span>🗓️</span> <span class="nav-text">Edición Ventas Anteriores</span></button>
             <button class="nav-btn ${isReportes ? 'active' : ''}" onclick="location.href='reportes.html'"><span>📊</span> <span class="nav-text">Reporte Diario</span></button>
@@ -448,6 +457,7 @@
                 // edición en curso. Cada vista decide qué refrescar escuchando este evento.
                 window.dispatchEvent(new Event('pos-sincronizacion-completa'));
                 actualizarBadgeSolicitudes();
+                actualizarBadgePedidosAtrasados();
             }
 
             if (res.success) {
@@ -576,6 +586,25 @@
         }).catch(() => { });
     }
     actualizarBadgeSolicitudes();
+
+    // Mostrar en el botón de Pedidos/Apartados la cantidad de pedidos pendientes cuya fecha
+    // estimada de entrega ya venció, para que sean "fáciles de ubicar" sin entrar a la página.
+    // A diferencia del badge de solicitudes, este es visible para cualquier rol (Operador y
+    // Administrador pueden gestionar pedidos por igual).
+    function actualizarBadgePedidosAtrasados() {
+        if (!(window.api && window.api.contarPedidosAtrasados)) return;
+        window.api.contarPedidosAtrasados().then(res => {
+            const badge = document.getElementById('badge-pedidos-atrasados');
+            if (!badge) return;
+            if (res && res.success && res.count > 0) {
+                badge.innerText = res.count > 99 ? '99+' : String(res.count);
+                badge.style.display = 'block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }).catch(() => { });
+    }
+    actualizarBadgePedidosAtrasados();
 
     // Seleccionar automáticamente todo el texto al enfocar inputs numéricos y buscadores
     document.addEventListener('focus', function (e) {

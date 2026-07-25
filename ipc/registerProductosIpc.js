@@ -15,7 +15,7 @@ function registerProductosIpc() {
     ipcMain.handle('get-inventory', async (event, sucursalId) => {
         try {
             const rows = await allQuery(
-                `SELECT p.*, COALESCE(i.stock, 0) as stock, c.nombre as categoria_nombre,
+                `SELECT p.*, COALESCE(i.stock, 0) as stock, COALESCE(i.stock_reservado, 0) as stock_reservado, c.nombre as categoria_nombre,
                         COALESCE((SELECT SUM(cantidad) FROM detalle_ventas WHERE producto_id = p.id), 0) as ventas_historicas
                  FROM productos p
                  LEFT JOIN inventario_sucursal i ON p.id = i.producto_id AND i.sucursal_id = ?

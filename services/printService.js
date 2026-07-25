@@ -2,7 +2,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { construirTicketBuffer } = require('./ticketEscPos');
+const { construirTicketBuffer, construirTicketPedidoBuffer } = require('./ticketEscPos');
 
 // SRP: encapsula la selección de impresora y el envío del ticket en modo RAW (ESC/POS),
 // aislando al IPC handler del detalle de WinSpool/PowerShell.
@@ -112,7 +112,7 @@ function enviarBytesCrudosAImpresora(deviceName, buffer) {
     });
 }
 
-async function imprimirTicket(win, { printerName, datosTicket } = {}) {
+async function seleccionarImpresora(win, printerName) {
     const impresoras = await win.webContents.getPrintersAsync();
     let deviceName = Boolean(printerName) && impresoras.some(p => p.name === printerName) ? printerName : '';
 
@@ -125,11 +125,26 @@ async function imprimirTicket(win, { printerName, datosTicket } = {}) {
 
     if (!deviceName) {
         const lista = impresoras.map(p => `"${p.name}"`).join(', ') || '(ninguna detectada)';
-        return { success: false, message: `Error de impresión: no se encontró una impresora válida. Impresoras detectadas: ${lista}` };
+        return { deviceName: '', error: `Error de impresión: no se encontró una impresora válida. Impresoras detectadas: ${lista}` };
     }
+
+    return { deviceName, error: null };
+}
+
+async function imprimirTicket(win, { printerName, datosTicket } = {}) {
+    const { deviceName, error } = await seleccionarImpresora(win, printerName);
+    if (!deviceName) return { success: false, message: error };
 
     const buffer = construirTicketBuffer(datosTicket);
     return enviarBytesCrudosAImpresora(deviceName, buffer);
 }
 
-module.exports = { imprimirTicket };
+async function imprimirTicketPedido(win, { printerName, datosTicket } = {}) {
+    const { deviceName, error } = await seleccionarImpresora(win, printerName);
+    if (!deviceName) return { success: false, message: error };
+
+    const buffer = construirTicketPedidoBuffer(datosTicket);
+    return enviarBytesCrudosAImpresora(deviceName, buffer);
+}
+
+module.exports = { imprimirTicket, imprimirTicketPedido };

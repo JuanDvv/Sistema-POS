@@ -85,15 +85,28 @@ async function cargarEfectivoEsperado() {
         let totalEfectivo = 0;
         let totalGastosEfectivo = 0;
 
-        // Sumar ventas en efectivo (o la porción en efectivo de las mixtas)
+        // Sumar ventas en efectivo (o la porción en efectivo de las mixtas). Las ventas generadas al
+        // entregar un pedido (venta.es_pedido) se excluyen: ese dinero ya se contó como abono el día
+        // que se recibió (ver abonosPedido más abajo), sumarlo aquí otra vez lo duplicaría.
         if (response.ventas) {
             response.ventas.forEach(venta => {
+                if (venta.es_pedido) return;
                 if (venta.metodo_pago === 'Efectivo') {
                     totalEfectivo += venta.total;
                 } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
                     const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
                     const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
                     totalEfectivo += cashVal;
+                }
+            });
+        }
+
+        // Sumar abonos de pedidos recibidos hoy en efectivo (dinero real que entró a la caja aunque
+        // el pedido se entregue otro día).
+        if (response.abonosPedido) {
+            response.abonosPedido.forEach(abono => {
+                if (abono.metodo_pago === 'Efectivo') {
+                    totalEfectivo += Number(abono.monto);
                 }
             });
         }

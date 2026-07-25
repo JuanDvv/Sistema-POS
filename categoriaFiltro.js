@@ -107,9 +107,37 @@ function crearFiltroCategorias({ contenedor, categorias, tieneNegativos, onChang
         });
     }
 
+    // El panel usa `position: fixed` (ver .cat-multiselect-panel en styles.css) para no quedar
+    // recortado por el `overflow: hidden` que algunas páginas le ponen a un ancestro (ej.
+    // .products-section en ventas.html, para contener su propio scroll interno). Al ser fixed hay
+    // que calcular top/left en JS contra el trigger cada vez que se abre.
+    function posicionarPanel() {
+        const margen = 10;
+        const rect = trigger.getBoundingClientRect();
+
+        panel.style.left = `${rect.left}px`;
+        panel.style.top = `${rect.bottom + 4}px`;
+
+        const panelRect = panel.getBoundingClientRect();
+
+        if (panelRect.right > window.innerWidth - margen) {
+            panel.style.left = `${Math.max(margen, window.innerWidth - panelRect.width - margen)}px`;
+        }
+
+        // Solo se abre hacia arriba si de verdad no cabe hacia abajo Y hay más espacio arriba que
+        // abajo (con el max-height del panel ya acotado, esto casi nunca hace falta).
+        const espacioAbajo = window.innerHeight - rect.bottom - margen;
+        const espacioArriba = rect.top - margen;
+        if (panelRect.height > espacioAbajo && espacioArriba > espacioAbajo) {
+            panel.style.top = `${Math.max(margen, rect.top - panelRect.height - 4)}px`;
+        }
+    }
+
     trigger.addEventListener('click', (e) => {
         e.stopPropagation();
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        const abrir = panel.style.display === 'none';
+        panel.style.display = abrir ? 'block' : 'none';
+        if (abrir) posicionarPanel();
     });
     document.addEventListener('click', (e) => {
         if (!contenedor.contains(e.target)) panel.style.display = 'none';

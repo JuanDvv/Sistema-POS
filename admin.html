@@ -283,8 +283,16 @@
         <div class="section-card">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
-                <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito)</h3>
-                <button id="btn-nuevo-cliente" class="btn-primary">➕ Nuevo Cliente</button>
+                <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito / Pedidos)</h3>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <select id="filtro-clientes"
+                        style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                        <option value="todos">Todos</option>
+                        <option value="Credito">Solo Crédito</option>
+                        <option value="Pedido">Solo Pedidos</option>
+                    </select>
+                    <button id="btn-nuevo-cliente" class="btn-primary">➕ Nuevo Cliente</button>
+                </div>
             </div>
             <div class="table-container">
                 <table id="table-clientes">
@@ -292,6 +300,7 @@
                         <tr>
                             <th>Nombre</th>
                             <th>Tipo</th>
+                            <th>Categoría</th>
                             <th>Identificación</th>
                             <th>Teléfono</th>
                             <th>Email</th>
@@ -424,7 +433,8 @@
                     <input type="email" id="cliente-email" placeholder="Ej. contacto@cliente.com">
                 </div>
                 <button type="submit" class="btn-primary"
-                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar Cliente</button>
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
+                    Cliente</button>
             </form>
         </div>
     </div>

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POS Delipostres Turbaco - Pedidos / Apartados</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        body {
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow: hidden;
+            background-color: #f9fafb;
+            box-sizing: border-box;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            background-color: white;
+            color: #374151;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .tab-btn.active {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .section-card {
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            box-sizing: border-box;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background-color: #f9fafb;
+            font-weight: 600;
+        }
+
+        tbody tr {
+            cursor: pointer;
+        }
+
+        tbody tr:hover {
+            background-color: #f3f4f6;
+        }
+
+        tbody tr.atrasado {
+            background-color: #fef2f2;
+        }
+
+        .estado-badge {
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 0.75em;
+            font-weight: 700;
+        }
+
+        .estado-pendiente { background-color: #fef3c7; color: #b45309; }
+        .estado-entregado { background-color: #dcfce7; color: #15803d; }
+        .estado-cancelado { background-color: #fee2e2; color: #b91c1c; }
+
+        .nuevo-pedido-layout {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .productos-col {
+            flex: 1.2;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .datos-col {
+            flex: 1;
+            min-width: 300px;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .grid-products {
+            flex: 1;
+            min-height: 0;
+        }
+
+        .cart-list {
+            max-height: 220px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px;
+        }
+
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .cart-item:last-child {
+            border-bottom: none;
+        }
+
+        .cart-btn {
+            background-color: #e5e7eb;
+            border: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .abono-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+    <button id="menu-toggle" class="menu-toggle-btn">☰</button>
+    <nav id="sidebar-container"></nav>
+    <main class="main-content">
+        <div class="header-title">
+            <h2 style="margin: 0;">📦 Pedidos / Apartados</h2>
+            <div class="tabs">
+                <button class="tab-btn active" id="tab-btn-listado" data-tab="listado">📋 Listado de Pedidos</button>
+                <button class="tab-btn" id="tab-btn-nuevo" data-tab="nuevo">➕ Nuevo Pedido</button>
+            </div>
+        </div>
+
+        <!-- ==================== LISTADO ==================== -->
+        <div class="tab-pane active" id="tab-listado">
+            <div class="section-card">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; flex-shrink: 0;">
+                    <input type="text" id="busqueda-pedidos" placeholder="🔍 Buscar por cliente, identificación, teléfono o ID..."
+                        style="flex: 2; min-width: 220px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                    <select id="filtro-estado-pedidos" style="flex: 1; min-width: 160px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                        <option value="">Todos los estados</option>
+                        <option value="pendiente" selected>Pendiente</option>
+                        <option value="entregado">Entregado</option>
+                        <option value="cancelado">Cancelado</option>
+                    </select>
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9em; color: #374151; white-space: nowrap; padding: 0 6px;">
+                        <input type="checkbox" id="filtro-creados-hoy">
+                        🆕 Creados hoy
+                    </label>
+                </div>
+                <div class="table-container" style="flex: 1; min-height: 0; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Creado</th>
+                                <th>Cliente</th>
+                                <th>Teléfono</th>
+                                <th>Productos</th>
+                                <th>Entrega Estimada</th>
+                                <th>Saldo Pendiente</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-pedidos"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== NUEVO PEDIDO ==================== -->
+        <div class="tab-pane" id="tab-nuevo">
+            <div class="section-card">
+                <div class="nuevo-pedido-layout">
+                    <div class="productos-col">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; flex-shrink: 0;">
+                            <h3 style="margin: 0;">Productos</h3>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <div id="filter-categoria-pedido"></div>
+                                <input type="text" id="search-productos-pedido" placeholder="🔍 Buscar producto..."
+                                    style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 180px; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
+                            </div>
+                        </div>
+                        <div class="grid-products" id="grid-products-pedido"></div>
+                    </div>
+
+                    <div class="datos-col">
+                        <h3 style="margin-top: 0;">Carrito del Pedido</h3>
+                        <div class="cart-list" id="cart-list-pedido">
+                            <p style="color: #6b7280; text-align: center; margin: 20px 0;">El pedido está vacío.</p>
+                        </div>
+                        <div class="summary-row" style="display: flex; justify-content: space-between; margin: 12px 0; font-size: 1.05em;">
+                            <span>Total:</span>
+                            <strong id="cart-total-pedido" style="color: #10b981; font-size: 1.2em;">$0</strong>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pedido-cliente-nombre">Nombre del Cliente *</label>
+                            <input type="text" id="pedido-cliente-nombre" list="datalist-clientes" placeholder="Ej. María Pérez">
+                            <input type="hidden" id="pedido-cliente-id">
+                            <datalist id="datalist-clientes"></datalist>
+                        </div>
+                        <div class="form-group">
+                            <label for="pedido-cliente-identificacion">Identificación</label>
+                            <input type="text" id="pedido-cliente-identificacion" placeholder="Ej. 1.045.223.112">
+                        </div>
+                        <div class="form-group">
+                            <label for="pedido-cliente-telefono">Teléfono *</label>
+                            <input type="text" id="pedido-cliente-telefono" placeholder="Ej. 3004567890">
+                        </div>
+                        <div class="form-group">
+                            <label for="pedido-fecha-entrega">Fecha Estimada de Entrega *</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="date" id="pedido-fecha-entrega" style="flex: 1;">
+                                <input type="time" id="pedido-hora-entrega" style="flex: 1;" title="Hora estimada (opcional)">
+                            </div>
+                            <small style="color: #6b7280;">La hora es opcional; si la dejas vacía, solo se guarda el día.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="pedido-notas">Notas</label>
+                            <textarea id="pedido-notas" rows="2" placeholder="Ej. Torta de chocolate, mensaje 'Feliz Cumpleaños'"></textarea>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <div class="form-group" style="flex: 1;">
+                                <label for="pedido-abono-monto">Abono Inicial ($)</label>
+                                <input type="text" inputmode="numeric" id="pedido-abono-monto" placeholder="0">
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label for="pedido-abono-metodo">Método</label>
+                                <select id="pedido-abono-metodo">
+                                    <option value="Efectivo">💵 Efectivo</option>
+                                    <option value="Transferencia">📱 Transferencia</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="btn-guardar-pedido" style="width: 100%; justify-content: center; padding: 12px;">📦 Registrar Pedido</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal de previsualización de imagen ampliada -->
+    <div id="image-preview-modal" class="image-preview-overlay">
+        <img id="image-preview-src" src="" alt="Vista previa">
+    </div>
+
+    <!-- Modal tras registrar el pedido: ofrece imprimir el comprobante -->
+    <div id="modal-post-pedido" class="modal">
+        <div class="modal-content" style="width: 360px; text-align: center;">
+            <h3 style="margin-top: 0;">✅ Pedido Registrado</h3>
+            <p id="post-pedido-msg" style="color: #6b7280; font-size: 0.9em;"></p>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-primary" id="btn-imprimir-comprobante-pedido" style="flex: 1; justify-content: center;">🖨️ Imprimir Comprobante</button>
+                <button class="btn-primary" id="btn-cerrar-post-pedido" style="flex: 1; justify-content: center; background-color: #6b7280;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de detalle / edición de un pedido existente -->
+    <div id="modal-detalle-pedido" class="modal">
+        <div class="modal-content" style="width: 640px; max-height: 88vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3 id="detalle-pedido-titulo">Pedido</h3>
+                <button class="close-btn" id="btn-close-detalle-pedido">&times;</button>
+            </div>
+
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+                <div style="flex: 1; min-width: 200px;">
+                    <strong>Cliente:</strong> <span id="detalle-cliente-nombre"></span><br>
+                    <strong>Identificación:</strong> <span id="detalle-cliente-identificacion"></span><br>
+                    <strong>Teléfono:</strong> <span id="detalle-cliente-telefono"></span>
+                </div>
+                <div style="flex: 1; min-width: 200px;">
+                    <strong>Estado:</strong> <span id="detalle-estado-badge"></span><br>
+                    <strong>Fecha del pedido:</strong> <span id="detalle-fecha-pedido"></span><br>
+                    <strong>Venta generada:</strong> <span id="detalle-venta-id">-</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="detalle-fecha-entrega">Fecha Estimada de Entrega</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="date" id="detalle-fecha-entrega" style="flex: 1;">
+                    <input type="time" id="detalle-hora-entrega" style="flex: 1;" title="Hora estimada (opcional)">
+                </div>
+                <small style="color: #6b7280;">La hora es opcional; si la dejas vacía, solo se guarda el día.</small>
+            </div>
+            <div class="form-group">
+                <label for="detalle-notas">Notas</label>
+                <textarea id="detalle-notas" rows="2"></textarea>
+            </div>
+
+            <h4>Productos</h4>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <input type="text" id="detalle-agregar-producto" list="datalist-productos" placeholder="Agregar producto por nombre..." style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                <datalist id="datalist-productos"></datalist>
+                <button class="btn-primary" id="btn-agregar-producto-detalle">➕</button>
+            </div>
+            <div class="cart-list" id="detalle-cart-list"></div>
+            <div class="summary-row" style="display: flex; justify-content: space-between; margin: 10px 0; font-weight: bold;">
+                <span>Total:</span>
+                <span id="detalle-total">$0</span>
+            </div>
+            <button class="btn-primary" id="btn-guardar-productos-pedido" style="margin-bottom: 20px;">💾 Guardar Cambios (Fecha / Notas / Productos)</button>
+
+            <h4>Abonos</h4>
+            <div id="detalle-abonos-list"></div>
+            <div style="display: flex; gap: 8px; margin: 10px 0;">
+                <input type="text" inputmode="numeric" id="detalle-abono-monto" placeholder="Monto $" style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                <select id="detalle-abono-metodo" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                    <option value="Efectivo">💵 Efectivo</option>
+                    <option value="Transferencia">📱 Transferencia</option>
+                </select>
+                <button class="btn-primary" id="btn-agregar-abono">➕ Abonar</button>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 20px;">
+                <span>Saldo Pendiente:</span>
+                <span id="detalle-saldo-pendiente" style="color: #ef4444;">$0</span>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-primary" id="btn-entregar-pedido" style="flex: 1; justify-content: center; background-color: #10b981;">✅ Marcar como Entregado</button>
+                <button class="btn-primary" id="btn-cancelar-pedido" style="flex: 1; justify-content: center; background-color: #ef4444;">🗑️ Cancelar Pedido</button>
+                <button class="btn-primary" id="btn-imprimir-comprobante-detalle" style="flex: 1; justify-content: center; background-color: #6b7280;">🖨️ Reimprimir</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ticket térmico: solo visible al imprimir -->
+    <div id="area-ticket-impresion"></div>
+
+    <script src="./sidebar.js"></script>
+    <script src="./categoriaFiltro.js"></script>
+    <script src="./pedidos.js"></script>
+</body>
+
+</html>

@@ -229,6 +229,11 @@ function initDB(db) {
             agregarSoporteLWW(db, 'clientes', ['id']);
         });
 
+        // Migración: origen del cliente ('Credito' = alta manual desde Administración, 'Pedido' =
+        // creado automáticamente al registrar un Pedido/Apartado). Permite diferenciar en el listado
+        // de Administración los clientes de crédito de los que solo se ingresaron por un pedido.
+        db.run(`ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'Credito'`, [], () => {});
+
         // 12. Tabla de Abonos de Crédito
         db.run(`CREATE TABLE IF NOT EXISTS abonos_credito (
             id TEXT PRIMARY KEY,
@@ -294,6 +299,99 @@ function initDB(db) {
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_producto ON movimientos_inventario(producto_id, sucursal_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_referencia ON movimientos_inventario(referencia_id)`);
+
+        // 15. Hold de inventario para Pedidos/Apartados: cantidad comprometida que aún no sale
+        // físicamente del stock (se descuenta de `stock` recién al entregar el pedido, ver
+        // services/pedidoService.js). "Disponible para vender" = stock - stock_reservado.
+        db.run(`ALTER TABLE inventario_sucursal ADD COLUMN stock_reservado INTEGER DEFAULT 0`, [], () => { });
+
+        // 16. Tabla de Pedidos (Apartados): el cliente reserva productos para recoger en una fecha
+        // futura, paga abonos mientras tanto y el producto queda en `stock_reservado` hasta que se
+        // entrega (ahí se descuenta el stock real y se genera la venta) o se cancela (se libera el
+        // hold sin tocar el stock).
+        db.run(`CREATE TABLE IF NOT EXISTS pedidos (
+            id TEXT PRIMARY KEY,
+            sucursal_id TEXT NOT NULL,
+            cliente_id TEXT NOT NULL,
+            fecha_pedido TEXT NOT NULL,
+            fecha_entrega_estimada TEXT NOT NULL,
+            fecha_entrega_real TEXT,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            total REAL NOT NULL,
+            notas TEXT,
+            venta_id TEXT,
+            usuario_creo TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT,
+            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+        )`, [], () => {
+            agregarSoporteLWW(db, 'pedidos', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_entrega ON pedidos(fecha_entrega_estimada)`);
+
+        // Snapshot del nombre/identificación/teléfono del cliente al momento de crear el pedido.
+        // `clientes` permite borrado físico (ver eliminar-cliente en registerClientesIpc y la
+        // sincronización, que hace DELETE FROM clientes tras subir el soft-delete), así que el
+        // LEFT JOIN con clientes puede perder al cliente en cualquier momento y dejar el pedido
+        // sin nombre en el listado/detalle. Estas columnas garantizan que el pedido conserve los
+        // datos con los que se creó incluso si el cliente se elimina después (ver COALESCE en
+        // registerPedidosIpc.js).
+        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_nombre_registro TEXT`, [], () => {
+            db.run(`
+                UPDATE pedidos SET cliente_nombre_registro = (SELECT nombre FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                WHERE cliente_nombre_registro IS NULL
+            `, [], () => { });
+        });
+        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_identificacion_registro TEXT`, [], () => {
+            db.run(`
+                UPDATE pedidos SET cliente_identificacion_registro = (SELECT identificacion FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                WHERE cliente_identificacion_registro IS NULL
+            `, [], () => { });
+        });
+        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_telefono_registro TEXT`, [], () => {
+            db.run(`
+                UPDATE pedidos SET cliente_telefono_registro = (SELECT telefono FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                WHERE cliente_telefono_registro IS NULL
+            `, [], () => { });
+        });
+
+        // 17. Tabla de Detalle de Pedidos
+        db.run(`CREATE TABLE IF NOT EXISTS detalle_pedidos (
+            id TEXT PRIMARY KEY,
+            pedido_id TEXT NOT NULL,
+            producto_id TEXT NOT NULL,
+            cantidad INTEGER NOT NULL,
+            precio_unitario REAL NOT NULL,
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT,
+            FOREIGN KEY(pedido_id) REFERENCES pedidos(id),
+            FOREIGN KEY(producto_id) REFERENCES productos(id)
+        )`, [], () => {
+            agregarSoporteLWW(db, 'detalle_pedidos', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_detalle_pedidos_pedido ON detalle_pedidos(pedido_id)`);
+
+        // 18. Tabla de Abonos de Pedido (mismo shape que abonos_credito)
+        db.run(`CREATE TABLE IF NOT EXISTS abonos_pedido (
+            id TEXT PRIMARY KEY,
+            pedido_id TEXT NOT NULL,
+            monto REAL NOT NULL,
+            fecha TEXT NOT NULL,
+            metodo_pago TEXT NOT NULL,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT,
+            FOREIGN KEY(pedido_id) REFERENCES pedidos(id)
+        )`, [], () => {
+            agregarSoporteLWW(db, 'abonos_pedido', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_abonos_pedido_pedido ON abonos_pedido(pedido_id)`);
+
+        // Enlaza el gasto de reembolso generado al cancelar un pedido con el pedido que lo originó
+        // (mismo propósito que gastos.venta_id para el gasto de "Domicilio", ver ventaService.js).
+        db.run(`ALTER TABLE gastos ADD COLUMN pedido_id TEXT`, [], () => { });
 
         // 10. Crear índices de optimización para búsquedas rápidas locales
         db.run(`CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)`);

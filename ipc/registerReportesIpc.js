@@ -13,6 +13,9 @@ function registerReportesIpc() {
             // Las ventas a crédito no representan dinero recibido todavía, así que se excluyen de
             // los ingresos hasta que el cliente pague (ver consulta de abonos_credito más abajo).
             // El ingreso real se reconoce el día del abono, con el método de pago con el que se recibió.
+            // Mismo criterio para pedidos/apartados: la venta que se genera al entregarlos (detectada
+            // por el JOIN con `pedidos`) se excluye porque ese dinero ya se contó día a día vía sus
+            // abonos (ver consulta de abonos_pedido más abajo).
             let queryVentas = `
                 SELECT
                     strftime('%Y-%m-%d', fecha, 'localtime') as dia,
@@ -22,6 +25,7 @@ function registerReportesIpc() {
                 WHERE strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ?
                     AND (sync_status IS NULL OR sync_status <> 'deleted')
                     AND (es_credito IS NULL OR es_credito = 0)
+                    AND NOT EXISTS (SELECT 1 FROM pedidos ped WHERE ped.venta_id = ventas.id)
             `;
             let paramsVentas = [fechaInicio, fechaFin];
             if (sucursalId) {
@@ -74,10 +78,30 @@ function registerReportesIpc() {
                 abonos = await allQuery(queryAbonos, [fechaInicio, fechaFin]);
             }
 
+            // Abonos de Pedidos/Apartados: a diferencia de abonos_credito, sí se pueden filtrar por
+            // sucursal porque el pedido (a través del cual se llega al abono) sí tiene sucursal_id.
+            let queryAbonosPedido = `
+                SELECT
+                    strftime('%Y-%m-%d', ap.fecha) as dia,
+                    ap.metodo_pago,
+                    SUM(ap.monto) as total
+                FROM abonos_pedido ap
+                JOIN pedidos p ON ap.pedido_id = p.id
+                WHERE strftime('%Y-%m-%d', ap.fecha) >= ? AND strftime('%Y-%m-%d', ap.fecha) <= ?
+                    AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
+            `;
+            let paramsAbonosPedido = [fechaInicio, fechaFin];
+            if (sucursalId) {
+                queryAbonosPedido += ` AND p.sucursal_id = ?`;
+                paramsAbonosPedido.push(sucursalId);
+            }
+            queryAbonosPedido += ` GROUP BY dia, ap.metodo_pago ORDER BY dia DESC`;
+            const abonosPedido = await allQuery(queryAbonosPedido, paramsAbonosPedido);
+
             const ventas = await allQuery(queryVentas, paramsVentas);
             const gastos = await allQuery(queryGastos, paramsGastos);
 
-            return { success: true, ventas, gastos, abonos };
+            return { success: true, ventas, gastos, abonos, abonosPedido };
         } catch (err) {
             return { success: false, message: 'Error al obtener balance financiero: ' + err.message };
         }
