@@ -47,7 +47,7 @@ function registerProductosIpc() {
 
     // Guardar Categoría
     ipcMain.handle('guardar-categoria', async (event, datos) => {
-        const { id, nombre, categoriaPadreId } = datos;
+        const { id, nombre, categoriaPadreId, auditoriaUsuario, auditoriaRol } = datos;
         try {
             if (id) {
                 // Edición
@@ -55,6 +55,7 @@ function registerProductosIpc() {
                     `UPDATE categorias SET nombre = ?, categoria_padre_id = ?, sync_status = 'pending' WHERE id = ?`,
                     [nombre, categoriaPadreId || null, id]
                 );
+                await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Editar Categoría', `Nombre: ${nombre} - ID: ${id}`);
                 return { success: true, message: 'Categoría actualizada exitosamente.' };
             } else {
                 // Creación
@@ -63,6 +64,7 @@ function registerProductosIpc() {
                     `INSERT INTO categorias (id, nombre, categoria_padre_id, sync_status, updated_at) VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
                     [nuevoId, nombre, categoriaPadreId || null]
                 );
+                await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Crear Categoría', `Nombre: ${nombre} - ID: ${nuevoId}`);
                 return { success: true, message: 'Categoría creada exitosamente.' };
             }
         } catch (err) {
@@ -71,10 +73,12 @@ function registerProductosIpc() {
     });
 
     // Eliminar Categoría
-    ipcMain.handle('eliminar-categoria', async (event, id) => {
+    ipcMain.handle('eliminar-categoria', async (event, datos) => {
+        const { id, nombre, auditoriaUsuario, auditoriaRol } = datos;
         try {
             // En vez de borrar físico, marcamos para sincronizar soft delete
             await runQuery(`UPDATE categorias SET sync_status = 'deleted' WHERE id = ?`, [id]);
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Eliminar Categoría', `Nombre: ${nombre} - ID: ${id}`);
             return { success: true, message: 'Categoría eliminada exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar categoría: ' + err.message };

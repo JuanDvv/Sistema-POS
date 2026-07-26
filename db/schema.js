@@ -300,6 +300,31 @@ function initDB(db) {
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_producto ON movimientos_inventario(producto_id, sucursal_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_referencia ON movimientos_inventario(referencia_id)`);
 
+        // 14b. Kardex del hold de Pedidos/Apartados (inventario_sucursal.stock_reservado): mismo
+        // problema y misma solución que movimientos_inventario para `stock` -- stock_reservado lo
+        // tocan crear/editar/cancelar/entregar pedido desde distintas terminales, así que se
+        // sincroniza por delta atómico (ver aplicar_reserva_inventario en
+        // sync/migrate_stock_delta_sync.sql) en vez de subir stock_reservado como foto con LWW.
+        db.run(`CREATE TABLE IF NOT EXISTS movimientos_reserva_inventario (
+            id TEXT PRIMARY KEY,
+            producto_id TEXT NOT NULL,
+            sucursal_id TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            cantidad INTEGER NOT NULL,
+            referencia_id TEXT,
+            usuario TEXT,
+            fecha TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT,
+            FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+            FOREIGN KEY (sucursal_id) REFERENCES config_sucursal(id) ON DELETE CASCADE
+        )`, [], () => {
+            agregarSoporteLWW(db, 'movimientos_reserva_inventario', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_reserva_inventario_producto ON movimientos_reserva_inventario(producto_id, sucursal_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_reserva_inventario_referencia ON movimientos_reserva_inventario(referencia_id)`);
+
         // 15. Hold de inventario para Pedidos/Apartados: cantidad comprometida que aún no sale
         // físicamente del stock (se descuenta de `stock` recién al entregar el pedido, ver
         // services/pedidoService.js). "Disponible para vender" = stock - stock_reservado.

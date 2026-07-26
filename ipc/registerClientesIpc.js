@@ -4,6 +4,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { formatearCOP, sanitizarNombreArchivo, numeroALetras, extraerDomicilioDeMetodoPago } = require('../services/pdfHelpers');
+const { registrarAuditoria } = require('../services/auditService');
 
 // SRP: clientes, créditos, abonos y su cuenta de cobro en PDF.
 
@@ -19,13 +20,14 @@ function registerClientesIpc() {
     });
 
     ipcMain.handle('guardar-cliente', async (event, datos) => {
-        const { id, nombre, tipo, identificacion, telefono, email } = datos;
+        const { id, nombre, tipo, identificacion, telefono, email, auditoriaUsuario, auditoriaRol } = datos;
         try {
             if (id) {
                 await runQuery(
                     `UPDATE clientes SET nombre = ?, tipo = ?, identificacion = ?, telefono = ?, email = ?, sync_status = 'pending' WHERE id = ?`,
                     [nombre, tipo, identificacion, telefono, email, id]
                 );
+                await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Editar Cliente', `Nombre: ${nombre} - ID: ${id}`);
                 return { success: true, message: 'Cliente actualizado exitosamente.' };
             } else {
                 const nuevoId = 'cli-' + uuidv4().substring(0, 8);
@@ -33,6 +35,7 @@ function registerClientesIpc() {
                     `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Credito', 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
                     [nuevoId, nombre, tipo, identificacion, telefono, email]
                 );
+                await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Crear Cliente', `Nombre: ${nombre} - ID: ${nuevoId}`);
                 return { success: true, message: 'Cliente creado exitosamente.' };
             }
         } catch (err) {
@@ -40,9 +43,11 @@ function registerClientesIpc() {
         }
     });
 
-    ipcMain.handle('eliminar-cliente', async (event, id) => {
+    ipcMain.handle('eliminar-cliente', async (event, datos) => {
+        const { id, nombre, auditoriaUsuario, auditoriaRol } = datos;
         try {
             await runQuery(`UPDATE clientes SET sync_status = 'deleted' WHERE id = ?`, [id]);
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Eliminar Cliente', `Nombre: ${nombre} - ID: ${id}`);
             return { success: true, message: 'Cliente eliminado exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar cliente: ' + err.message };

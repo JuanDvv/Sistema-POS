@@ -2,7 +2,7 @@ const { BrowserWindow } = require('electron');
 const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('./auditService');
-const { registrarMovimientoInventario } = require('./inventarioMovimientoService');
+const { registrarMovimientoInventario, registrarMovimientoReserva } = require('./inventarioMovimientoService');
 const { solicitarSincronizacion } = require('../sync/syncService');
 
 // SRP: única fuente de verdad de las transacciones del módulo de Pedidos/Apartados (hold de
@@ -73,8 +73,11 @@ async function resolverOCrearClienteId({ clienteId, nombre, identificacion, tele
 
 // Suma (delta > 0) o resta (delta < 0) `cantidad` a inventario_sucursal.stock_reservado para cada
 // item, SIN tocar stock. Usa el mismo patrón INSERT...ON CONFLICT que ventaService.js usa para
-// `stock`, porque el producto puede no tener fila previa en esta sucursal.
-async function ajustarStockReservado(items, sucursalId) {
+// `stock`, porque el producto puede no tener fila previa en esta sucursal. Además dejar rastro en
+// movimientos_reserva_inventario (kardex del hold) por cada item, para que el hold se sincronice
+// como delta atómico en vez de foto con LWW -- mismo motivo que movimientos_inventario para
+// `stock` (ver services/inventarioMovimientoService.js).
+async function ajustarStockReservado(items, sucursalId, { tipo, referenciaId, usuario }) {
     if (!items.length) return;
     const values = items.flatMap(item => [item.producto_id, sucursalId, Number(item.cantidad), 'pending']);
     const placeholders = items.map(() => '(?, ?, ?, ?, strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\'))').join(', ');
@@ -86,6 +89,12 @@ async function ajustarStockReservado(items, sucursalId) {
             sync_status = 'pending'`,
         values
     );
+    for (const item of items) {
+        await registrarMovimientoReserva({
+            productoId: item.producto_id, sucursalId, tipo,
+            cantidad: Number(item.cantidad), referenciaId, usuario
+        });
+    }
 }
 
 async function obtenerSaldoPedido(pedidoId) {
@@ -143,7 +152,9 @@ async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIden
             detalleValues
         );
 
-        await ajustarStockReservado(carrito.map(item => ({ producto_id: item.id, cantidad: item.cantidad })), sucursalId);
+        await ajustarStockReservado(carrito.map(item => ({ producto_id: item.id, cantidad: item.cantidad })), sucursalId, {
+            tipo: 'CREACION_PEDIDO', referenciaId: pedidoId, usuario: auditoriaUsuario
+        });
 
         if (abonoInicial && Number(abonoInicial.monto) > 0) {
             await runQuery(
@@ -246,7 +257,9 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
 
         const detalleOriginal = await allQuery(`SELECT producto_id, cantidad FROM detalle_pedidos WHERE pedido_id = ?`, [pedidoId]);
         if (detalleOriginal.length > 0) {
-            await ajustarStockReservado(detalleOriginal.map(d => ({ producto_id: d.producto_id, cantidad: -Number(d.cantidad) })), pedido.sucursal_id);
+            await ajustarStockReservado(detalleOriginal.map(d => ({ producto_id: d.producto_id, cantidad: -Number(d.cantidad) })), pedido.sucursal_id, {
+                tipo: 'EDICION_PEDIDO_REVERSA', referenciaId: pedidoId, usuario: auditoriaUsuario
+            });
         }
 
         await runQuery(`DELETE FROM detalle_pedidos WHERE pedido_id = ?`, [pedidoId]);
@@ -258,7 +271,9 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
             detalleValues
         );
 
-        await ajustarStockReservado(carrito.map(item => ({ producto_id: item.id, cantidad: item.cantidad })), pedido.sucursal_id);
+        await ajustarStockReservado(carrito.map(item => ({ producto_id: item.id, cantidad: item.cantidad })), pedido.sucursal_id, {
+            tipo: 'EDICION_PEDIDO', referenciaId: pedidoId, usuario: auditoriaUsuario
+        });
 
         await runQuery(
             `UPDATE pedidos SET total = ?, fecha_entrega_estimada = ?, notas = ?, sync_status = 'pending' WHERE id = ?`,
@@ -301,7 +316,9 @@ async function cancelarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
 
         const detalle = await allQuery(`SELECT producto_id, cantidad FROM detalle_pedidos WHERE pedido_id = ?`, [pedidoId]);
         if (detalle.length > 0) {
-            await ajustarStockReservado(detalle.map(d => ({ producto_id: d.producto_id, cantidad: -Number(d.cantidad) })), pedido.sucursal_id);
+            await ajustarStockReservado(detalle.map(d => ({ producto_id: d.producto_id, cantidad: -Number(d.cantidad) })), pedido.sucursal_id, {
+                tipo: 'CANCELACION_PEDIDO', referenciaId: pedidoId, usuario: auditoriaUsuario
+            });
         }
 
         const abonos = await allQuery(
@@ -407,6 +424,10 @@ async function entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuar
                 await registrarMovimientoInventario({
                     productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'VENTA',
                     cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                });
+                await registrarMovimientoReserva({
+                    productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'ENTREGA_PEDIDO',
+                    cantidad: -Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario
                 });
             }
         }

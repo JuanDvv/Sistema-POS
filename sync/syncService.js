@@ -1,7 +1,17 @@
 const { BrowserWindow } = require('electron');
 const { runQuery, allQuery } = require('../db/connection');
 const { obtenerMensajeSync } = require('../services/auditService');
-const { supabase, supabaseLogs, supabaseUrl, supabaseKey } = require('./supabaseClients');
+const { supabase, supabaseLogs, supabaseUrl, supabaseKey, isProd } = require('./supabaseClients');
+
+// Todos los console.log/console.error de este archivo usan el tag "[Sincronizador]" a mano.
+// En vez de tocar cada línea, se intercepta console solo en este módulo para que ese tag
+// muestre a qué entorno está sincronizando (fácil de confundir si no queda a la vista).
+const SYNC_ENV_TAG = isProd ? '[Sincronizador PRODUCCIÓN]' : '[Sincronizador TEST]';
+const nativeConsole = { log: globalThis.console.log.bind(globalThis.console), error: globalThis.console.error.bind(globalThis.console) };
+const console = {
+    log: (msg, ...rest) => nativeConsole.log(typeof msg === 'string' ? msg.replace('[Sincronizador]', SYNC_ENV_TAG) : msg, ...rest),
+    error: (msg, ...rest) => nativeConsole.error(typeof msg === 'string' ? msg.replace('[Sincronizador]', SYNC_ENV_TAG) : msg, ...rest)
+};
 
 // SRP: motor de sincronización offline-first. Cada función sync* es responsable de UNA sola
 // entidad (subir pendientes, subir eliminaciones, descargar cambios de la nube); el orquestador
@@ -19,6 +29,16 @@ const { supabase, supabaseLogs, supabaseUrl, supabaseKey } = require('./supabase
 //   local Y el registro local no tiene una edición propia sin subir (sync_status <> 'pending').
 //   Si la fila remota trae deleted_at, se refleja como DELETE físico local (el SQLite local es un
 //   espejo desechable, no la fuente de verdad).
+// - EXCEPCIÓN -- inventario_sucursal.stock y .stock_reservado: contadores que varias terminales
+//   incrementan/decrementan de forma concurrente (ventas, abastecimientos, transferencias,
+//   crear/editar/cancelar/entregar pedidos...) NO se pueden resolver con LWW por "foto": si dos
+//   terminales tocan el mismo producto/sucursal casi al mismo tiempo, la que sincroniza último
+//   borraría por completo el cambio de la otra en vez de combinarlos. Por eso ninguno de los dos
+//   se sube como valor absoluto: se derivan de su kardex respectivo (movimientos_inventario /
+//   movimientos_reserva_inventario -- append-only, cada fila es un delta con id propio) aplicado
+//   como suma atómica en Postgres vía los RPC aplicar_movimiento_inventario / aplicar_reserva_
+//   inventario (ver sync/migrate_stock_delta_sync.sql, syncMovimientosInventarioSubir y
+//   syncReservaInventarioSubir) -- conmutativo, no importa el orden de llegada.
 
 let estaSincronizando = false;
 const isSincronizando = () => estaSincronizando;
@@ -528,34 +548,16 @@ async function syncCategoriasEliminaciones() {
     }
 }
 
-// --- 3.5. SUBIR INVENTARIO POR SUCURSAL EDITADO LOCALMENTE (Local -> Supabase, con LWW) ---
-async function syncInventarioSubir() {
-    try {
-        const stocksPendientes = await allQuery(`SELECT * FROM inventario_sucursal WHERE sync_status = 'pending'`, []);
-        for (const inv of stocksPendientes) {
-            const gano = await upsertConLWW('inventario_sucursal', {
-                producto_id: inv.producto_id,
-                sucursal_id: inv.sucursal_id,
-                stock: inv.stock,
-                stock_reservado: inv.stock_reservado || 0,
-                updated_at: inv.updated_at
-            }, 'producto_id');
-
-            if (!gano) {
-                console.log(`[Sincronizador] Existencias de ${inv.producto_id} en ${inv.sucursal_id} no subidas: hay una versión más reciente en la nube.`);
-                continue;
-            }
-
-            await runQuery(
-                `UPDATE inventario_sucursal SET sync_status = 'synced' WHERE producto_id = ? AND sucursal_id = ?`,
-                [inv.producto_id, inv.sucursal_id]
-            );
-            console.log(`[Sincronizador] Existencias del producto ${inv.producto_id} en ${inv.sucursal_id} sincronizadas.`);
-        }
-    } catch (err) {
-        console.log("[Sincronizador] Existencias de inventario no sincronizadas (Modo Offline o error de red):", err.message);
-    }
-}
+// inventario_sucursal ya NO se sube como fila/foto desde este módulo: tanto `stock` como
+// `stock_reservado` son contadores que varias terminales incrementan/decrementan de forma
+// concurrente (ventas, abastecimientos, transferencias, pedidos...), y subir un snapshot con
+// LWW por updated_at permitía que la terminal que sincronizaba último borrara por completo el
+// cambio de otra en vez de combinarlos. Ambos se sincronizan por delta atómico a través de su
+// kardex respectivo: `stock` vía syncMovimientosInventarioSubir + RPC
+// aplicar_movimiento_inventario, `stock_reservado` vía syncReservaInventarioSubir + RPC
+// aplicar_reserva_inventario (ver sync/migrate_stock_delta_sync.sql). La única función que sigue
+// bajando inventario_sucursal completo es syncInventarioDescargar (pull), para que un equipo
+// nuevo o recién reinstalado arranque con el total ya consolidado desde la nube.
 
 // La tabla 'movimientos_inventario' puede no existir aún en Supabase (o el cache de esquema de
 // PostgREST puede no reconocerla tras crearla). En ese caso Supabase responde con el error
@@ -563,9 +565,18 @@ async function syncInventarioSubir() {
 // degradar en silencio (sin romper el resto del ciclo de sincronización) y evitar reintentar
 // contra la red en cada ciclo mientras la tabla siga sin existir.
 let movimientosInventarioTablaDisponible = true;
+// Mismo caso, para el kardex del hold de Pedidos/Apartados.
+let movimientosReservaTablaDisponible = true;
 // Mismo caso que movimientos_inventario: mientras el usuario no corra el SQL de las tablas del
 // módulo de Pedidos/Apartados en Supabase, se degrada en silencio en vez de romper el ciclo.
 let pedidosTablasDisponibles = true;
+// Las funciones aplicar_movimiento_inventario()/aplicar_reserva_inventario() (ver
+// sync/migrate_stock_delta_sync.sql) pueden no existir aún si la migración no se ha corrido en
+// este proyecto de Supabase. PostgREST responde PGRST202 "Could not find the function" en ese
+// caso -- se degrada en silencio igual que con una tabla faltante, en vez de reintentar contra
+// la red en cada ciclo.
+let rpcAplicarMovimientoDisponible = true;
+let rpcAplicarReservaDisponible = true;
 
 function esErrorTablaInexistente(error) {
     if (!error) return false;
@@ -573,33 +584,42 @@ function esErrorTablaInexistente(error) {
     return error.code === 'PGRST205' || mensaje.includes('could not find the table') || mensaje.includes('schema cache');
 }
 
-// --- 3.6. SUBIR MOVIMIENTOS DE INVENTARIO (Local -> Supabase, con LWW) ---
+function esErrorFuncionInexistente(error) {
+    if (!error) return false;
+    const mensaje = String(error.message || '').toLowerCase();
+    return error.code === 'PGRST202' || mensaje.includes('could not find the function') || mensaje.includes('schema cache');
+}
+
+// --- 3.6. SUBIR MOVIMIENTOS DE INVENTARIO (Local -> Supabase, aplicados como delta atómico) ---
 // Append-only (Kardex): nunca se editan ni se eliminan localmente, por eso no tiene una función
 // de "eliminaciones" propia como ventas/transferencias.
+//
+// En vez de un upsert con LWW por updated_at (que solo garantiza que el movimiento en sí no se
+// pise), cada movimiento se aplica con el RPC aplicar_movimiento_inventario (ver
+// sync/migrate_stock_delta_sync.sql): inserta el movimiento de forma idempotente (ON CONFLICT
+// DO NOTHING por id -- un reintento de red no vuelve a sumar) y, solo si el insert fue real,
+// suma su `cantidad` a inventario_sucursal.stock dentro de la misma transacción en Postgres.
+// Al ser una suma conmutativa en vez de una foto que se pisa, no importa el orden en que dos
+// terminales sincronicen sus cambios sobre el mismo producto/sucursal.
 async function syncMovimientosInventarioSubir() {
-    if (!movimientosInventarioTablaDisponible) return;
+    if (!movimientosInventarioTablaDisponible || !rpcAplicarMovimientoDisponible) return;
     try {
         const movimientosPendientes = await allQuery(`SELECT * FROM movimientos_inventario WHERE sync_status = 'pending'`, []);
         for (const mov of movimientosPendientes) {
-            const gano = await upsertConLWW('movimientos_inventario', {
-                id: mov.id,
-                producto_id: mov.producto_id,
-                sucursal_id: mov.sucursal_id,
-                tipo: mov.tipo,
-                cantidad: mov.cantidad,
-                referencia_id: mov.referencia_id,
-                usuario: mov.usuario,
-                fecha: mov.fecha,
-                updated_at: mov.updated_at
+            const { error } = await supabase.rpc('aplicar_movimiento_inventario', {
+                p_id: mov.id,
+                p_producto_id: mov.producto_id,
+                p_sucursal_id: mov.sucursal_id,
+                p_tipo: mov.tipo,
+                p_cantidad: mov.cantidad,
+                p_referencia_id: mov.referencia_id,
+                p_usuario: mov.usuario,
+                p_fecha: mov.fecha
             });
-
-            if (!gano) {
-                console.log(`[Sincronizador] Movimiento de inventario ${mov.id} no subido: hay una versión más reciente en la nube.`);
-                continue;
-            }
+            if (error) throw error;
 
             await runQuery(`UPDATE movimientos_inventario SET sync_status = 'synced' WHERE id = ?`, [mov.id]);
-            console.log(`[Sincronizador] Movimiento de inventario ${mov.id} sincronizado con la nube.`);
+            console.log(`[Sincronizador] Movimiento de inventario ${mov.id} sincronizado con la nube (stock aplicado como delta).`);
         }
     } catch (err) {
         if (esErrorTablaInexistente(err)) {
@@ -607,7 +627,51 @@ async function syncMovimientosInventarioSubir() {
             console.log("[Sincronizador] La tabla 'movimientos_inventario' no existe en Supabase (o el cache de esquema no la reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
             return;
         }
+        if (esErrorFuncionInexistente(err)) {
+            rpcAplicarMovimientoDisponible = false;
+            console.log("[Sincronizador] La función 'aplicar_movimiento_inventario' no existe en Supabase todavía (falta correr sync/migrate_stock_delta_sync.sql). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
         console.log("[Sincronizador] Movimientos de inventario no sincronizados (Modo Offline o error de red):", err.message);
+    }
+}
+
+// --- 3.7. SUBIR MOVIMIENTOS DE RESERVA DE INVENTARIO (Local -> Supabase, aplicados como delta
+//      atómico) ---
+// Kardex del hold de Pedidos/Apartados (inventario_sucursal.stock_reservado). Mismo mecanismo
+// que syncMovimientosInventarioSubir, ver ese comentario para el detalle del porqué.
+async function syncReservaInventarioSubir() {
+    if (!movimientosReservaTablaDisponible || !rpcAplicarReservaDisponible) return;
+    try {
+        const movimientosPendientes = await allQuery(`SELECT * FROM movimientos_reserva_inventario WHERE sync_status = 'pending'`, []);
+        for (const mov of movimientosPendientes) {
+            const { error } = await supabase.rpc('aplicar_reserva_inventario', {
+                p_id: mov.id,
+                p_producto_id: mov.producto_id,
+                p_sucursal_id: mov.sucursal_id,
+                p_tipo: mov.tipo,
+                p_cantidad: mov.cantidad,
+                p_referencia_id: mov.referencia_id,
+                p_usuario: mov.usuario,
+                p_fecha: mov.fecha
+            });
+            if (error) throw error;
+
+            await runQuery(`UPDATE movimientos_reserva_inventario SET sync_status = 'synced' WHERE id = ?`, [mov.id]);
+            console.log(`[Sincronizador] Movimiento de reserva ${mov.id} sincronizado con la nube (stock_reservado aplicado como delta).`);
+        }
+    } catch (err) {
+        if (esErrorTablaInexistente(err)) {
+            movimientosReservaTablaDisponible = false;
+            console.log("[Sincronizador] La tabla 'movimientos_reserva_inventario' no existe en Supabase (o el cache de esquema no la reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        if (esErrorFuncionInexistente(err)) {
+            rpcAplicarReservaDisponible = false;
+            console.log("[Sincronizador] La función 'aplicar_reserva_inventario' no existe en Supabase todavía (falta correr sync/migrate_stock_delta_sync.sql). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        console.log("[Sincronizador] Movimientos de reserva no sincronizados (Modo Offline o error de red):", err.message);
     }
 }
 
@@ -769,6 +833,47 @@ async function syncMovimientosInventarioDescargar() {
     }
 }
 
+// --- 5.8. DESCARGAR MOVIMIENTOS DE RESERVA DE INVENTARIO (Supabase -> Local, con LWW) ---
+async function syncReservaInventarioDescargar() {
+    if (!movimientosReservaTablaDisponible) return;
+    try {
+        const movsNube = await descargarTodo('movimientos_reserva_inventario');
+
+        if (movsNube) {
+            for (const mov of movsNube) {
+                if (mov.deleted_at) {
+                    await runQuery(`DELETE FROM movimientos_reserva_inventario WHERE id = ? AND sync_status <> 'pending'`, [mov.id]);
+                    continue;
+                }
+                await runQuery(
+                    `INSERT INTO movimientos_reserva_inventario (id, producto_id, sucursal_id, tipo, cantidad, referencia_id, usuario, fecha, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        producto_id = excluded.producto_id,
+                        sucursal_id = excluded.sucursal_id,
+                        tipo = excluded.tipo,
+                        cantidad = excluded.cantidad,
+                        referencia_id = excluded.referencia_id,
+                        usuario = excluded.usuario,
+                        fecha = excluded.fecha,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, mov.fecha, mov.updated_at]
+                );
+            }
+            console.log("[Sincronizador] Movimientos de reserva actualizados desde la nube.");
+        }
+    } catch (err) {
+        if (esErrorTablaInexistente(err)) {
+            movimientosReservaTablaDisponible = false;
+            console.log("[Sincronizador] La tabla 'movimientos_reserva_inventario' no existe en Supabase (o el cache de esquema no la reconoce). Se omite esta sincronización sin interrumpir el resto del ciclo.");
+            return;
+        }
+        console.log("[Sincronizador] No se pudieron descargar movimientos de reserva (Modo Offline):", err.message);
+    }
+}
+
 // --- 6. SINCRONIZAR CONFIGURACIÓN DE SUCURSALES (Bidireccional, con LWW) ---
 async function syncSucursales() {
     // A. Subir cambios locales pendientes a la nube
@@ -844,6 +949,23 @@ async function syncUsuarios() {
             }
         } catch (errUpload) {
             console.log("[Sincronizador] No se pudieron subir usuarios:", obtenerMensajeSync(errUpload, 'usuarios'));
+        }
+
+        // A.5 Sincronizar eliminaciones (soft delete). 'u-admin-default' nunca llega aquí porque
+        // el handler de eliminación le aplica un DELETE físico local sin pasar por sync_status.
+        try {
+            const usuariosEliminados = await allQuery(`SELECT * FROM usuarios WHERE sync_status = 'deleted'`, []);
+            for (const usr of usuariosEliminados) {
+                const gano = await softDeleteConLWW('usuarios', { id: usr.id });
+                if (!gano) {
+                    console.log(`[Sincronizador] Eliminación de usuario ${usr.username} pospuesta: hay una versión más reciente en la nube (o RLS la bloqueó).`);
+                    continue;
+                }
+                await runQuery(`DELETE FROM usuarios WHERE id = ?`, [usr.id]);
+                console.log(`[Sincronizador] Eliminación de usuario ${usr.username} sincronizada con la nube.`);
+            }
+        } catch (errElim) {
+            console.log("[Sincronizador] Eliminaciones de usuarios no sincronizadas:", obtenerMensajeSync(errElim, 'usuarios'));
         }
 
         // B. Descargar cambios de la nube a local (solo si no hay error de red)
@@ -1439,13 +1561,14 @@ async function procesarSincronizacion() {
         await syncProductosSubir();
         await syncCategoriasSubir();
         await syncCategoriasEliminaciones();
-        await syncInventarioSubir();
         await syncMovimientosInventarioSubir();
+        await syncReservaInventarioSubir();
         await syncProductosEliminaciones();
         await syncCategoriasDescargar();
         await syncProductosDescargar();
         await syncInventarioDescargar();
         await syncMovimientosInventarioDescargar();
+        await syncReservaInventarioDescargar();
         await syncSucursales();
         await syncUsuarios();
         await syncTransferenciasSubir();

@@ -2,6 +2,7 @@ const { ipcMain } = require('electron');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { supabase } = require('../sync/supabaseClients');
 const { solicitarSincronizacion } = require('../sync/syncService');
+const { registrarAuditoria } = require('../services/auditService');
 
 // SRP: configuración y activación de sucursales.
 
@@ -56,12 +57,14 @@ function registerSucursalesIpc() {
     });
 
     // Activar una sucursal para este PC
-    ipcMain.handle('activar-sucursal', async (event, id) => {
+    ipcMain.handle('activar-sucursal', async (event, datos) => {
+        const { id, auditoriaUsuario, auditoriaRol } = datos;
         try {
             await runQuery("BEGIN TRANSACTION", []);
             await runQuery(`UPDATE config_sucursal SET activa = 0`, []);
             await runQuery(`UPDATE config_sucursal SET activa = 1 WHERE id = ?`, [id]);
             await runQuery("COMMIT", []);
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, id, 'Activar Sucursal (Terminal)', `Sucursal ID: ${id}`);
             return { success: true, message: 'Sucursal activada en este PC exitosamente.' };
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => { });
@@ -86,7 +89,7 @@ function registerSucursalesIpc() {
 
     // Guardar/Crear información de la sucursal (Soporta modificación de ID)
     ipcMain.handle('guardar-sucursal', async (event, datos) => {
-        const { oldId, newId, nombre, direccion, telefono } = datos;
+        const { oldId, newId, nombre, direccion, telefono, auditoriaUsuario, auditoriaRol } = datos;
         const ahora = new Date().toISOString();
         try {
             await runQuery("BEGIN TRANSACTION", []);
@@ -120,6 +123,12 @@ function registerSucursalesIpc() {
             }
             await runQuery("COMMIT", []);
 
+            const accionAuditoria = !oldId ? 'Crear Sucursal' : (oldId !== newId ? 'Editar Sucursal (Cambio de ID)' : 'Editar Sucursal');
+            const detalleAuditoria = oldId && oldId !== newId
+                ? `ID: ${oldId} -> ${newId} - Nombre: ${nombre}`
+                : `ID: ${newId} - Nombre: ${nombre}`;
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, newId, accionAuditoria, detalleAuditoria);
+
             // Intentar sincronizar con Supabase de inmediato, además del ciclo de sync en segundo
             // plano, para que un error de red/RLS se pueda avisar ya mismo en vez de perderse.
             let avisoSync = '';
@@ -150,7 +159,8 @@ function registerSucursalesIpc() {
     });
 
     // Eliminar sucursal
-    ipcMain.handle('eliminar-sucursal', async (event, id) => {
+    ipcMain.handle('eliminar-sucursal', async (event, datos) => {
+        const { id, auditoriaUsuario, auditoriaRol } = datos;
         try {
             const row = await new Promise((resolve) => {
                 db.get(`SELECT activa FROM config_sucursal WHERE id = ?`, [id], (err, row) => {
@@ -161,6 +171,7 @@ function registerSucursalesIpc() {
                 return { success: false, message: 'No se puede eliminar la sucursal activa en este terminal. Primero activa otra sucursal.' };
             }
             await runQuery(`DELETE FROM config_sucursal WHERE id = ?`, [id]);
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, id, 'Eliminar Sucursal', `Sucursal ID: ${id}`);
             return { success: true, message: 'Sucursal eliminada exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar sucursal: ' + err.message };

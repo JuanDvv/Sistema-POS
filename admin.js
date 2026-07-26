@@ -127,7 +127,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 newId,
                 nombre,
                 direccion,
-                telefono
+                telefono,
+                auditoriaUsuario: activeUserSession,
+                auditoriaRol: 'Administrador'
             });
 
             if (res.success) {
@@ -162,7 +164,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 id: editingUserId,
                 username,
                 password,
-                rol
+                rol,
+                auditoriaUsuario: activeUserSession,
+                auditoriaRol: 'Administrador'
             });
 
             alert(res.message);
@@ -223,7 +227,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const res = await window.api.guardarCategoria({
                 id: editingCategoriaId,
                 nombre,
-                categoriaPadreId
+                categoriaPadreId,
+                auditoriaUsuario: activeUserSession,
+                auditoriaRol: 'Administrador'
             });
 
             alert(res.message);
@@ -294,7 +300,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 tipo,
                 identificacion,
                 telefono,
-                email
+                email,
+                auditoriaUsuario: activeUserSession,
+                auditoriaRol: 'Administrador'
             });
 
             alert(res.message);
@@ -420,7 +428,7 @@ window.iniciarEdicionSucursal = (id, nombre, direccion, telefono) => {
 };
 
 window.activarSucursal = async (id) => {
-    const res = await window.api.activarSucursal(id);
+    const res = await window.api.activarSucursal({ id, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
     alert(res.message);
     if (res.success) {
         await cargarSucursales();
@@ -429,7 +437,7 @@ window.activarSucursal = async (id) => {
 
 window.eliminarSucursal = async (id) => {
     if (confirm(`¿Estás seguro de que deseas eliminar la sucursal "${id}"?`)) {
-        const res = await window.api.eliminarSucursal(id);
+        const res = await window.api.eliminarSucursal({ id, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
         alert(res.message);
         if (res.success) {
             await cargarSucursales();
@@ -461,7 +469,7 @@ window.iniciarEdicionUsuario = (id, username, password, rol) => {
 
 window.eliminarUsuario = async (id, username) => {
     if (confirm(`¿Estás seguro de que deseas eliminar la cuenta del usuario "${username}"?`)) {
-        const res = await window.api.eliminarUsuario(id);
+        const res = await window.api.eliminarUsuario({ id, username, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
         alert(res.message);
         if (res.success) {
             await cargarUsuarios();
@@ -567,7 +575,7 @@ window.iniciarEdicionCategoria = async (id, nombre, padreId) => {
 
 window.eliminarCategoria = async (id, nombre) => {
     if (confirm(`¿Estás seguro de que deseas eliminar la categoría "${nombre}"? Los productos asociados se desvincularán.`)) {
-        const res = await window.api.eliminarCategoria(id);
+        const res = await window.api.eliminarCategoria({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
         alert(res.message);
         if (res.success) {
             await cargarCategorias();
@@ -655,7 +663,7 @@ window.iniciarEdicionCliente = (id, nombre, tipo, identificacion, telefono, emai
 
 window.eliminarCliente = async (id, nombre) => {
     if (confirm(`¿Estás seguro de que deseas eliminar al cliente "${nombre}"?`)) {
-        const res = await window.api.eliminarCliente(id);
+        const res = await window.api.eliminarCliente({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
         alert(res.message);
         if (res.success) {
             await cargarClientes();
