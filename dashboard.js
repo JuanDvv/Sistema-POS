@@ -180,7 +180,10 @@ function renderizarProductos(productos) {
 
             tr.innerHTML = `
                 <td>
-                    <img src="${imgUrl}" alt="${prod.nombre}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #d1d5db;">
+                    <div style="position: relative; width: 70px; height: 70px;">
+                        <img src="${imgUrl}" alt="${prod.nombre}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 4px; border: 1px solid #d1d5db; display: block;">
+                        <button class="eye-preview-btn" style="position: absolute; bottom: 2px; right: 2px; background-color: rgba(255, 255, 255, 0.9); border: 1px solid #d1d5db; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.15); font-size: 0.8em; padding: 0;" title="Ver imagen en grande">👁️</button>
+                    </div>
                 </td>
                 <td><strong>${prod.nombre}</strong></td>
                 <td><span style="background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; color: #4b5563;">${prod.categoria_nombre || '<span style="color:#9ca3af; font-style:italic;">Sin categoría</span>'}</span></td>
@@ -252,6 +255,18 @@ function renderizarProductos(productos) {
                 tr.appendChild(tdAcciones);
             }
 
+            const eyeBtn = tr.querySelector('.eye-preview-btn');
+            if (eyeBtn) {
+                eyeBtn.addEventListener('click', () => {
+                    const modal = document.getElementById('image-preview-modal');
+                    const modalImg = document.getElementById('image-preview-src');
+                    if (modal && modalImg) {
+                        modalImg.src = imgUrl;
+                        modal.style.display = 'flex';
+                    }
+                });
+            }
+
             tbody.appendChild(tr);
         });
     } else {
@@ -261,6 +276,13 @@ function renderizarProductos(productos) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const imagePreviewModal = document.getElementById('image-preview-modal');
+    if (imagePreviewModal) {
+        imagePreviewModal.addEventListener('click', () => {
+            imagePreviewModal.style.display = 'none';
+        });
+    }
+
     const resId = await window.api.obtenerSucursalId();
     if (resId.success) {
         sucursalLocalId = resId.id;
@@ -282,6 +304,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         const btnCargarAbastecimiento = document.getElementById('btn-cargar-abastecimiento');
         if (btnPlantilla) btnPlantilla.style.display = 'inline-flex';
         if (btnCargarAbastecimiento) btnCargarAbastecimiento.style.display = 'inline-flex';
+        actualizarAccesoAbastecimientoMasivo();
+    }
+
+    // Un Operador solo puede abastecer (individual o masivo) la sucursal activa del PC; al ver una
+    // sucursal remota en el select, el botón "Abastecer" individual ya se bloquea (ver isRemoteSucursal
+    // en renderizarProductos) -- esta función aplica el mismo candado al botón de carga masiva por
+    // archivo, que antes quedaba habilitado sin importar la sucursal seleccionada.
+    function actualizarAccesoAbastecimientoMasivo() {
+        const btn = document.getElementById('btn-cargar-abastecimiento');
+        if (!btn) return;
+        const bloqueado = role === 'Operador' && sucursalId !== sucursalLocalId;
+        btn.disabled = bloqueado;
+        btn.style.opacity = bloqueado ? '0.6' : '';
+        btn.style.cursor = bloqueado ? 'not-allowed' : '';
+        btn.title = bloqueado ? 'Solo lectura: no puede abastecer una sucursal remota' : '';
     }
 
     if (role === 'Administrador') {
@@ -312,6 +349,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 selectSucs.addEventListener('change', async (e) => {
                     sucursalId = e.target.value;
+                    actualizarAccesoAbastecimientoMasivo();
                     await cargarProductos();
                 });
             }
@@ -615,6 +653,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (btnCargarAbastecimiento) {
         btnCargarAbastecimiento.addEventListener('click', async () => {
+            if (role === 'Operador' && sucursalId !== sucursalLocalId) {
+                alert('No tiene permiso para abastecer una sucursal remota.');
+                return;
+            }
             const response = await window.api.previsualizarAbastecimientoArchivo({ sucursalId });
             if (response.cancelado) return;
             if (!response.success) {
@@ -643,6 +685,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (btnConfirmarMasivo) {
         btnConfirmarMasivo.addEventListener('click', async () => {
+            if (role === 'Operador' && sucursalId !== sucursalLocalId) {
+                alert('No tiene permiso para abastecer una sucursal remota.');
+                return;
+            }
             const validos = itemsAbastecimientoMasivo.filter((i) => i.valido);
             if (validos.length === 0) return;
             if (!confirm(`¿Confirmas ingresar ${validos.length} producto(s) al inventario de esta sucursal?`)) return;

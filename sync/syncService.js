@@ -590,6 +590,63 @@ function esErrorFuncionInexistente(error) {
     return error.code === 'PGRST202' || mensaje.includes('could not find the function') || mensaje.includes('schema cache');
 }
 
+// La fila de inventario_sucursal queda en sync_status='pending' apenas se toca localmente (venta,
+// abastecimiento, ajuste), pero nadie más la libera: syncInventarioDescargar exige
+// `sync_status <> 'pending'` para aplicar el valor consolidado de la nube, así que sin este
+// desbloqueo esa fila nunca vuelve a recibir por pull lo que otras terminales hayan aportado --
+// solo se mueve con los deltas propios de este equipo. Se llama una vez que el kardex (stock y/o
+// reserva) de ese producto/sucursal ya no tiene nada pendiente por subir, para no liberar el
+// candado mientras todavía queda un delta local sin confirmar en la nube.
+async function liberarInventarioSiSinPendientes(productoId, sucursalId) {
+    const pendientesStock = await allQuery(
+        `SELECT 1 FROM movimientos_inventario WHERE producto_id = ? AND sucursal_id = ? AND sync_status = 'pending' LIMIT 1`,
+        [productoId, sucursalId]
+    );
+    if (pendientesStock.length > 0) return;
+
+    if (movimientosReservaTablaDisponible) {
+        const pendientesReserva = await allQuery(
+            `SELECT 1 FROM movimientos_reserva_inventario WHERE producto_id = ? AND sucursal_id = ? AND sync_status = 'pending' LIMIT 1`,
+            [productoId, sucursalId]
+        );
+        if (pendientesReserva.length > 0) return;
+    }
+
+    await runQuery(
+        `UPDATE inventario_sucursal SET sync_status = 'synced' WHERE producto_id = ? AND sucursal_id = ? AND sync_status = 'pending'`,
+        [productoId, sucursalId]
+    );
+}
+
+// Red de seguridad para filas ya huérfanas de instalaciones existentes: liberarInventarioSiSinPendientes
+// solo se dispara cuando HAY un movimiento pendiente que se acaba de subir, pero versiones
+// anteriores de la app (antes de este fix) pudieron dejar una fila en 'pending' cuyo movimiento de
+// kardex ya se había subido con éxito en su momento -- sin nada pendiente que la vuelva a tocar,
+// esa fila se habría quedado atascada para siempre incluso después de actualizar. Se corre una vez
+// por ciclo de sincronización, antes del pull, para destrabar también esos casos históricos.
+async function liberarInventarioPendienteHuerfano() {
+    try {
+        const resultado = await runQuery(
+            `UPDATE inventario_sucursal SET sync_status = 'synced'
+             WHERE sync_status = 'pending'
+               AND NOT EXISTS (
+                   SELECT 1 FROM movimientos_inventario m
+                   WHERE m.producto_id = inventario_sucursal.producto_id AND m.sucursal_id = inventario_sucursal.sucursal_id AND m.sync_status = 'pending'
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM movimientos_reserva_inventario r
+                   WHERE r.producto_id = inventario_sucursal.producto_id AND r.sucursal_id = inventario_sucursal.sucursal_id AND r.sync_status = 'pending'
+               )`,
+            []
+        );
+        if (resultado.changes > 0) {
+            console.log(`[Sincronizador] ${resultado.changes} fila(s) de inventario_sucursal huérfanas (pending sin nada por subir) liberadas para volver a recibir el consolidado de la nube.`);
+        }
+    } catch (err) {
+        console.log("[Sincronizador] No se pudo ejecutar el barrido de inventario huérfano:", err.message);
+    }
+}
+
 // --- 3.6. SUBIR MOVIMIENTOS DE INVENTARIO (Local -> Supabase, aplicados como delta atómico) ---
 // Append-only (Kardex): nunca se editan ni se eliminan localmente, por eso no tiene una función
 // de "eliminaciones" propia como ventas/transferencias.
@@ -619,6 +676,7 @@ async function syncMovimientosInventarioSubir() {
             if (error) throw error;
 
             await runQuery(`UPDATE movimientos_inventario SET sync_status = 'synced' WHERE id = ?`, [mov.id]);
+            await liberarInventarioSiSinPendientes(mov.producto_id, mov.sucursal_id);
             console.log(`[Sincronizador] Movimiento de inventario ${mov.id} sincronizado con la nube (stock aplicado como delta).`);
         }
     } catch (err) {
@@ -658,6 +716,7 @@ async function syncReservaInventarioSubir() {
             if (error) throw error;
 
             await runQuery(`UPDATE movimientos_reserva_inventario SET sync_status = 'synced' WHERE id = ?`, [mov.id]);
+            await liberarInventarioSiSinPendientes(mov.producto_id, mov.sucursal_id);
             console.log(`[Sincronizador] Movimiento de reserva ${mov.id} sincronizado con la nube (stock_reservado aplicado como delta).`);
         }
     } catch (err) {
@@ -1563,6 +1622,7 @@ async function procesarSincronizacion() {
         await syncCategoriasEliminaciones();
         await syncMovimientosInventarioSubir();
         await syncReservaInventarioSubir();
+        await liberarInventarioPendienteHuerfano();
         await syncProductosEliminaciones();
         await syncCategoriasDescargar();
         await syncProductosDescargar();

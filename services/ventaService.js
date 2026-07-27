@@ -162,8 +162,14 @@ async function eliminarVentaTx({ ventaId, auditoriaUsuario, auditoriaRol, accion
             throw new Error("No se encontró la venta especificada.");
         }
 
-        // 2. Obtener detalles para devolver el stock
-        const detalles = await allQuery(`SELECT producto_id, cantidad FROM detalle_ventas WHERE venta_id = ?`, [ventaId]);
+        // 2. Obtener detalles para devolver el stock (con nombre para dejarlo trazado en la auditoría)
+        const detalles = await allQuery(
+            `SELECT dv.producto_id, dv.cantidad, p.nombre
+             FROM detalle_ventas dv
+             LEFT JOIN productos p ON p.id = dv.producto_id
+             WHERE dv.venta_id = ?`,
+            [ventaId]
+        );
         for (const det of detalles) {
             await runQuery(
                 `UPDATE inventario_sucursal SET stock = stock + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
@@ -185,8 +191,9 @@ async function eliminarVentaTx({ ventaId, auditoriaUsuario, auditoriaRol, accion
         // 4. Marcar la venta como eliminada
         await runQuery(`UPDATE ventas SET sync_status = 'deleted' WHERE id = ?`, [ventaId]);
 
-        // Registrar en logs de auditoría
-        await registrarAuditoria(auditoriaUsuario, auditoriaRol, venta.sucursal_id, accion || 'Eliminar Venta', `Venta ID: ${ventaId} - Reintegrado Total: $${venta.total}`);
+        // Registrar en logs de auditoría (incluye productos para poder rastrear qué se anuló)
+        const resumenProductos = resumenCarrito(detalles.map(d => ({ nombre: d.nombre || d.producto_id, cantidad: d.cantidad })));
+        await registrarAuditoria(auditoriaUsuario, auditoriaRol, venta.sucursal_id, accion || 'Eliminar Venta', `Venta ID: ${ventaId} - Reintegrado Total: $${venta.total} - Prods: [${resumenProductos}]`);
 
         await runQuery("COMMIT", []);
         solicitarSincronizacion('venta eliminada');

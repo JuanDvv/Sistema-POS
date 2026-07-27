@@ -481,6 +481,15 @@
     let intervalSincronizacionRol = null;
     const intervaloRolMs = INTERVALOS_SYNC_POR_ROL[currentRole];
     if (intervaloRolMs && window.api && window.api.forzarSincronizacion) {
+        // setInterval no dispara su primera ejecución de inmediato, así que sin esto el primer
+        // dato fresco tras iniciar sesión tardaría hasta 5 minutos (Administrador). El login
+        // (renderer.js) deja esta marca en localStorage justo antes de redirigir a ventas.html;
+        // se consume una sola vez aquí -- no en cada navegación interna entre páginas del sidebar,
+        // solo la primera vez que carga una página después de loguearse.
+        if (localStorage.getItem('syncAlEntrarPendiente') === '1') {
+            localStorage.removeItem('syncAlEntrarPendiente');
+            ejecutarSincronizacion({ mostrarAlertas: false });
+        }
         intervalSincronizacionRol = setInterval(() => {
             ejecutarSincronizacion({ mostrarAlertas: false });
         }, intervaloRolMs);

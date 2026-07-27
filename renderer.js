@@ -30,6 +30,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         localStorage.setItem('currentUser', response.username);
         localStorage.setItem('currentRole', response.role);
 
+        // Marca para que sidebar.js dispare una sincronización inmediata al cargar ventas.html,
+        // en vez de esperar al primer intervalo automático (hasta 5 min para Administrador). Sin
+        // esto, un cajero que inicia sesión en una app que llevaba rato abierta podía empezar a
+        // vender con inventario desactualizado respecto a lo que otras terminales ya sincronizaron.
+        localStorage.setItem('syncAlEntrarPendiente', '1');
+
         // Redireccionamos al panel principal (Ventas)
         window.location.href = 'ventas.html';
     } else {
