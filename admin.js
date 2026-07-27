@@ -322,6 +322,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (filtroSolicitudes) {
         filtroSolicitudes.addEventListener('change', () => cargarSolicitudes());
     }
+
+    // Al terminar un ciclo de sincronización (automático cada 15s o manual), refrescar las
+    // tablas que dependen de datos que otra terminal pudo haber cambiado. Sin esto, un cambio
+    // de sucursal/usuario/cliente hecho en otro equipo solo se veía tras salir y volver a
+    // entrar (lo que forzaba una recarga completa de la página).
+    window.addEventListener('pos-sincronizacion-completa', () => {
+        cargarSucursales();
+        cargarUsuarios();
+        cargarClientes();
+    });
 });
 
 // Cargar información de sucursales
