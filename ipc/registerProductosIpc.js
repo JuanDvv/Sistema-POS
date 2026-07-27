@@ -7,6 +7,7 @@ const { registrarAuditoria } = require('../services/auditService');
 const { processLocalProductImage } = require('../services/imagenService');
 const { registrarMovimientoInventario } = require('../services/inventarioMovimientoService');
 const { generarPlantillaAbastecimiento, leerPlantillaAbastecimiento } = require('../utils/excelAbastecimiento');
+const { solicitarSincronizacion } = require('../sync/syncService');
 
 // SRP: catálogo de productos, inventario por sucursal y categorías.
 
@@ -56,6 +57,7 @@ function registerProductosIpc() {
                     [nombre, categoriaPadreId || null, id]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Editar Categoría', `Nombre: ${nombre} - ID: ${id}`);
+                solicitarSincronizacion('categoría editada');
                 return { success: true, message: 'Categoría actualizada exitosamente.' };
             } else {
                 // Creación
@@ -65,6 +67,7 @@ function registerProductosIpc() {
                     [nuevoId, nombre, categoriaPadreId || null]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Crear Categoría', `Nombre: ${nombre} - ID: ${nuevoId}`);
+                solicitarSincronizacion('categoría creada');
                 return { success: true, message: 'Categoría creada exitosamente.' };
             }
         } catch (err) {
@@ -79,6 +82,7 @@ function registerProductosIpc() {
             // En vez de borrar físico, marcamos para sincronizar soft delete
             await runQuery(`UPDATE categorias SET sync_status = 'deleted' WHERE id = ?`, [id]);
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Eliminar Categoría', `Nombre: ${nombre} - ID: ${id}`);
+            solicitarSincronizacion('categoría eliminada');
             return { success: true, message: 'Categoría eliminada exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar categoría: ' + err.message };
@@ -122,6 +126,7 @@ function registerProductosIpc() {
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Registrar Producto', `Nombre: ${nombre} - ID: ${productoId} - Stock Inicial: ${stock}`);
 
             await runQuery("COMMIT", []);
+            solicitarSincronizacion('producto registrado');
             return { success: true, message: 'Producto registrado exitosamente.' };
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => {});
@@ -162,9 +167,11 @@ function registerProductosIpc() {
                 // Deja rastro en el kardex del ajuste manual de stock, para que los reportes históricos
                 // (ej. stock al cierre del día en el Reporte BiBI) puedan reconstruir el stock correctamente.
                 if (delta !== 0) {
+                    // stockObjetivo (valor absoluto tecleado) viaja junto al delta local para que la nube
+                    // recalcule el delta real contra el stock vigente al sincronizar -- ver aplicar_correccion_stock.
                     await registrarMovimientoInventario({
                         productoId: id, sucursalId, tipo: 'AJUSTE_EDICION_PRODUCTO',
-                        cantidad: delta, referenciaId: id, usuario: auditoriaUsuario
+                        cantidad: delta, referenciaId: id, usuario: auditoriaUsuario, stockObjetivo: Number(stock)
                     });
                 }
             }
@@ -178,6 +185,7 @@ function registerProductosIpc() {
                     : `Stock: ${stock} (sin cambios)`;
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId || 'Catálogo', 'Editar Producto', `Nombre: ${nombre} - ID: ${id} - ${detalleStock}`);
             await runQuery("COMMIT", []);
+            solicitarSincronizacion('producto editado');
             return { success: true, message: 'Producto modificado exitosamente.' };
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => { });
@@ -205,6 +213,7 @@ function registerProductosIpc() {
             // Registrar en logs de auditoría
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Abastecer Stock', `Producto ID: ${id} - Cantidad: +${cantidad}`);
             await runQuery("COMMIT", []);
+            solicitarSincronizacion('stock abastecido');
             return { success: true, message: 'Stock abastecido exitosamente.' };
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => {});
@@ -318,6 +327,7 @@ function registerProductosIpc() {
             const detalleProductos = validos.map((it) => `${it.nombre}: +${it.cantidad}`).join(', ');
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Abastecimiento Masivo (Archivo)', `Archivo: ${archivo || 'N/D'} - Productos: ${validos.length} - Total unidades: ${totalUnidades} - Detalle: ${detalleProductos}`);
             await runQuery('COMMIT', []);
+            solicitarSincronizacion('abastecimiento masivo aplicado');
             return { success: true, message: `Abastecimiento aplicado: ${validos.length} productos, ${totalUnidades} unidades en total.` };
         } catch (err) {
             await runQuery('ROLLBACK', []).catch(() => { });
@@ -332,6 +342,7 @@ function registerProductosIpc() {
             await runQuery(`UPDATE productos SET sync_status = 'deleted' WHERE id = ?`, [id]);
             // Registrar en logs de auditoría
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Eliminar Producto', `Producto ID: ${id}`);
+            solicitarSincronizacion('producto eliminado');
             return { success: true, message: 'Producto eliminado exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar el producto: ' + err.message };

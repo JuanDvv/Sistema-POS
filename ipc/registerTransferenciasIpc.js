@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('../services/auditService');
 const { registrarMovimientoInventario } = require('../services/inventarioMovimientoService');
+const { solicitarSincronizacion } = require('../sync/syncService');
 
 // SRP: traslados de inventario entre sucursales.
 
@@ -91,6 +92,7 @@ function registerTransferenciasIpc() {
             );
 
             await runQuery("COMMIT", []);
+            solicitarSincronizacion('transferencia registrada');
             return { success: true, message: '¡Transferencia registrada y procesada con éxito!' };
         } catch (error) {
             await runQuery("ROLLBACK", []).catch(() => {});
@@ -184,6 +186,7 @@ function registerTransferenciasIpc() {
             );
 
             await runQuery("COMMIT", []);
+            solicitarSincronizacion('transferencia eliminada');
             return { success: true, message: 'Transferencia eliminada y stock revertido con éxito.' };
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => {});

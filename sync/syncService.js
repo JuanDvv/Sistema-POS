@@ -80,6 +80,83 @@ async function descargarTodo(tabla) {
     return filas;
 }
 
+// Cursor local de pull incremental (ver sync/migrate_incremental_pull.sql y db/schema.js,
+// tabla sync_cursores): por tabla, el mayor sync_seq ya recibido de Supabase. Ausente o 0
+// equivale a "nunca sincronizada" -- descargarDesdeCursor trae todo en ese caso, igual que
+// descargarTodo hacía siempre.
+async function obtenerCursor(tabla) {
+    const filas = await allQuery(`SELECT cursor FROM sync_cursores WHERE tabla = ?`, [tabla]);
+    return filas.length > 0 ? Number(filas[0].cursor) : 0;
+}
+
+async function actualizarCursor(tabla, valor) {
+    await runQuery(
+        `INSERT INTO sync_cursores (tabla, cursor) VALUES (?, ?)
+         ON CONFLICT(tabla) DO UPDATE SET cursor = excluded.cursor WHERE excluded.cursor > cursor`,
+        [tabla, valor]
+    );
+}
+
+// Tablas para las que Supabase todavía no tiene la columna sync_seq (falta correr
+// sync/migrate_incremental_pull.sql): se degradan a descargarTodo() completo -- mismo patrón que
+// las banderas de tabla/función RPC faltante más abajo -- hasta que la migración se corra.
+const tablasSinSyncSeq = new Set();
+
+function esErrorColumnaInexistente(error) {
+    if (!error) return false;
+    const mensaje = String(error.message || '').toLowerCase();
+    return error.code === '42703' || (mensaje.includes('column') && mensaje.includes('does not exist'));
+}
+
+// Descarga solo las filas nuevas desde el último cursor local, en vez de volver a traer la tabla
+// completa en cada ciclo (ver descargarTodo arriba, que sigue existiendo como fallback mientras
+// una tabla no tenga sync_seq todavía). Pagina con keyset (WHERE sync_seq > último visto) en vez
+// de .range()/offset: un offset se puede saltar o repetir filas si otra terminal inserta mientras
+// se pagina, keyset no tiene ese problema porque cada página arranca justo después del último
+// sync_seq ya visto en la página anterior.
+//
+// Devuelve { filas, cursorNuevo }. cursorNuevo es null cuando se degradó a descargarTodo (no hay
+// cursor que avanzar); el llamador solo debe persistir el cursor con actualizarCursor() DESPUÉS
+// de aplicar `filas` con éxito -- si aplicar lanza a mitad de camino, no se avanza el cursor y el
+// siguiente ciclo reintenta desde el mismo punto (los upserts de aplicación ya son idempotentes).
+async function descargarDesdeCursor(tabla) {
+    if (tablasSinSyncSeq.has(tabla)) {
+        return { filas: await descargarTodo(tabla), cursorNuevo: null };
+    }
+
+    const cursorInicial = await obtenerCursor(tabla);
+    let cursorActual = cursorInicial;
+    let filas = [];
+    try {
+        while (true) {
+            const { data, error } = await supabase
+                .from(tabla)
+                .select('*')
+                .gt('sync_seq', cursorActual)
+                .order('sync_seq', { ascending: true })
+                .limit(TAMANO_PAGINA_DESCARGA);
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+            filas = filas.concat(data);
+            cursorActual = data[data.length - 1].sync_seq;
+            if (data.length < TAMANO_PAGINA_DESCARGA) break;
+        }
+    } catch (err) {
+        if (esErrorColumnaInexistente(err)) {
+            tablasSinSyncSeq.add(tabla);
+            console.log(`[Sincronizador] La tabla '${tabla}' aún no tiene 'sync_seq' en Supabase (falta correr sync/migrate_incremental_pull.sql). Se usa descarga completa mientras tanto.`);
+            return { filas: await descargarTodo(tabla), cursorNuevo: null };
+        }
+        throw err;
+    }
+    // Visibilidad explícita de que el pull es incremental -- solo si trajo algo, para no llenar
+    // el log de "0 filas nuevas" en cada ciclo sin cambios (la mayoría).
+    if (filas.length > 0) {
+        console.log(`[Sincronizador] ${tabla}: pull incremental (cursor ${cursorInicial} -> ${cursorActual}), ${filas.length} fila(s) nueva(s).`);
+    }
+    return { filas, cursorNuevo: cursorActual };
+}
+
 // Igual que upsertConLWW pero para un soft delete (marca deleted_at en vez de borrar la fila).
 async function softDeleteConLWW(tabla, filtro) {
     const ahora = nowISO();
@@ -268,7 +345,7 @@ async function syncVentasEliminaciones() {
 // --- 1.7. DESCARGAR VENTAS DESDE LA NUBE (Supabase -> Local, con LWW) ---
 async function syncVentasDescargar() {
     try {
-        const ventasNube = await descargarTodo('ventas');
+        const { filas: ventasNube, cursorNuevo: cursorVentas } = await descargarDesdeCursor('ventas');
 
         if (ventasNube) {
             for (const venta of ventasNube) {
@@ -294,8 +371,9 @@ async function syncVentasDescargar() {
                 );
             }
         }
+        if (cursorVentas !== null) await actualizarCursor('ventas', cursorVentas);
 
-        const detVentasNube = await descargarTodo('detalle_ventas');
+        const { filas: detVentasNube, cursorNuevo: cursorDetVentas } = await descargarDesdeCursor('detalle_ventas');
 
         if (detVentasNube) {
             for (const det of detVentasNube) {
@@ -317,7 +395,10 @@ async function syncVentasDescargar() {
                 );
             }
         }
-        console.log("[Sincronizador] Ventas y detalles descargados desde la nube.");
+        if (cursorDetVentas !== null) await actualizarCursor('detalle_ventas', cursorDetVentas);
+        if (ventasNube.length > 0 || detVentasNube.length > 0) {
+            console.log("[Sincronizador] Ventas y detalles descargados desde la nube.");
+        }
         return { ok: true };
     } catch (err) {
         console.error("[Sincronizador] No se pudieron descargar ventas (Modo Offline o error de red):", err.message);
@@ -440,7 +521,7 @@ async function syncGastosEliminaciones() {
 // --- 2.7. DESCARGAR GASTOS DESDE LA NUBE (Supabase -> Local, con LWW) ---
 async function syncGastosDescargar() {
     try {
-        const gastosNube = await descargarTodo('gastos');
+        const { filas: gastosNube, cursorNuevo: cursorGastos } = await descargarDesdeCursor('gastos');
 
         if (gastosNube) {
             for (const gasto of gastosNube) {
@@ -467,8 +548,9 @@ async function syncGastosDescargar() {
                     [gasto.id, gasto.sucursal_id, gasto.tipo, gasto.descripcion, gasto.monto, gasto.fecha, gasto.metodo_pago, gasto.estado, gasto.venta_id || null, gasto.pedido_id || null, gasto.updated_at]
                 );
             }
-            console.log("[Sincronizador] Gastos descargados desde la nube.");
+            if (gastosNube.length > 0) console.log("[Sincronizador] Gastos descargados desde la nube.");
         }
+        if (cursorGastos !== null) await actualizarCursor('gastos', cursorGastos);
         return { ok: true };
     } catch (err) {
         console.error("[Sincronizador] No se pudieron descargar gastos (Modo Offline o error de red):", err.message);
@@ -577,6 +659,16 @@ let pedidosTablasDisponibles = true;
 // la red en cada ciclo.
 let rpcAplicarMovimientoDisponible = true;
 let rpcAplicarReservaDisponible = true;
+// aplicar_correccion_stock() (ver sync/migrate_correccion_stock.sql) es la RPC específica para
+// AJUSTE_EDICION_PRODUCTO: a diferencia de aplicar_movimiento_inventario, recalcula el delta real
+// contra el stock vigente en el servidor en vez de sumar a ciegas el delta calculado en el cliente.
+let rpcAplicarCorreccionDisponible = true;
+// podar_kardex() (ver sync/migrate_kardex_retention.sql) poda en la nube el historial de
+// movimientos_inventario / movimientos_reserva_inventario más viejo que RETENCION_KARDEX_DIAS,
+// acumulando primero lo que va a borrar en kardex_checkpoints para que la reconciliación de
+// stock siga siendo posible después de podar.
+let rpcPodarKardexDisponible = true;
+const RETENCION_KARDEX_DIAS = 60;
 
 function esErrorTablaInexistente(error) {
     if (!error) return false;
@@ -658,11 +750,45 @@ async function liberarInventarioPendienteHuerfano() {
 // suma su `cantidad` a inventario_sucursal.stock dentro de la misma transacción en Postgres.
 // Al ser una suma conmutativa en vez de una foto que se pisa, no importa el orden en que dos
 // terminales sincronicen sus cambios sobre el mismo producto/sucursal.
+//
+// Excepción: AJUSTE_EDICION_PRODUCTO (corrección manual de stock desde "Editar Producto") no es un
+// delta conmutativo genuino -- es una corrección al valor absoluto observado, y el delta que cada
+// terminal calculó localmente puede estar basado en una copia stale del stock. Esas filas se
+// enrutan a aplicar_correccion_stock (sync/migrate_correccion_stock.sql), que recalcula el delta
+// real contra el stock vigente en el servidor al momento de aplicar, bajo lock de fila.
 async function syncMovimientosInventarioSubir() {
-    if (!movimientosInventarioTablaDisponible || !rpcAplicarMovimientoDisponible) return;
+    if (!movimientosInventarioTablaDisponible) return;
     try {
         const movimientosPendientes = await allQuery(`SELECT * FROM movimientos_inventario WHERE sync_status = 'pending'`, []);
         for (const mov of movimientosPendientes) {
+            if (mov.tipo === 'AJUSTE_EDICION_PRODUCTO') {
+                if (!rpcAplicarCorreccionDisponible) continue;
+
+                const { data: deltaReal, error } = await supabase.rpc('aplicar_correccion_stock', {
+                    p_id: mov.id,
+                    p_producto_id: mov.producto_id,
+                    p_sucursal_id: mov.sucursal_id,
+                    p_stock_objetivo: mov.stock_objetivo,
+                    p_referencia_id: mov.referencia_id,
+                    p_usuario: mov.usuario,
+                    p_fecha: mov.fecha
+                });
+                if (error) throw error;
+
+                // Una sola sentencia: además de marcar 'synced', reemplaza el delta ingenuo calculado
+                // localmente por el delta real que la nube aplicó (pudo ser 0 si otra terminal ya había
+                // corregido al mismo valor). Debe ir en un solo UPDATE porque el trigger de LWW local
+                // (trg_movimientos_inventario_updated_at) bump-ea updated_at en cualquier UPDATE que no
+                // lo toque explícitamente -- separarlo en dos sentencias dejaría el resultado sujeto a
+                // una carrera de reloj con el pull.
+                await runQuery(`UPDATE movimientos_inventario SET cantidad = ?, sync_status = 'synced' WHERE id = ?`, [deltaReal, mov.id]);
+                await liberarInventarioSiSinPendientes(mov.producto_id, mov.sucursal_id);
+                console.log(`[Sincronizador] Corrección de stock ${mov.id} sincronizada con la nube (delta real aplicado: ${deltaReal}).`);
+                continue;
+            }
+
+            if (!rpcAplicarMovimientoDisponible) continue;
+
             const { error } = await supabase.rpc('aplicar_movimiento_inventario', {
                 p_id: mov.id,
                 p_producto_id: mov.producto_id,
@@ -686,6 +812,12 @@ async function syncMovimientosInventarioSubir() {
             return;
         }
         if (esErrorFuncionInexistente(err)) {
+            const mensaje = String(err.message || '').toLowerCase();
+            if (mensaje.includes('aplicar_correccion_stock')) {
+                rpcAplicarCorreccionDisponible = false;
+                console.log("[Sincronizador] La función 'aplicar_correccion_stock' no existe en Supabase todavía (falta correr sync/migrate_correccion_stock.sql). Se omiten las correcciones de stock sin interrumpir el resto del ciclo.");
+                return;
+            }
             rpcAplicarMovimientoDisponible = false;
             console.log("[Sincronizador] La función 'aplicar_movimiento_inventario' no existe en Supabase todavía (falta correr sync/migrate_stock_delta_sync.sql). Se omite esta sincronización sin interrumpir el resto del ciclo.");
             return;
@@ -756,7 +888,7 @@ async function syncProductosEliminaciones() {
 // --- 4.5. DESCARGAR CATEGORÍAS DESDE SUPABASE (con LWW) ---
 async function syncCategoriasDescargar() {
     try {
-        const categoriasNube = await descargarTodo('categorias');
+        const { filas: categoriasNube, cursorNuevo: cursorCategorias } = await descargarDesdeCursor('categorias');
 
         if (categoriasNube) {
             for (const cat of categoriasNube) {
@@ -776,8 +908,9 @@ async function syncCategoriasDescargar() {
                     [cat.id, cat.nombre, cat.categoria_padre_id, cat.updated_at]
                 );
             }
-            console.log("[Sincronizador] Categorías actualizadas desde la nube.");
+            if (categoriasNube.length > 0) console.log("[Sincronizador] Categorías actualizadas desde la nube.");
         }
+        if (cursorCategorias !== null) await actualizarCursor('categorias', cursorCategorias);
     } catch (err) {
         console.log("[Sincronizador] No se pudieron descargar categorías (Modo Offline):", err.message);
     }
@@ -786,7 +919,7 @@ async function syncCategoriasDescargar() {
 // --- 5. DESCARGAR ACTUALIZACIONES DEL CATÁLOGO GLOBAL (Supabase -> Local, con LWW) ---
 async function syncProductosDescargar() {
     try {
-        const productosNube = await descargarTodo('productos');
+        const { filas: productosNube, cursorNuevo: cursorProductos } = await descargarDesdeCursor('productos');
 
         if (productosNube) {
             for (const prod of productosNube) {
@@ -811,8 +944,9 @@ async function syncProductosDescargar() {
                     [prod.id, prod.nombre, prod.descripcion, prod.precio, prod.stock_minimo, prod.foto_path, prod.categoria_id, prod.updated_at]
                 );
             }
-            console.log("[Sincronizador] Catálogo de inventario actualizado desde la nube.");
+            if (productosNube.length > 0) console.log("[Sincronizador] Catálogo de inventario actualizado desde la nube.");
         }
+        if (cursorProductos !== null) await actualizarCursor('productos', cursorProductos);
     } catch (err) {
         console.log("[Sincronizador] No se pudo descargar el catálogo (Modo Offline):", err.message);
     }
@@ -821,7 +955,7 @@ async function syncProductosDescargar() {
 // --- 5.5. DESCARGAR ACTUALIZACIONES DE INVENTARIO POR SUCURSAL (Supabase -> Local, con LWW) ---
 async function syncInventarioDescargar() {
     try {
-        const invNube = await descargarTodo('inventario_sucursal');
+        const { filas: invNube, cursorNuevo: cursorInv } = await descargarDesdeCursor('inventario_sucursal');
 
         if (invNube) {
             for (const inv of invNube) {
@@ -844,8 +978,9 @@ async function syncInventarioDescargar() {
                     [inv.producto_id, inv.sucursal_id, inv.stock, inv.stock_reservado || 0, inv.updated_at]
                 );
             }
-            console.log("[Sincronizador] Existencias por sucursal actualizadas desde la nube.");
+            if (invNube.length > 0) console.log("[Sincronizador] Existencias por sucursal actualizadas desde la nube.");
         }
+        if (cursorInv !== null) await actualizarCursor('inventario_sucursal', cursorInv);
     } catch (err) {
         console.log("[Sincronizador] No se pudieron descargar existencias por sucursal (Modo Offline):", err.message);
     }
@@ -855,7 +990,7 @@ async function syncInventarioDescargar() {
 async function syncMovimientosInventarioDescargar() {
     if (!movimientosInventarioTablaDisponible) return;
     try {
-        const movsNube = await descargarTodo('movimientos_inventario');
+        const { filas: movsNube, cursorNuevo: cursorMovs } = await descargarDesdeCursor('movimientos_inventario');
 
         if (movsNube) {
             for (const mov of movsNube) {
@@ -880,8 +1015,9 @@ async function syncMovimientosInventarioDescargar() {
                     [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, mov.fecha, mov.updated_at]
                 );
             }
-            console.log("[Sincronizador] Movimientos de inventario actualizados desde la nube.");
+            if (movsNube.length > 0) console.log("[Sincronizador] Movimientos de inventario actualizados desde la nube.");
         }
+        if (cursorMovs !== null) await actualizarCursor('movimientos_inventario', cursorMovs);
     } catch (err) {
         if (esErrorTablaInexistente(err)) {
             movimientosInventarioTablaDisponible = false;
@@ -896,7 +1032,7 @@ async function syncMovimientosInventarioDescargar() {
 async function syncReservaInventarioDescargar() {
     if (!movimientosReservaTablaDisponible) return;
     try {
-        const movsNube = await descargarTodo('movimientos_reserva_inventario');
+        const { filas: movsNube, cursorNuevo: cursorMovsReserva } = await descargarDesdeCursor('movimientos_reserva_inventario');
 
         if (movsNube) {
             for (const mov of movsNube) {
@@ -921,8 +1057,9 @@ async function syncReservaInventarioDescargar() {
                     [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, mov.fecha, mov.updated_at]
                 );
             }
-            console.log("[Sincronizador] Movimientos de reserva actualizados desde la nube.");
+            if (movsNube.length > 0) console.log("[Sincronizador] Movimientos de reserva actualizados desde la nube.");
         }
+        if (cursorMovsReserva !== null) await actualizarCursor('movimientos_reserva_inventario', cursorMovsReserva);
     } catch (err) {
         if (esErrorTablaInexistente(err)) {
             movimientosReservaTablaDisponible = false;
@@ -930,6 +1067,35 @@ async function syncReservaInventarioDescargar() {
             return;
         }
         console.log("[Sincronizador] No se pudieron descargar movimientos de reserva (Modo Offline):", err.message);
+    }
+}
+
+// --- 5.8. PODAR KARDEX EN LA NUBE (checkpoint + delete, ver sync/migrate_kardex_retention.sql) ---
+// Corre en cada ciclo, igual que la poda de auditoría (syncColaAuditoria) -- barato: tras la
+// primera pasada, cada corrida solo ve la franja nueva que cruzó el corte desde la vez anterior.
+// Sin coordinación con otras terminales: con el pull incremental por sync_seq, una fila podada
+// simplemente deja de aparecer en la próxima descarga.
+async function podarKardexNube() {
+    if (!rpcPodarKardexDisponible) return;
+    const fechaCorte = new Date(Date.now() - RETENCION_KARDEX_DIAS * 24 * 60 * 60 * 1000).toISOString();
+    for (const tabla of ['movimientos_inventario', 'movimientos_reserva_inventario']) {
+        try {
+            const { data: borrados, error } = await supabase.rpc('podar_kardex', {
+                p_tabla: tabla,
+                p_fecha_corte: fechaCorte
+            });
+            if (error) throw error;
+            if (borrados > 0) {
+                console.log(`[Sincronizador] Kardex podado en la nube: ${tabla} (${borrados} fila(s) anteriores a ${fechaCorte}).`);
+            }
+        } catch (err) {
+            if (esErrorFuncionInexistente(err)) {
+                rpcPodarKardexDisponible = false;
+                console.log("[Sincronizador] La función 'podar_kardex' no existe en Supabase todavía (falta correr sync/migrate_kardex_retention.sql). Se omite la poda sin interrumpir el resto del ciclo.");
+                return;
+            }
+            console.log(`[Sincronizador] No se pudo podar el kardex de ${tabla} (Modo Offline o error de red):`, err.message);
+        }
     }
 }
 
@@ -957,7 +1123,7 @@ async function syncSucursales() {
 
     // B. Descargar cambios de la nube a local (solo si no hay error de red)
     try {
-        const sucursalesNube = await descargarTodo('config_sucursal');
+        const { filas: sucursalesNube, cursorNuevo: cursorSucursales } = await descargarDesdeCursor('config_sucursal');
 
         if (sucursalesNube) {
             for (const suc of sucursalesNube) {
@@ -979,8 +1145,9 @@ async function syncSucursales() {
                     [suc.id, suc.nombre, suc.direccion, suc.telefono, suc.updated_at]
                 );
             }
-            console.log("[Sincronizador] Configuración de sucursales sincronizada con la nube.");
+            if (sucursalesNube.length > 0) console.log("[Sincronizador] Configuración de sucursales sincronizada con la nube.");
         }
+        if (cursorSucursales !== null) await actualizarCursor('config_sucursal', cursorSucursales);
     } catch (errDownload) {
         console.log("[Sincronizador] No se pudieron descargar sucursales (Modo Offline):", errDownload.message);
     }
@@ -1029,7 +1196,7 @@ async function syncUsuarios() {
 
         // B. Descargar cambios de la nube a local (solo si no hay error de red)
         try {
-            const usuariosNube = await descargarTodo('usuarios');
+            const { filas: usuariosNube, cursorNuevo: cursorUsuarios } = await descargarDesdeCursor('usuarios');
 
             if (usuariosNube) {
                 // Si en la nube ya existe un usuario con username 'admin' (con otro ID),
@@ -1057,8 +1224,9 @@ async function syncUsuarios() {
                         [usr.id, usr.username, usr.password, usr.rol, usr.updated_at]
                     );
                 }
-                console.log("[Sincronizador] Usuarios sincronizados con la nube.");
+                if (usuariosNube.length > 0) console.log("[Sincronizador] Usuarios sincronizados con la nube.");
             }
+            if (cursorUsuarios !== null) await actualizarCursor('usuarios', cursorUsuarios);
         } catch (errDownload) {
             console.log("[Sincronizador] No se pudieron descargar usuarios (Modo Offline):", errDownload.message);
         }
@@ -1131,7 +1299,7 @@ async function syncTransferenciasEliminaciones() {
 // --- 8.5. DESCARGAR TRANSFERENCIAS (Supabase -> Local, con LWW) ---
 async function syncTransferenciasDescargar() {
     try {
-        const transNube = await descargarTodo('transferencias');
+        const { filas: transNube, cursorNuevo: cursorTrans } = await descargarDesdeCursor('transferencias');
 
         if (transNube) {
             for (const trans of transNube) {
@@ -1155,8 +1323,9 @@ async function syncTransferenciasDescargar() {
                 );
             }
         }
+        if (cursorTrans !== null) await actualizarCursor('transferencias', cursorTrans);
 
-        const detNube = await descargarTodo('detalle_transferencias');
+        const { filas: detNube, cursorNuevo: cursorDetTrans } = await descargarDesdeCursor('detalle_transferencias');
 
         if (detNube) {
             for (const det of detNube) {
@@ -1177,7 +1346,10 @@ async function syncTransferenciasDescargar() {
                 );
             }
         }
-        console.log("[Sincronizador] Transferencias y detalles descargados desde la nube.");
+        if (cursorDetTrans !== null) await actualizarCursor('detalle_transferencias', cursorDetTrans);
+        if (transNube.length > 0 || detNube.length > 0) {
+            console.log("[Sincronizador] Transferencias y detalles descargados desde la nube.");
+        }
     } catch (err) {
         console.log("[Sincronizador] No se pudieron descargar transferencias (Modo Offline o error de red):", err.message);
     }
@@ -1215,7 +1387,7 @@ async function syncClientes() {
         }
 
         // C. Descargar clientes
-        const clientesNube = await descargarTodo('clientes');
+        const { filas: clientesNube, cursorNuevo: cursorClientes } = await descargarDesdeCursor('clientes');
         if (clientesNube) {
             for (const cli of clientesNube) {
                 if (cli.deleted_at) {
@@ -1239,6 +1411,7 @@ async function syncClientes() {
                 );
             }
         }
+        if (cursorClientes !== null) await actualizarCursor('clientes', cursorClientes);
     } catch (errCli) {
         console.log("[Sincronizador] Clientes no sincronizados:", obtenerMensajeSync(errCli, 'clientes'));
     }
@@ -1274,7 +1447,7 @@ async function syncAbonos() {
         }
 
         // C. Descargar abonos
-        const abonosNube = await descargarTodo('abonos_credito');
+        const { filas: abonosNube, cursorNuevo: cursorAbonos } = await descargarDesdeCursor('abonos_credito');
         if (abonosNube) {
             for (const ab of abonosNube) {
                 if (ab.deleted_at) {
@@ -1296,6 +1469,7 @@ async function syncAbonos() {
                 );
             }
         }
+        if (cursorAbonos !== null) await actualizarCursor('abonos_credito', cursorAbonos);
     } catch (errAb) {
         console.log("[Sincronizador] Abonos no sincronizados:", obtenerMensajeSync(errAb, 'abonos_credito'));
     }
@@ -1374,7 +1548,7 @@ async function syncPedidosSubir() {
 async function syncPedidosDescargar() {
     if (!pedidosTablasDisponibles) return;
     try {
-        const pedidosNube = await descargarTodo('pedidos');
+        const { filas: pedidosNube, cursorNuevo: cursorPedidos } = await descargarDesdeCursor('pedidos');
 
         if (pedidosNube) {
             for (const ped of pedidosNube) {
@@ -1402,8 +1576,9 @@ async function syncPedidosDescargar() {
                 );
             }
         }
+        if (cursorPedidos !== null) await actualizarCursor('pedidos', cursorPedidos);
 
-        const detPedidosNube = await descargarTodo('detalle_pedidos');
+        const { filas: detPedidosNube, cursorNuevo: cursorDetPedidos } = await descargarDesdeCursor('detalle_pedidos');
 
         if (detPedidosNube) {
             for (const det of detPedidosNube) {
@@ -1421,7 +1596,10 @@ async function syncPedidosDescargar() {
                 );
             }
         }
-        console.log("[Sincronizador] Pedidos y detalles descargados desde la nube.");
+        if (cursorDetPedidos !== null) await actualizarCursor('detalle_pedidos', cursorDetPedidos);
+        if (pedidosNube.length > 0 || detPedidosNube.length > 0) {
+            console.log("[Sincronizador] Pedidos y detalles descargados desde la nube.");
+        }
     } catch (err) {
         if (esErrorTablaInexistente(err)) {
             pedidosTablasDisponibles = false;
@@ -1460,7 +1638,7 @@ async function syncAbonosPedido() {
             await runQuery(`DELETE FROM abonos_pedido WHERE id = ?`, [ab.id]);
         }
 
-        const abonosNube = await descargarTodo('abonos_pedido');
+        const { filas: abonosNube, cursorNuevo: cursorAbonosPedido } = await descargarDesdeCursor('abonos_pedido');
         if (abonosNube) {
             for (const ab of abonosNube) {
                 if (ab.deleted_at) {
@@ -1482,6 +1660,7 @@ async function syncAbonosPedido() {
                 );
             }
         }
+        if (cursorAbonosPedido !== null) await actualizarCursor('abonos_pedido', cursorAbonosPedido);
     } catch (err) {
         if (esErrorTablaInexistente(err)) {
             pedidosTablasDisponibles = false;
@@ -1523,7 +1702,7 @@ async function syncSolicitudesVenta() {
         }
 
         // B. Descargar solicitudes creadas/revisadas desde otras terminales
-        const solicitudesNube = await descargarTodo('solicitudes_venta');
+        const { filas: solicitudesNube, cursorNuevo: cursorSolicitudes } = await descargarDesdeCursor('solicitudes_venta');
         if (solicitudesNube) {
             for (const sol of solicitudesNube) {
                 if (sol.deleted_at) {
@@ -1551,8 +1730,9 @@ async function syncSolicitudesVenta() {
                     [sol.id, sol.tipo, sol.venta_id, sol.sucursal_id, sol.fecha_venta, sol.datos, sol.estado, sol.usuario_solicitante, sol.fecha_solicitud, sol.usuario_revisor, sol.fecha_revision, sol.motivo_rechazo, sol.updated_at]
                 );
             }
-            console.log("[Sincronizador] Solicitudes de venta retroactiva sincronizadas con la nube.");
+            if (solicitudesNube.length > 0) console.log("[Sincronizador] Solicitudes de venta retroactiva sincronizadas con la nube.");
         }
+        if (cursorSolicitudes !== null) await actualizarCursor('solicitudes_venta', cursorSolicitudes);
     } catch (errSol) {
         console.log("[Sincronizador] Solicitudes de venta no sincronizadas:", obtenerMensajeSync(errSol, 'solicitudes_venta'));
     }
@@ -1629,6 +1809,7 @@ async function procesarSincronizacion() {
         await syncInventarioDescargar();
         await syncMovimientosInventarioDescargar();
         await syncReservaInventarioDescargar();
+        await podarKardexNube();
         await syncSucursales();
         await syncUsuarios();
         await syncTransferenciasSubir();

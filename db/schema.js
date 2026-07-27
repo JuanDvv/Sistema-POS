@@ -186,6 +186,16 @@ function initDB(db) {
             sync_status TEXT DEFAULT 'pending'
         )`);
 
+        // 7b. Cursor local de pull incremental (ver sync/migrate_incremental_pull.sql): guarda,
+        // por tabla, el mayor sync_seq ya recibido de Supabase, para que descargarDesdeCursor()
+        // (sync/syncService.js) solo pida "lo nuevo desde ahí" en vez de re-descargar la tabla
+        // completa en cada ciclo. cursor=0 (o fila ausente) equivale a "nunca sincronizada":
+        // trae todo, igual que el comportamiento anterior de descargarTodo().
+        db.run(`CREATE TABLE IF NOT EXISTS sync_cursores (
+            tabla TEXT PRIMARY KEY,
+            cursor INTEGER NOT NULL DEFAULT 0
+        )`);
+
         // 8. Tabla de Transferencias de Inventario
         db.run(`CREATE TABLE IF NOT EXISTS transferencias (
             id TEXT PRIMARY KEY,
@@ -299,6 +309,15 @@ function initDB(db) {
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_producto ON movimientos_inventario(producto_id, sucursal_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_referencia ON movimientos_inventario(referencia_id)`);
+
+        // 14a. AJUSTE_EDICION_PRODUCTO guarda aquí el valor absoluto de stock que el usuario
+        // tecleó ("el stock real es X"), además del delta ingenuo en `cantidad`. Es lo que permite
+        // que la nube recalcule el delta real contra el stock vigente al momento de aplicar (ver
+        // aplicar_correccion_stock en sync/migrate_correccion_stock.sql), en vez de sumar a ciegas
+        // el delta calculado contra una copia local que pudo quedar desactualizada frente a otra
+        // terminal -- la causa de que dos correcciones concurrentes al mismo valor real terminaran
+        // restando dos veces en vez de converger. NULL para cualquier otro tipo de movimiento.
+        db.run(`ALTER TABLE movimientos_inventario ADD COLUMN stock_objetivo INTEGER`, [], () => { });
 
         // 14b. Kardex del hold de Pedidos/Apartados (inventario_sucursal.stock_reservado): mismo
         // problema y misma solución que movimientos_inventario para `stock` -- stock_reservado lo

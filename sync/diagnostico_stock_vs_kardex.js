@@ -1,8 +1,15 @@
 // Script manual de SOLO LECTURA (NO forma parte del ciclo de sincronización de la app ni corre
 // solo, y NO escribe nada en Supabase).
 //
-// Compara inventario_sucursal.stock contra el kardex (SUM(cantidad) de movimientos_inventario)
+// Compara inventario_sucursal.stock contra el kardex (SUM(cantidad) de movimientos_inventario
+// MÁS lo ya podado y acumulado en kardex_checkpoints -- ver sync/migrate_kardex_retention.sql)
 // para detectar productos donde el stock actual no coincide con la suma de sus movimientos.
+//
+// Desde que existe la poda con checkpoint (retención de RETENCION_KARDEX_DIAS en
+// sync/syncService.js), movimientos_inventario ya NO tiene el historial completo por diseño --
+// lo que se podó quedó resumido en kardex_checkpoints. Sumar checkpoint + kardex restante da el
+// mismo total que sumar el historial completo habría dado, así que la reconciliación sigue
+// siendo válida indefinidamente sin necesidad de conservar cada fila para siempre.
 //
 // IMPORTANTE -- por qué este script NO corrige nada automáticamente: se corrió en PRODUCCIÓN el
 // 2026-07-25 antes de desplegar sync/migrate_stock_delta_sync.sql y varias filas mostraron una
@@ -63,15 +70,24 @@ async function leerTodo(tabla, select = '*') {
 async function main() {
     console.log(`=== Comparando stock vs. kardex en ${etiqueta} (solo lectura, no escribe nada) ===\n`);
 
-    const [inventario, movimientos] = await Promise.all([
+    const [inventario, movimientos, checkpoints] = await Promise.all([
         leerTodo('inventario_sucursal', 'producto_id,sucursal_id,stock,updated_at'),
-        leerTodo('movimientos_inventario', 'producto_id,sucursal_id,cantidad')
+        leerTodo('movimientos_inventario', 'producto_id,sucursal_id,cantidad'),
+        // kardex_checkpoints puede no existir aún (falta correr sync/migrate_kardex_retention.sql):
+        // se trata como "sin checkpoints" en vez de fallar todo el diagnóstico.
+        leerTodo('kardex_checkpoints', 'tabla,producto_id,sucursal_id,suma_podada')
+            .catch(() => [])
     ]);
 
     const sumaKardex = new Map(); // "producto_id|sucursal_id" -> suma
     for (const mov of movimientos) {
         const clave = `${mov.producto_id}|${mov.sucursal_id}`;
         sumaKardex.set(clave, (sumaKardex.get(clave) || 0) + Number(mov.cantidad));
+    }
+    for (const chk of checkpoints) {
+        if (chk.tabla !== 'movimientos_inventario') continue; // el de reserva afecta stock_reservado, no stock
+        const clave = `${chk.producto_id}|${chk.sucursal_id}`;
+        sumaKardex.set(clave, (sumaKardex.get(clave) || 0) + Number(chk.suma_podada));
     }
 
     const diferencias = [];
