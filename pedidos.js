@@ -563,14 +563,43 @@ async function agregarAbono() {
     cargarPedidos();
 }
 
+function pedirMetodoPagoEntrega(saldoPendiente) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('modal-metodo-entrega');
+        const btnEfectivo = document.getElementById('btn-metodo-entrega-efectivo');
+        const btnTransferencia = document.getElementById('btn-metodo-entrega-transferencia');
+        const btnCancelar = document.getElementById('btn-metodo-entrega-cancelar');
+        document.getElementById('metodo-entrega-msg').textContent =
+            `El pedido tiene un saldo pendiente de ${formatCOP(saldoPendiente)}. Al entregarlo se saldará automáticamente y se descontará el inventario.`;
+
+        const cerrar = (metodo) => {
+            modal.style.display = 'none';
+            btnEfectivo.removeEventListener('click', onEfectivo);
+            btnTransferencia.removeEventListener('click', onTransferencia);
+            btnCancelar.removeEventListener('click', onCancelar);
+            resolve(metodo);
+        };
+        const onEfectivo = () => cerrar('Efectivo');
+        const onTransferencia = () => cerrar('Transferencia');
+        const onCancelar = () => cerrar(null);
+
+        btnEfectivo.addEventListener('click', onEfectivo);
+        btnTransferencia.addEventListener('click', onTransferencia);
+        btnCancelar.addEventListener('click', onCancelar);
+        modal.style.display = 'flex';
+    });
+}
+
 async function entregarPedidoActual() {
     const saldoPendiente = Number(pedidoActualDetalle?.saldo_pendiente || 0);
-    const metodoPagoSaldoFinal = document.getElementById('detalle-abono-metodo').value;
+    let metodoPagoSaldoFinal = null;
 
-    const mensajeConfirm = saldoPendiente > 0
-        ? `El pedido tiene un saldo pendiente de ${formatCOP(saldoPendiente)}. Al entregarlo se saldará automáticamente como ${metodoPagoSaldoFinal} y se descontará el inventario. ¿Confirmas?`
-        : '¿Confirmas que el cliente recogió el pedido? Esto descontará el inventario y lo registrará como venta.';
-    if (!confirm(mensajeConfirm)) return;
+    if (saldoPendiente > 0) {
+        metodoPagoSaldoFinal = await pedirMetodoPagoEntrega(saldoPendiente);
+        if (!metodoPagoSaldoFinal) return;
+    } else if (!confirm('¿Confirmas que el cliente recogió el pedido? Esto descontará el inventario y lo registrará como venta.')) {
+        return;
+    }
 
     const res = await window.api.entregarPedido({ pedidoId: pedidoActualId, metodoPagoSaldoFinal, auditoriaUsuario, auditoriaRol });
     if (!res.success) {

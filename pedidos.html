@@ -357,6 +357,20 @@
         </div>
     </div>
 
+    <!-- Modal para elegir el método de pago con el que se saldará el pedido al entregarlo -->
+    <div id="modal-metodo-entrega" class="modal" style="z-index: 1001;">
+        <div class="modal-content" style="width: 380px; text-align: center;">
+            <h3 style="margin-top: 0;">💰 Saldar Pedido</h3>
+            <p id="metodo-entrega-msg" style="color: #6b7280; font-size: 0.9em;"></p>
+            <p style="font-weight: bold; margin-bottom: 12px;">¿Cómo se pagará el saldo pendiente?</p>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <button class="btn-primary" id="btn-metodo-entrega-efectivo" style="flex: 1; justify-content: center;">💵 Efectivo</button>
+                <button class="btn-primary" id="btn-metodo-entrega-transferencia" style="flex: 1; justify-content: center;">📱 Transferencia</button>
+            </div>
+            <button class="btn-primary" id="btn-metodo-entrega-cancelar" style="width: 100%; justify-content: center; background-color: #6b7280;">Cancelar</button>
+        </div>
+    </div>
+
     <!-- Modal de detalle / edición de un pedido existente -->
     <div id="modal-detalle-pedido" class="modal">
         <div class="modal-content" style="width: 640px; max-height: 88vh; overflow-y: auto;">
