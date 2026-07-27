@@ -59,6 +59,18 @@
             font-weight: bold;
         }
 
+        /* Destello breve en filas cuya info cambió por una sincronización en segundo plano (no
+           por algo que el propio usuario hizo) -- sin esto, un número de stock/precio podía
+           cambiar en pantalla sin ningún indicio de por qué. */
+        @keyframes destello-actualizado {
+            from { background-color: #d1fae5; }
+            to { background-color: transparent; }
+        }
+
+        .fila-actualizada {
+            animation: destello-actualizado 2s ease-out;
+        }
+
         .form-group {
             margin-bottom: 15px;
         }

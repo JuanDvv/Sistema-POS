@@ -9,6 +9,12 @@ let sucursalLocalId = 'sucursal-norte';
 let editingProductId = null; // ID del producto en edición (null si es creación)
 let productosCargados = []; // Copia local para búsqueda offline
 let categoriasCargadas = [];
+// IDs de productos cuyo stock/precio cambió en la última carga por sincronización (no por una
+// acción del propio usuario en esta ventana) -- se resaltan brevemente en renderizarProductos()
+// para que no parezca que el número cambió solo, sin explicación (ver .fila-actualizada en
+// dashboard.html). Se vacía sola a los pocos segundos, ver cargarProductos().
+let idsRecienActualizados = new Set();
+let limpiezaResaltadoTimeout = null;
 let filtroCategorias = null; // Instancia del selector múltiple de categorías (ver categoriaFiltro.js)
 
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
@@ -83,7 +89,29 @@ function rellenarSelectorAgrupado(select, categories, defaultText) {
 async function cargarProductos() {
     const response = await window.api.getInventory(sucursalId);
     if (response.success) {
-        productosCargados = response.data || [];
+        const nuevosProductos = response.data || [];
+
+        // Detecta qué productos cambiaron de stock/precio desde la carga anterior, para
+        // resaltarlos brevemente (ver .fila-actualizada). Solo si ya había una carga previa --
+        // en la primera carga de la página no hay nada con qué comparar, y no tendría sentido
+        // "resaltar" el catálogo completo como si todo hubiera cambiado.
+        if (productosCargados.length > 0) {
+            const anteriores = new Map(productosCargados.map(p => [p.id, p]));
+            idsRecienActualizados = new Set(
+                nuevosProductos
+                    .filter(p => {
+                        const previo = anteriores.get(p.id);
+                        return previo && (Number(previo.stock) !== Number(p.stock) || Number(previo.precio) !== Number(p.precio));
+                    })
+                    .map(p => p.id)
+            );
+            if (idsRecienActualizados.size > 0) {
+                clearTimeout(limpiezaResaltadoTimeout);
+                limpiezaResaltadoTimeout = setTimeout(() => { idsRecienActualizados = new Set(); }, 3000);
+            }
+        }
+
+        productosCargados = nuevosProductos;
         // Ordenar alfabéticamente por nombre
         productosCargados.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
         if (filtroCategorias) {
@@ -168,6 +196,7 @@ function renderizarProductos(productos) {
     if (productos.length > 0) {
         productos.forEach(prod => {
             const tr = document.createElement('tr');
+            if (idsRecienActualizados.has(prod.id)) tr.classList.add('fila-actualizada');
 
             const stockBajo = prod.stock <= prod.stock_minimo;
             const badge = stockBajo

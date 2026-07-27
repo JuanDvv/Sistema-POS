@@ -109,9 +109,9 @@ function registerGastosIpc() {
     ipcMain.handle('editar-gasto', async (event, datosGasto) => {
         const { id, tipo, descripcion, monto, metodoPago, auditoriaUsuario, auditoriaRol } = datosGasto;
         try {
-            // Obtener la sucursal del gasto original antes de modificarlo para auditoría
+            // Obtener el gasto original antes de modificarlo, para auditoría y para bloquear el domicilio
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, descripcion FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, descripcion, monto, metodo_pago FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // "Domicilio (Descuento de Caja)" lo genera y reconcilia automáticamente
             // insertarVentaTx/editarVentaCompletaTx (ver services/ventaService.js); editarlo aquí lo
@@ -120,13 +120,21 @@ function registerGastosIpc() {
                 return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede editar aquí.' };
             }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
+            const metodoPagoFinal = metodoPago || 'Efectivo';
 
             await runQuery(
                 `UPDATE gastos SET tipo = ?, descripcion = ?, monto = ?, metodo_pago = ?, sync_status = 'pending' WHERE id = ?`,
-                [tipo, descripcion, monto, metodoPago || 'Efectivo', id]
+                [tipo, descripcion, monto, metodoPagoFinal, id]
             );
-            // Registrar en logs de auditoría
-            await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucId, 'Editar Gasto', `Gasto ID: ${id} - Nuevo Monto: $${monto} - Tipo: ${tipo} - Método: ${metodoPago || 'Efectivo'} - Desc: ${descripcion}`);
+            // Registrar en logs de auditoría: solo lo que cambió queda con flecha antes → después
+            const detallesAuditoria = [
+                `Gasto ID: ${id}`,
+                gasto && Number(gasto.monto) !== Number(monto) ? `Monto: $${gasto.monto} → $${monto}` : `Monto: $${monto}`,
+                gasto && gasto.tipo !== tipo ? `Tipo: ${gasto.tipo} → ${tipo}` : `Tipo: ${tipo}`,
+                gasto && (gasto.metodo_pago || 'Efectivo') !== metodoPagoFinal ? `Método: ${gasto.metodo_pago || 'Efectivo'} → ${metodoPagoFinal}` : `Método: ${metodoPagoFinal}`,
+                gasto && gasto.descripcion !== descripcion ? `Desc: ${gasto.descripcion} → ${descripcion}` : `Desc: ${descripcion}`
+            ].join(' - ');
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucId, 'Editar Gasto', detallesAuditoria);
             solicitarSincronizacion('gasto editado');
             return { success: true, message: 'Gasto modificado exitosamente.' };
         } catch (err) {

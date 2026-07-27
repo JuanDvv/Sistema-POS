@@ -416,23 +416,26 @@
         });
     }
 
-    // Indicador sutil de "próxima sincronización" bajo el botón. No es un timer aparte: se
+    // Indicador sutil de "próxima sincronización" bajo el botón. `proximaSincronizacionTs` se
     // recalcula como "ahora + intervalo del rol" cada vez que corre un ciclo de sincronización
-    // (manual o automático), así el usuario siempre ve una referencia razonable de cuándo
-    // volverá a sincronizar aunque haya disparado una manual entre medio. Si el rol no tiene
-    // cadencia automática asignada (o no hay window.api), el indicador queda vacío.
-    function formatearHoraProxima(ts) {
-        const d = new Date(ts);
-        const minutos = String(d.getMinutes()).padStart(2, '0');
-        const sufijo = d.getHours() >= 12 ? 'PM' : 'AM';
-        const horas12 = d.getHours() % 12 || 12;
-        return `Próxima: ${String(horas12).padStart(2, '0')}:${minutos} ${sufijo}`;
-    }
+    // (manual o automático); un ticker aparte (independiente del propio intervalo de sync) lo
+    // refresca cada segundo en pantalla como cuenta regresiva. Con el intervalo en 15s, mostrar
+    // solo la hora:minuto (ej. "04:14 PM") no dejaba ver cuándo iba a pasar en realidad -- toda la
+    // ventana de 15s se veía igual. Si el rol no tiene cadencia automática (o no hay window.api),
+    // el indicador queda vacío.
+    let proximaSincronizacionTs = null;
 
     function actualizarProximaSincronizacion() {
+        if (!intervaloRolMs) return;
+        proximaSincronizacionTs = Date.now() + intervaloRolMs;
+        renderContadorProximaSincronizacion();
+    }
+
+    function renderContadorProximaSincronizacion() {
         const el = document.getElementById('sync-next-time');
-        if (!el || !intervaloRolMs) return;
-        el.innerText = formatearHoraProxima(Date.now() + intervaloRolMs);
+        if (!el || !proximaSincronizacionTs) return;
+        const segundosRestantes = Math.round((proximaSincronizacionTs - Date.now()) / 1000);
+        el.innerText = segundosRestantes > 0 ? `Próxima en ${segundosRestantes}s` : 'Sincronizando...';
     }
 
     // Ejecuta la sincronización y, sin importar quién la disparó (botón manual, intervalo
@@ -475,9 +478,14 @@
         }
     }
 
-    // Sincronización automática en segundo plano, con cadencia según el rol de la sesión:
-    // Operador cada 1 min (cambios más frecuentes/urgentes de confirmar), Administrador cada 5 min.
-    const INTERVALOS_SYNC_POR_ROL = { Operador: 60000, Administrador: 300000 };
+    // Sincronización automática en segundo plano. Antes Operador cada 1 min y Administrador cada
+    // 5 min: esa diferencia existía porque cada ciclo re-descargaba la tabla completa de cada
+    // entidad (ver descargarTodo en sync/syncService.js), y hacerlo cada minuto para todos hubiera
+    // sido demasiada carga. Desde que el pull es incremental por cursor (descargarDesdeCursor --
+    // ver sync/migrate_incremental_pull.sql), cada ciclo sin cambios solo pregunta "¿hay algo con
+    // sync_seq mayor al que ya tengo?" -- consultas triviales, así que ya no hay razón para que
+    // Administrador espere 5 minutos para enterarse de cambios hechos en otra terminal.
+    const INTERVALOS_SYNC_POR_ROL = { Operador: 15000, Administrador: 15000 };
     let intervalSincronizacionRol = null;
     const intervaloRolMs = INTERVALOS_SYNC_POR_ROL[currentRole];
     if (intervaloRolMs && window.api && window.api.forzarSincronizacion) {
@@ -493,7 +501,11 @@
         intervalSincronizacionRol = setInterval(() => {
             ejecutarSincronizacion({ mostrarAlertas: false });
         }, intervaloRolMs);
-        window.addEventListener('beforeunload', () => clearInterval(intervalSincronizacionRol));
+        const intervalContadorProxima = setInterval(renderContadorProximaSincronizacion, 1000);
+        window.addEventListener('beforeunload', () => {
+            clearInterval(intervalSincronizacionRol);
+            clearInterval(intervalContadorProxima);
+        });
         actualizarProximaSincronizacion();
     }
 

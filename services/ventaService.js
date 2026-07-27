@@ -23,6 +23,26 @@ function resumenCarrito(carrito) {
         : carrito.map(i => `${i.nombre} (x${i.cantidad})`).join(', ');
 }
 
+// Compara el detalle original de una venta contra el carrito editado y describe únicamente lo
+// que cambió (productos agregados, quitados o con cantidad distinta), para que el log de
+// auditoría de "Editar Venta" muestre el cambio real y no solo el resultado final.
+function describirCambiosProductos(detallesOriginales, carritoNuevo) {
+    const antes = new Map(detallesOriginales.map(d => [d.producto_id, { nombre: d.nombre || d.producto_id, cantidad: Number(d.cantidad) }]));
+    const despues = new Map(carritoNuevo.map(i => [i.id, { nombre: i.nombre || i.id, cantidad: Number(i.cantidad) }]));
+
+    const cambios = [];
+    for (const [id, item] of despues) {
+        const previo = antes.get(id);
+        if (!previo) cambios.push(`+${item.nombre} (x${item.cantidad})`);
+        else if (previo.cantidad !== item.cantidad) cambios.push(`${item.nombre} (x${previo.cantidad}→x${item.cantidad})`);
+    }
+    for (const [id, item] of antes) {
+        if (!despues.has(id)) cambios.push(`-${item.nombre} (x${item.cantidad})`);
+    }
+
+    return cambios.length > 0 ? cambios.join(', ') : 'sin cambios';
+}
+
 // Busca el gasto "Domicilio (Descuento de Caja)" enlazado a una venta (por venta_id). Las ventas
 // creadas antes de que existiera esa columna tienen el gasto suelto (venta_id NULL); para esas se
 // intenta adoptar por sucursal + fecha exacta (con milisegundos, prácticamente única por venta) en
@@ -213,7 +233,7 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
         await runQuery("BEGIN TRANSACTION", []);
 
         const ventaOriginal = await new Promise((resolve, reject) => {
-            db.get(`SELECT sucursal_id, fecha FROM ventas WHERE id = ?`, [ventaId], (err, row) => {
+            db.get(`SELECT sucursal_id, fecha, metodo_pago, total FROM ventas WHERE id = ?`, [ventaId], (err, row) => {
                 if (err) reject(err);
                 else resolve(row);
             });
@@ -227,7 +247,10 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
         const sucursalFinalId = sucursalId || sucursalOriginalId;
 
         // 1. Revertir el stock descontado por las líneas originales
-        const detallesOriginales = await allQuery(`SELECT producto_id, cantidad FROM detalle_ventas WHERE venta_id = ?`, [ventaId]);
+        const detallesOriginales = await allQuery(
+            `SELECT dv.producto_id, dv.cantidad, p.nombre FROM detalle_ventas dv LEFT JOIN productos p ON dv.producto_id = p.id WHERE dv.venta_id = ?`,
+            [ventaId]
+        );
         for (const det of detallesOriginales) {
             await runQuery(
                 `UPDATE inventario_sucursal SET stock = stock + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
@@ -323,7 +346,18 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
             await runQuery(`UPDATE gastos SET sync_status = 'deleted' WHERE id = ?`, [gastoDomicilio.id]);
         }
 
-        await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalFinalId, accion || 'Editar Venta (Productos)', `Venta ID: ${ventaId} - Total: $${total} - Método: ${metodoPago} - Fecha: ${fecha} - Prods: [${resumenCarrito(carrito)}]`);
+        const domicilioAntes = gastoDomicilio ? Number(gastoDomicilio.monto) : 0;
+        const cambiosProductos = describirCambiosProductos(detallesOriginales, carrito);
+        const detallesAuditoria = [
+            `Venta ID: ${ventaId}`,
+            Number(ventaOriginal.total) !== Number(total) ? `Total: $${ventaOriginal.total} → $${total}` : `Total: $${total}`,
+            ventaOriginal.metodo_pago !== metodoPago ? `Método: ${ventaOriginal.metodo_pago} → ${metodoPago}` : `Método: ${metodoPago}`,
+            domicilioAntes !== nuevoValorDomicilio ? `Domicilio: $${domicilioAntes} → $${nuevoValorDomicilio}` : null,
+            `Fecha: ${fecha}`,
+            `Cambios en productos: [${cambiosProductos}]`
+        ].filter(Boolean).join(' - ');
+
+        await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalFinalId, accion || 'Editar Venta (Productos)', detallesAuditoria);
 
         await runQuery("COMMIT", []);
         notificarInventarioActualizado();
