@@ -171,6 +171,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             sucursalDetalle = resSucursal.data;
         }
     }
+    const badgeProductos = document.getElementById('badge-sucursal-productos');
+    if (badgeProductos) {
+        badgeProductos.textContent = `📍 ${sucursalDetalle?.nombre || sucursalId}`;
+        badgeProductos.style.display = 'inline-block';
+    }
     // 1. Mostrar información del usuario logueado en la barra lateral
     const user = localStorage.getItem('currentUser') || 'Invitado';
     const role = localStorage.getItem('currentRole') || 'Sin Rol';

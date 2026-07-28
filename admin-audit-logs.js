@@ -71,6 +71,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         paginaActual += 1;
         cargarAuditoria();
     });
+
+    // Igual que en Reporte Diario: dos vías para invalidar la tabla tras sincronizar, el push IPC
+    // 'sincronizacion-completa' (lo emite el proceso principal al terminar CUALQUIER ciclo, manual
+    // o automático) y el evento local 'pos-sincronizacion-completa' que dispara el botón del sidebar
+    // en esta misma ventana. Sin esto, un registro de auditoría hecho en otro equipo solo aparecía
+    // tras salir y volver a entrar a esta pantalla.
+    window.api.onSincronizacionCompleta(() => cargarAuditoria());
+    window.addEventListener('pos-sincronizacion-completa', () => cargarAuditoria());
 });
 
 function recargarConDebounce() {

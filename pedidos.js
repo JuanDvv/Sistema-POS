@@ -668,6 +668,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const resSucursal = await window.api.obtenerSucursal(sucursalId);
         if (resSucursal.success && resSucursal.data) sucursalDetalle = resSucursal.data;
     }
+    const badgeSucursal = document.getElementById('badge-sucursal-pedidos');
+    if (badgeSucursal) {
+        badgeSucursal.textContent = `📍 ${sucursalDetalle?.nombre || sucursalId}`;
+        badgeSucursal.style.display = 'inline-block';
+    }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => cambiarTab(btn.dataset.tab));

@@ -224,7 +224,10 @@
     <nav id="sidebar-container"></nav>
     <main class="main-content">
         <div class="header-title">
-            <h2 style="margin: 0;">📦 Pedidos / Apartados</h2>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <h2 style="margin: 0;">📦 Pedidos / Apartados</h2>
+                <span id="badge-sucursal-pedidos" style="display: none; background: #eef2ff; color: #4338ca; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 12px; white-space: nowrap;"></span>
+            </div>
             <div class="tabs">
                 <button class="tab-btn active" id="tab-btn-listado" data-tab="listado">📋 Listado de Pedidos</button>
                 <button class="tab-btn" id="tab-btn-nuevo" data-tab="nuevo">➕ Nuevo Pedido</button>

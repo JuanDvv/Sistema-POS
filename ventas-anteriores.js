@@ -137,6 +137,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const resId = await window.api.obtenerSucursalId();
     if (resId.success) sucursalId = resId.id;
 
+    const badgeSucursal = document.getElementById('badge-sucursal-editar');
+    if (badgeSucursal) {
+        badgeSucursal.textContent = `📍 ${sucursalId}`;
+        badgeSucursal.style.display = 'inline-block';
+    }
+
     document.getElementById('display-user').innerText = currentUser;
     document.getElementById('display-role').innerText = currentRole;
 

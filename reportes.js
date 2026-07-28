@@ -265,7 +265,9 @@ async function cargarReporte(fecha) {
         if (tbodyAbonosPedido) {
             tbodyAbonosPedido.innerHTML = '';
             if (abonosPedidoVisibles.length > 0) {
-                abonosPedidoVisibles.forEach(abono => {
+                [...abonosPedidoVisibles]
+                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+                    .forEach(abono => {
                     const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
@@ -506,7 +508,9 @@ async function cargarReporte(fecha) {
         if (tbodyTrans) {
             tbodyTrans.innerHTML = '';
             if (datosReporteGlobal.transferencias && datosReporteGlobal.transferencias.length > 0) {
-                datosReporteGlobal.transferencias.forEach(trans => {
+                [...datosReporteGlobal.transferencias]
+                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+                    .forEach(trans => {
                     const hora = new Date(trans.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
