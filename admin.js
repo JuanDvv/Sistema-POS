@@ -12,19 +12,58 @@ let activeUserSession = ''; // Guardará el username de quien está logueado par
 
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Validar Rol de Administrador
+    // 1. Validar Rol: Administrador ve el panel completo; Operador solo Cambiar Contraseña
+    // e Impresora de Tickets (las secciones de gestión general quedan ocultas, no bloqueadas
+    // con redirección, para que ambos roles puedan llegar a esta página desde el sidebar).
     const user = localStorage.getItem('currentUser') || 'Invitado';
     const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const esAdministrador = role === 'Administrador';
     activeUserSession = user;
-
-    if (role !== 'Administrador') {
-        alert("Acceso denegado. Esta sección es de uso exclusivo para administradores.");
-        window.location.href = 'dashboard.html';
-        return;
-    }
 
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
+
+    if (esAdministrador) {
+        const seccionPassword = document.getElementById('section-cambiar-password');
+        if (seccionPassword) seccionPassword.style.display = 'none';
+    } else {
+        ['section-solicitudes', 'section-sucursales', 'section-usuarios', 'section-categorias', 'section-clientes'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+        const titulo = document.querySelector('.header-title h1');
+        if (titulo) titulo.innerText = 'Mi Cuenta';
+        const subtitulo = document.querySelector('.header-title span');
+        if (subtitulo) subtitulo.innerText = 'Configuración Personal';
+    }
+
+    // Cambiar mi Contraseña (disponible para Operador)
+    const formCambiarPassword = document.getElementById('form-cambiar-password');
+    if (formCambiarPassword) {
+        formCambiarPassword.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const passwordActual = document.getElementById('cambiar-password-actual').value;
+            const passwordNueva = document.getElementById('cambiar-password-nueva').value;
+            const passwordConfirmar = document.getElementById('cambiar-password-confirmar').value;
+
+            if (passwordNueva !== passwordConfirmar) {
+                alert('La nueva contraseña y su confirmación no coinciden.');
+                return;
+            }
+
+            const res = await window.api.cambiarPasswordPropio({
+                username: user,
+                passwordActual,
+                passwordNueva,
+                auditoriaRol: role
+            });
+
+            alert(res.message);
+            if (res.success) {
+                formCambiarPassword.reset();
+            }
+        });
+    }
 
     // Soporte para menú móvil flotante
     const toggleBtn = document.getElementById('menu-toggle');
@@ -39,6 +78,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 sidebar.classList.remove('open');
             }
         });
+    }
+
+    // Impresora de tickets de este equipo (disponible para Operador y Administrador)
+    await cargarSeccionImpresora();
+
+    if (!esAdministrador) {
+        return;
     }
 
     // 2. Cargar Datos de Sucursales
@@ -448,12 +494,61 @@ window.activarSucursal = async (id) => {
 window.eliminarSucursal = async (id) => {
     if (confirm(`¿Estás seguro de que deseas eliminar la sucursal "${id}"?`)) {
         const res = await window.api.eliminarSucursal({ id, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
-        alert(res.message);
         if (res.success) {
+            alert(res.message);
             await cargarSucursales();
+            return;
         }
+        mostrarModalSucursalBloqueada(id, res);
     }
 };
+
+// Cuando el borrado se bloquea por stock pendiente, en vez de un alert sin salida se ofrecen las
+// dos formas reales de vaciar el inventario que ya existen en el sistema (Transferencias y Gastos
+// > Gasto de Inventario), preseleccionando la sucursal para no obligar al admin a repetir la
+// búsqueda. Otros motivos de bloqueo (sucursal activa, pedidos pendientes) no tienen una acción
+// de navegación asociada, así que solo se muestra el mensaje.
+function mostrarModalSucursalBloqueada(id, res) {
+    const modal = document.getElementById('modal-sucursal-bloqueada');
+    const body = document.getElementById('modal-sucursal-bloqueada-body');
+    if (!modal || !body) {
+        alert(res.message);
+        return;
+    }
+
+    if (res.code === 'STOCK_PENDIENTE') {
+        body.innerHTML = `
+            <p style="margin-bottom:16px;">${res.message}</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button type="button" class="btn-primary" id="btn-ir-transferir-stock" style="width:100%; justify-content:center;">🔄 Transferir stock a otra sucursal</button>
+                <button type="button" class="btn-delete" id="btn-ir-descartar-stock" style="width:100%; justify-content:center;">🗑️ Descartar / dar de baja todo el stock</button>
+            </div>
+        `;
+        document.getElementById('btn-ir-transferir-stock').addEventListener('click', () => {
+            window.location.href = 'transferencias.html?sucursalOrigen=' + encodeURIComponent(id);
+        });
+        document.getElementById('btn-ir-descartar-stock').addEventListener('click', () => {
+            window.location.href = 'gastos.html?sucursal=' + encodeURIComponent(id) + '&tipo=' + encodeURIComponent('Gasto de Inventario');
+        });
+    } else {
+        body.innerHTML = `<p>${res.message}</p>`;
+    }
+
+    modal.style.display = 'flex';
+}
+
+const btnCloseSucursalBloqueada = document.getElementById('btn-close-sucursal-bloqueada-modal');
+if (btnCloseSucursalBloqueada) {
+    btnCloseSucursalBloqueada.addEventListener('click', () => {
+        document.getElementById('modal-sucursal-bloqueada').style.display = 'none';
+    });
+}
+window.addEventListener('click', (e) => {
+    const modalSucursalBloqueada = document.getElementById('modal-sucursal-bloqueada');
+    if (e.target === modalSucursalBloqueada) {
+        modalSucursalBloqueada.style.display = 'none';
+    }
+});
 
 // Alterna entre mostrar y ocultar la contraseña de una fila de la tabla de usuarios
 window.togglePasswordCell = (btn) => {
@@ -873,3 +968,78 @@ window.addEventListener('click', (e) => {
         modalDetalleSolicitud.style.display = 'none';
     }
 });
+
+// --- Impresora de Tickets (configuración local por equipo) ---
+// Se guarda en un archivo en userData (vía IPC), NO en localStorage: el botón de cerrar
+// sesión hace localStorage.clear() en todas las pantallas, y eso borraría la selección en
+// cada cambio de turno si viviera ahí.
+async function cargarSeccionImpresora() {
+    const select = document.getElementById('select-impresora');
+    const estado = document.getElementById('impresora-estado');
+    const btnRecargar = document.getElementById('btn-recargar-impresoras');
+    const btnGuardar = document.getElementById('btn-guardar-impresora');
+    if (!select || !btnGuardar) return;
+
+    async function refrescarListaImpresoras() {
+        select.innerHTML = '<option value="">(Detectando impresoras...)</option>';
+        estado.innerText = '';
+
+        const { nombres, sugerida, guardada } = await window.api.listarImpresoras();
+
+        select.innerHTML = '';
+        if (nombres.length === 0) {
+            select.innerHTML = '<option value="">(No se detectaron impresoras)</option>';
+            return;
+        }
+
+        nombres.forEach(nombre => {
+            const opt = document.createElement('option');
+            opt.value = nombre;
+            opt.innerText = nombre === sugerida ? `${nombre} (sugerida)` : nombre;
+            select.appendChild(opt);
+        });
+
+        // Prioridad: selección ya guardada si sigue existiendo; si no, la sugerida automática.
+        if (guardada && nombres.includes(guardada)) {
+            select.value = guardada;
+        } else if (sugerida) {
+            select.value = sugerida;
+        }
+
+        estado.innerText = guardada
+            ? `Impresora guardada en este equipo: "${guardada}"`
+            : 'Sin impresora guardada todavía en este equipo (se usará la sugerida automáticamente).';
+    }
+
+    if (btnRecargar) {
+        btnRecargar.addEventListener('click', refrescarListaImpresoras);
+    }
+
+    btnGuardar.addEventListener('click', async () => {
+        const elegida = select.value;
+        if (!elegida) {
+            alert('Selecciona una impresora antes de guardar.');
+            return;
+        }
+        await window.api.guardarImpresoraLocal(elegida);
+        estado.innerText = `Impresora guardada en este equipo: "${elegida}"`;
+        alert(`Impresora "${elegida}" guardada para este equipo.`);
+    });
+
+    // Al entrar a Administración solo se detectan impresoras automáticamente si este equipo
+    // todavía no tiene una guardada. Si ya hay una, se muestra tal cual (lectura rápida del
+    // Registro, sin enumerar impresoras ni consultar PowerShell) y la detección completa
+    // queda disponible solo mediante el botón "Detectar impresoras".
+    const guardadaActual = await window.api.obtenerImpresoraGuardada();
+    if (guardadaActual) {
+        select.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = guardadaActual;
+        opt.innerText = guardadaActual;
+        select.appendChild(opt);
+        select.value = guardadaActual;
+        estado.innerText = `Impresora guardada en este equipo: "${guardadaActual}"`;
+    } else {
+        await refrescarListaImpresoras();
+    }
+}

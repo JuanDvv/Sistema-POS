@@ -671,6 +671,7 @@ function renderizarCatalogo(productos) {
             const productoNombre = prod.nombre || prod.name || prod.producto_nombre || 'Sin nombre';
             const productoPrecio = Number(prod.precio ?? prod.price ?? 0);
             const productoStock = Number(prod.stock ?? 0);
+            const productoReservado = Number(prod.stock_reservado ?? 0);
 
             // Ya no se deshabilita la tarjeta cuando no hay stock: se permite vender productos
             // agotados (quedan con inventario negativo), pidiendo confirmación al cobrar.
@@ -703,7 +704,7 @@ function renderizarCatalogo(productos) {
                     </div>
                     <div>
                         <div class="product-price" style="color: #059669; font-weight: 700; font-size: 0.95em; text-align: center;">${formatCOP(productoPrecio)}</div>
-                        <div class="product-stock" style="font-size: 0.75em; color: #6b7280; text-align: center;">Disp: <strong>${productoStock}</strong></div>
+                        <div class="product-stock" style="font-size: 0.75em; color: #6b7280; text-align: center;">Disp: <strong>${productoStock}</strong>${productoReservado > 0 ? ` <span style="color: #d97706;">- Apart: <strong>${productoReservado}</strong></span>` : ''}</div>
                     </div>
                 </div>
             `;

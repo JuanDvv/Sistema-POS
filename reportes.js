@@ -756,10 +756,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const modalDevoluciones = document.getElementById('modal-devoluciones');
     const btnAbrirDevoluciones = document.getElementById('btn-abrir-devoluciones');
     const btnCloseDevoluciones = document.getElementById('btn-close-devoluciones-modal');
+    const filtroEstadoDevoluciones = document.getElementById('filtro-estado-devoluciones');
 
     if (btnAbrirDevoluciones) {
         btnAbrirDevoluciones.addEventListener('click', async () => {
             modalDevoluciones.style.display = 'flex';
+            if (filtroEstadoDevoluciones) filtroEstadoDevoluciones.value = 'pendientes';
             await cargarDevoluciones();
         });
     }
@@ -767,6 +769,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnCloseDevoluciones.addEventListener('click', () => {
             modalDevoluciones.style.display = 'none';
         });
+    }
+    if (filtroEstadoDevoluciones) {
+        filtroEstadoDevoluciones.addEventListener('change', renderizarDevoluciones);
     }
 
     // Controles del modal de ventas
@@ -1132,6 +1137,8 @@ window.resolverDevolucion = async function(id, nuevoEstado) {
 
 // Seguimiento de devoluciones: vista independiente del día filtrado en el reporte diario,
 // para que una devolución pendiente no "desaparezca" al cambiar de fecha.
+let devolucionesCache = [];
+
 async function cargarDevoluciones() {
     const tbody = document.querySelector('#table-devoluciones tbody');
     if (!tbody) return;
@@ -1144,9 +1151,27 @@ async function cargarDevoluciones() {
     }
 
     const { devoluciones, resumen } = response;
+    devolucionesCache = devoluciones || [];
     document.getElementById('resumen-devoluciones-pendientes').innerText = resumen.pendientes;
     document.getElementById('resumen-devoluciones-devueltas').innerText = resumen.devueltas;
     document.getElementById('resumen-devoluciones-rechazadas').innerText = resumen.rechazadas;
+
+    renderizarDevoluciones();
+}
+
+function renderizarDevoluciones() {
+    const tbody = document.querySelector('#table-devoluciones tbody');
+    if (!tbody) return;
+
+    const selectEstado = document.getElementById('filtro-estado-devoluciones');
+    const estadoFiltro = selectEstado ? selectEstado.value : 'pendientes';
+    // Cualquier estado que no sea "Devuelta" ni "Rechazada" cuenta como pendiente (mismo criterio
+    // que el resumen del backend), porque en datos históricos el texto exacto de "pendiente" varió.
+    const devoluciones = estadoFiltro === 'todas'
+        ? devolucionesCache
+        : estadoFiltro === 'pendientes'
+            ? devolucionesCache.filter(d => d.estado !== 'Regresada a la Sucursal' && d.estado !== 'Rechazada por el Proveedor')
+            : devolucionesCache.filter(d => d.estado === estadoFiltro);
 
     tbody.innerHTML = '';
     if (!devoluciones || devoluciones.length === 0) {

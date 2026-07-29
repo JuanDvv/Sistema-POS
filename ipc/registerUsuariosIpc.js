@@ -63,6 +63,27 @@ function registerUsuariosIpc() {
         }
     });
 
+    // Cambiar la propia contraseña: usado por Operador (que no tiene acceso al CRUD completo de
+    // Usuarios) y también sirve para Administrador. Valida la contraseña actual en vez de fiarse
+    // del rol/ID reportado por el renderer.
+    ipcMain.handle('cambiar-password-propio', async (event, datos) => {
+        const { username, passwordActual, passwordNueva, auditoriaRol } = datos;
+        try {
+            const row = await new Promise((resolve, reject) => {
+                db.get(`SELECT id, password FROM usuarios WHERE username = ? AND (sync_status IS NULL OR sync_status <> 'deleted')`,
+                    [username], (err, row) => { if (err) reject(err); else resolve(row); });
+            });
+            if (!row) return { success: false, message: 'Usuario no encontrado.' };
+            if (row.password !== passwordActual) return { success: false, message: 'La contraseña actual no es correcta.' };
+
+            await runQuery(`UPDATE usuarios SET password = ?, sync_status = 'pending' WHERE id = ?`, [passwordNueva, row.id]);
+            await registrarAuditoria(username, auditoriaRol, 'Administración', 'Cambiar Contraseña', `Usuario: ${username}`);
+            return { success: true, message: 'Contraseña actualizada exitosamente.' };
+        } catch (err) {
+            return { success: false, message: 'Error al cambiar la contraseña: ' + err.message };
+        }
+    });
+
     // Eliminar usuario: soft delete (igual que productos/categorías) para que la baja se
     // propague a Supabase y a las demás terminales en el próximo ciclo de sincronización.
     // 'u-admin-default' es el seed local de emergencia (nunca se sube a la nube), así que a

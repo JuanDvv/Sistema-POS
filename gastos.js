@@ -241,6 +241,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         sucursalLocalId = resId.id;
         sucursalId = resId.id;
     }
+
+    // Al llegar desde "Eliminar Sucursal" (admin.js) con stock pendiente, se preselecciona esa
+    // sucursal y el tipo "Gasto de Inventario" para no obligar al admin a repetir la búsqueda.
+    const paramsUrl = new URLSearchParams(window.location.search);
+    const sucursalParam = paramsUrl.get('sucursal');
+    const tipoParam = paramsUrl.get('tipo');
+    if (sucursalParam) {
+        sucursalLocalId = sucursalParam;
+        sucursalId = sucursalParam;
+    }
     const user = localStorage.getItem('currentUser') || 'Invitado';
     const role = localStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
@@ -346,10 +356,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (selectTipo) {
         selectTipo.addEventListener('change', toggleSeccion);
+        if (tipoParam && [...selectTipo.options].some(opt => opt.value === tipoParam)) {
+            selectTipo.value = tipoParam;
+        }
         toggleSeccion();
     }
 
-    if (containerProductosVencidos) {
+    // Al venir del flujo de "Descartar/dar de baja todo el stock" (ver admin.js), se precarga una
+    // fila por cada producto con stock en la sucursal, con la cantidad completa, en vez de dejar
+    // que el admin los vuelva a agregar uno por uno a mano.
+    const esDescarteMasivo = tipoParam === 'Gasto de Inventario' && sucursalParam && productosDisponibles.some(p => p.stock > 0);
+    if (esDescarteMasivo) {
+        limpiarFilasProductosVencidos();
+        productosDisponibles.filter(p => p.stock > 0).forEach((producto) => {
+            const row = crearFilaProductoVencido(producto.id);
+            const cantidadInput = row.querySelector('.producto-vencido-cantidad');
+            cantidadInput.value = String(producto.stock);
+            actualizarValorFila(row);
+        });
+        actualizarMontoGeneral();
+    } else if (containerProductosVencidos) {
         crearFilaProductoVencido();
     }
 

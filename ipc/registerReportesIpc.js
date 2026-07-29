@@ -22,7 +22,7 @@ function registerReportesIpc() {
                     metodo_pago,
                     SUM(total) as total
                 FROM ventas
-                WHERE strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ?
+                WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?
                     AND (sync_status IS NULL OR sync_status <> 'deleted')
                     AND (es_credito IS NULL OR es_credito = 0)
                     AND NOT EXISTS (SELECT 1 FROM pedidos ped WHERE ped.venta_id = ventas.id)
@@ -43,7 +43,7 @@ function registerReportesIpc() {
                     estado,
                     COALESCE(descripcion, 'Sin descripción') as descripcion
                 FROM gastos
-                WHERE strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ? AND (sync_status IS NULL OR sync_status <> 'deleted')
+                WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ? AND (sync_status IS NULL OR sync_status <> 'deleted')
             `;
             let paramsGastos = [fechaInicio, fechaFin];
             if (sucursalId) {
@@ -66,11 +66,11 @@ function registerReportesIpc() {
             if (!sucursalId) {
                 const queryAbonos = `
                     SELECT
-                        strftime('%Y-%m-%d', fecha) as dia,
+                        strftime('%Y-%m-%d', fecha, 'localtime') as dia,
                         metodo_pago,
                         SUM(monto) as total
                     FROM abonos_credito
-                    WHERE strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ?
+                    WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?
                         AND (sync_status IS NULL OR sync_status <> 'deleted')
                     GROUP BY dia, metodo_pago
                     ORDER BY dia DESC
@@ -82,12 +82,12 @@ function registerReportesIpc() {
             // sucursal porque el pedido (a través del cual se llega al abono) sí tiene sucursal_id.
             let queryAbonosPedido = `
                 SELECT
-                    strftime('%Y-%m-%d', ap.fecha) as dia,
+                    strftime('%Y-%m-%d', ap.fecha, 'localtime') as dia,
                     ap.metodo_pago,
                     SUM(ap.monto) as total
                 FROM abonos_pedido ap
                 JOIN pedidos p ON ap.pedido_id = p.id
-                WHERE strftime('%Y-%m-%d', ap.fecha) >= ? AND strftime('%Y-%m-%d', ap.fecha) <= ?
+                WHERE strftime('%Y-%m-%d', ap.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', ap.fecha, 'localtime') <= ?
                     AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
             `;
             let paramsAbonosPedido = [fechaInicio, fechaFin];

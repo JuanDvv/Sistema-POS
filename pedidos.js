@@ -239,7 +239,7 @@ function renderizarGridPedido(productos) {
 async function cargarClientes() {
     const res = await window.api.obtenerClientes();
     if (!res.success) return;
-    clientesCargados = res.data || [];
+    clientesCargados = (res.data || []).filter(cli => (cli.origen || 'Credito') === 'Pedido');
 
     mapaClientesPorEtiqueta = new Map();
     const datalist = document.getElementById('datalist-clientes');
@@ -346,6 +346,12 @@ async function registrarPedido() {
     document.getElementById('post-pedido-msg').innerText = res.message;
     document.getElementById('modal-post-pedido').dataset.ticket = JSON.stringify(ticketDatos);
     document.getElementById('modal-post-pedido').style.display = 'flex';
+
+    // Por defecto se imprimen dos comprobantes idénticos: uno para el cliente y otro para
+    // que el local lo coloque en el producto. Se imprimen en serie (no en paralelo) porque
+    // ambas llamadas comparten el mismo script temporal de impresión RAW.
+    await imprimirComprobantePedido(ticketDatos);
+    await imprimirComprobantePedido(ticketDatos);
 
     limpiarFormularioNuevoPedido();
     cargarCatalogo();

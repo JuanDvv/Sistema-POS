@@ -615,10 +615,16 @@
                 <h3>Seguimiento de Devoluciones de Producto</h3>
                 <button class="close-btn" id="btn-close-devoluciones-modal">&times;</button>
             </div>
-            <div style="display: flex; gap: 12px; padding: 10px 0; flex-shrink: 0; font-size: 0.9em; flex-wrap: wrap;">
+            <div style="display: flex; gap: 12px; padding: 10px 0; flex-shrink: 0; font-size: 0.9em; flex-wrap: wrap; align-items: center;">
                 <span>⏳ Pendientes: <strong id="resumen-devoluciones-pendientes">0</strong></span>
                 <span>✅ Devueltas: <strong id="resumen-devoluciones-devueltas">0</strong></span>
                 <span>❌ Rechazadas: <strong id="resumen-devoluciones-rechazadas">0</strong></span>
+                <select id="filtro-estado-devoluciones" style="margin-left: auto; padding: 4px 8px;">
+                    <option value="pendientes" selected>⏳ Pendientes</option>
+                    <option value="Regresada a la Sucursal">✅ Devueltas</option>
+                    <option value="Rechazada por el Proveedor">❌ Rechazadas</option>
+                    <option value="todas">Todas</option>
+                </select>
             </div>
             <div style="overflow-y: auto; flex: 1; min-height: 0;">
                 <table id="table-devoluciones">

@@ -1,4 +1,4 @@
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -6,6 +6,30 @@ const { construirTicketBuffer, construirTicketPedidoBuffer } = require('./ticket
 
 // SRP: encapsula la selección de impresora y el envío del ticket en modo RAW (ESC/POS),
 // aislando al IPC handler del detalle de WinSpool/PowerShell.
+
+// La impresora elegida en Administración es una configuración de ESTE EQUIPO. Se guarda en
+// el Registro de Windows (HKCU), NO en un archivo de la app ni en localStorage: debe
+// sobrevivir a reinstalaciones de la app y a limpiezas de userData (estamos en fase de
+// pruebas en producción, reinstalando seguido) y al logout, que hace localStorage.clear()
+// en todas las pantallas. Solo debe cambiar si alguien la reconfigura desde Administración.
+const REGISTRY_KEY = 'HKCU\\Software\\POSDelipostresTurbaco';
+const REGISTRY_VALUE = 'ImpresoraTickets';
+
+function leerImpresoraGuardada() {
+    if (process.platform !== 'win32') return '';
+    try {
+        const salida = execFileSync('reg', ['query', REGISTRY_KEY, '/v', REGISTRY_VALUE], { windowsHide: true, encoding: 'utf8' });
+        const match = salida.match(/ImpresoraTickets\s+REG_SZ\s+(.*)/);
+        return match ? match[1].trim() : '';
+    } catch (_) {
+        return ''; // La clave no existe aún (primera vez en este equipo) u otro error de lectura.
+    }
+}
+
+function guardarImpresoraLocal(nombre) {
+    if (process.platform !== 'win32') return;
+    execFileSync('reg', ['add', REGISTRY_KEY, '/v', REGISTRY_VALUE, '/d', String(nombre), '/t', 'REG_SZ', '/f'], { windowsHide: true });
+}
 
 // Nota: Electron ya no expone `isDefault` en PrinterInfo (a partir de v18), por lo que no hay
 // forma de saber cuál es la predeterminada a través de getPrintersAsync(). Se consulta
@@ -112,9 +136,27 @@ function enviarBytesCrudosAImpresora(deviceName, buffer) {
     });
 }
 
+// Impresoras virtuales/de documento que Windows instala por defecto y que nunca son la
+// térmica real de tickets. Se usan para descartar candidatas cuando no hay predeterminada
+// configurada (p.ej. Windows "administra" el default y lo movió a otra cosa tras un update).
+const PATRONES_IMPRESORA_VIRTUAL = [
+    /onenote/i, /xps document writer/i, /^fax$/i, /print to pdf/i, /microsoft print to pdf/i,
+];
+
+function esImpresoraVirtual(nombre) {
+    return PATRONES_IMPRESORA_VIRTUAL.some(regex => regex.test(nombre));
+}
+
 async function seleccionarImpresora(win, printerName) {
     const impresoras = await win.webContents.getPrintersAsync();
     let deviceName = Boolean(printerName) && impresoras.some(p => p.name === printerName) ? printerName : '';
+
+    if (!deviceName) {
+        const guardada = leerImpresoraGuardada();
+        if (guardada && impresoras.some(p => p.name === guardada)) {
+            deviceName = guardada;
+        }
+    }
 
     if (!deviceName) {
         const predeterminada = await obtenerImpresoraPredeterminadaWindows();
@@ -124,11 +166,41 @@ async function seleccionarImpresora(win, printerName) {
     }
 
     if (!deviceName) {
+        const fisicas = impresoras.filter(p => !esImpresoraVirtual(p.name));
+        if (fisicas.length === 1) {
+            deviceName = fisicas[0].name;
+        }
+    }
+
+    if (!deviceName) {
         const lista = impresoras.map(p => `"${p.name}"`).join(', ') || '(ninguna detectada)';
         return { deviceName: '', error: `Error de impresión: no se encontró una impresora válida. Impresoras detectadas: ${lista}` };
     }
 
     return { deviceName, error: null };
+}
+
+// Para la pantalla de administración: lista las impresoras del sistema y cuál se usaría
+// automáticamente si el usuario no selecciona ninguna (mismo criterio que seleccionarImpresora,
+// sin depender de un printerName guardado).
+async function listarImpresorasDisponibles(win) {
+    const impresoras = await win.webContents.getPrintersAsync();
+    const guardada = leerImpresoraGuardada();
+    const predeterminada = await obtenerImpresoraPredeterminadaWindows();
+
+    let sugerida = '';
+    if (predeterminada && impresoras.some(p => p.name === predeterminada)) {
+        sugerida = predeterminada;
+    } else {
+        const fisicas = impresoras.filter(p => !esImpresoraVirtual(p.name));
+        if (fisicas.length === 1) sugerida = fisicas[0].name;
+    }
+
+    return {
+        nombres: impresoras.map(p => p.name),
+        sugerida,
+        guardada: guardada && impresoras.some(p => p.name === guardada) ? guardada : '',
+    };
 }
 
 async function imprimirTicket(win, { printerName, datosTicket } = {}) {
@@ -147,4 +219,4 @@ async function imprimirTicketPedido(win, { printerName, datosTicket } = {}) {
     return enviarBytesCrudosAImpresora(deviceName, buffer);
 }
 
-module.exports = { imprimirTicket, imprimirTicketPedido };
+module.exports = { imprimirTicket, imprimirTicketPedido, listarImpresorasDisponibles, guardarImpresoraLocal, leerImpresoraGuardada };

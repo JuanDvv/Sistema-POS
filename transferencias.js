@@ -111,6 +111,13 @@ async function cargarSucursales() {
             initialOrigenId = allSucursales[0]?.id || '';
         }
 
+        // Al llegar desde "Eliminar Sucursal" (admin.js) con stock pendiente, se preselecciona esa
+        // sucursal como origen para no obligar al admin a buscarla de nuevo en el selector.
+        const sucursalOrigenParam = new URLSearchParams(window.location.search).get('sucursalOrigen');
+        if (sucursalOrigenParam && allSucursales.some(suc => suc.id === sucursalOrigenParam)) {
+            initialOrigenId = sucursalOrigenParam;
+        }
+
         if (!allSucursales.some(suc => suc.id === initialOrigenId)) {
             initialOrigenId = allSucursales[0]?.id || '';
         }

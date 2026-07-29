@@ -1099,6 +1099,24 @@ async function podarKardexNube() {
     }
 }
 
+// --- 5.7. SINCRONIZAR ELIMINACIONES DE SUCURSALES (Local -> Supabase, soft delete) ---
+async function syncSucursalesEliminaciones() {
+    try {
+        const sucursalesEliminadas = await allQuery(`SELECT * FROM config_sucursal WHERE sync_status = 'deleted'`, []);
+        for (const suc of sucursalesEliminadas) {
+            const gano = await softDeleteConLWW('config_sucursal', { id: suc.id });
+            if (!gano) {
+                console.log(`[Sincronizador] Eliminación de sucursal ${suc.id} pospuesta: hay una versión más reciente en la nube.`);
+                continue;
+            }
+            await runQuery(`DELETE FROM config_sucursal WHERE id = ?`, [suc.id]);
+            console.log(`[Sincronizador] Eliminación de sucursal ${suc.id} sincronizada con la nube.`);
+        }
+    } catch (err) {
+        console.log("[Sincronizador] Eliminación de sucursales no sincronizada:", err.message);
+    }
+}
+
 // --- 6. SINCRONIZAR CONFIGURACIÓN DE SUCURSALES (Bidireccional, con LWW) ---
 async function syncSucursales() {
     // A. Subir cambios locales pendientes a la nube
@@ -1810,6 +1828,7 @@ async function procesarSincronizacion() {
         await syncMovimientosInventarioDescargar();
         await syncReservaInventarioDescargar();
         await podarKardexNube();
+        await syncSucursalesEliminaciones();
         await syncSucursales();
         await syncUsuarios();
         await syncTransferenciasSubir();

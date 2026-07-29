@@ -175,8 +175,33 @@
                 de Sistema</span>
         </header>
 
+        <!-- Sección de Cambio de Contraseña Propia (Operador) -->
+        <div class="section-card" id="section-cambiar-password">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🔑 Cambiar mi Contraseña</h3>
+            </div>
+            <form id="form-cambiar-password">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="cambiar-password-actual">Contraseña Actual *</label>
+                        <input type="password" id="cambiar-password-actual" required placeholder="Contraseña actual">
+                    </div>
+                    <div class="form-group">
+                        <label for="cambiar-password-nueva">Nueva Contraseña *</label>
+                        <input type="password" id="cambiar-password-nueva" required placeholder="Nueva contraseña">
+                    </div>
+                    <div class="form-group">
+                        <label for="cambiar-password-confirmar">Confirmar Nueva Contraseña *</label>
+                        <input type="password" id="cambiar-password-confirmar" required placeholder="Repite la nueva contraseña">
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary">💾 Guardar Contraseña</button>
+            </form>
+        </div>
+
         <!-- 0. Sección de Solicitudes de Ventas de Fecha Anterior -->
-        <div class="section-card">
+        <div class="section-card" id="section-solicitudes">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🗓️ Solicitudes de Ventas de Fecha Anterior</h3>
@@ -206,8 +231,33 @@
             </div>
         </div>
 
-        <!-- 1. Sección de Sucursales -->
+        <!-- Sección de Impresora de Tickets (configuración local de este equipo, no se sincroniza) -->
         <div class="section-card">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🖨️ Impresora de Tickets (este equipo)</h3>
+                <button id="btn-recargar-impresoras" class="btn-primary">🔄 Detectar impresoras</button>
+            </div>
+            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
+                Esta selección se guarda solo en esta computadora. Cada equipo debe configurar su propia impresora.
+            </p>
+            <div class="form-grid" style="align-items: end;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="select-impresora">Impresora para tickets</label>
+                    <select id="select-impresora">
+                        <option value="">(Detectando impresoras...)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <button type="button" id="btn-guardar-impresora" class="btn-primary"
+                        style="width: 100%; justify-content: center;">💾 Guardar impresora</button>
+                </div>
+            </div>
+            <p id="impresora-estado" style="margin-bottom: 0; color: var(--text-secondary); font-size: 0.85em;"></p>
+        </div>
+
+        <!-- 1. Sección de Sucursales -->
+        <div class="section-card" id="section-sucursales">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🏢 Gestión de Sucursales</h3>
@@ -233,7 +283,7 @@
         </div>
 
         <!-- 2. Sección de Usuarios -->
-        <div class="section-card">
+        <div class="section-card" id="section-usuarios">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">👥 Cuentas de Usuario</h3>
@@ -257,7 +307,7 @@
         </div>
 
         <!-- 3. Sección de Categorías -->
-        <div class="section-card">
+        <div class="section-card" id="section-categorias">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🏷️ Categorías y Subcategorías</h3>
@@ -280,7 +330,7 @@
         </div>
 
         <!-- 4. Sección de Clientes -->
-        <div class="section-card">
+        <div class="section-card" id="section-clientes">
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito / Pedidos)</h3>
@@ -447,6 +497,17 @@
                 <button class="close-btn" id="btn-close-detalle-solicitud-modal">&times;</button>
             </div>
             <div id="modal-detalle-solicitud-body"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Sucursal Bloqueada al Eliminar -->
+    <div id="modal-sucursal-bloqueada" class="modal">
+        <div class="modal-content" style="width: 460px;">
+            <div class="modal-header">
+                <h3 id="modal-sucursal-bloqueada-title">No se puede eliminar</h3>
+                <button class="close-btn" id="btn-close-sucursal-bloqueada-modal">&times;</button>
+            </div>
+            <div id="modal-sucursal-bloqueada-body"></div>
         </div>
     </div>
 

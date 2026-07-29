@@ -385,7 +385,7 @@
             <button class="nav-btn ${isVentasAnteriores ? 'active' : ''}" onclick="location.href='ventas-anteriores.html'"><span>🗓️</span> <span class="nav-text">Edición Ventas Anteriores</span></button>
             <button class="nav-btn ${isReportes ? 'active' : ''}" onclick="location.href='reportes.html'"><span>📊</span> <span class="nav-text">Reporte Diario</span></button>
             <button class="nav-btn ${isGestion ? 'active' : ''}" id="btn-nav-gestion" onclick="location.href='gestion.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'};"><span>📈</span> <span class="nav-text">Reportes Gestión</span></button>
-            <button class="nav-btn ${isAdmin ? 'active' : ''}" id="btn-nav-admin" onclick="location.href='admin.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'}; position: relative;"><span>⚙️</span> <span class="nav-text">Administración</span> <span id="badge-solicitudes-pendientes" style="display: none; position: absolute; top: 4px; right: 6px; background-color: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; min-width: 8px; text-align: center;"></span></button>
+            <button class="nav-btn ${isAdmin ? 'active' : ''}" id="btn-nav-admin" onclick="location.href='admin.html'" style="position: relative;"><span>⚙️</span> <span class="nav-text">Administración</span> <span id="badge-solicitudes-pendientes" style="display: none; position: absolute; top: 4px; right: 6px; background-color: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; min-width: 8px; text-align: center;"></span></button>
             <button class="nav-btn ${isAuditLogs ? 'active' : ''}" id="btn-nav-audit-logs" onclick="location.href='admin-audit-logs.html'" style="display: ${currentRole === 'Administrador' ? 'flex' : 'none'};"><span>📜</span> <span class="nav-text">Logs de Auditoría</span></button>
         </div>
 
@@ -400,6 +400,19 @@
             <button id="btn-logout" class="btn-logout-new"><span>🚪</span> <span class="nav-text">Cerrar Sesión</span></button>
         </div>
     `;
+
+    // El sidebar se expande al pasar el mouse (80px -> 260px) como overlay, sin desplazar el
+    // contenido de la página. Si un <select> con foco queda dentro de esa franja, su desplegable
+    // nativo -- que el navegador siempre pinta en la capa más alta, por encima incluso de
+    // elementos position:fixed -- termina flotando visualmente sobre el sidebar expandido. No hay
+    // forma de bajar esa capa vía z-index, así que en su lugar cerramos el desplegable (blur)
+    // apenas el mouse entra al sidebar, antes de que llegue a taparlo.
+    container.addEventListener('mouseenter', () => {
+        const activeEl = document.activeElement;
+        if (activeEl && activeEl.tagName === 'SELECT') {
+            activeEl.blur();
+        }
+    });
 
     // Configurar listeners de menú hamburguesa móvil
     const toggleBtn = document.getElementById('menu-toggle');

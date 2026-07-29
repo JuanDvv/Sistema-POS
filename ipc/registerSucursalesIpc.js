@@ -4,6 +4,12 @@ const { supabase } = require('../sync/supabaseClients');
 const { solicitarSincronizacion } = require('../sync/syncService');
 const { registrarAuditoria } = require('../services/auditService');
 
+// Filtro reutilizado en todos los listados: una sucursal marcada para soft-delete
+// (sync_status = 'deleted') sigue existiendo localmente hasta que el ciclo de sync
+// confirme el borrado con la nube (ver eliminar-sucursal más abajo), pero no debe
+// aparecer como opción disponible mientras tanto.
+const FILTRO_NO_ELIMINADA = `(sync_status IS NULL OR sync_status <> 'deleted')`;
+
 // SRP: configuración y activación de sucursales.
 
 function registerSucursalesIpc() {
@@ -13,7 +19,7 @@ function registerSucursalesIpc() {
             const rows = await allQuery(
                 `SELECT DISTINCT sucursal_id as id FROM inventario_sucursal
                  UNION
-                 SELECT id FROM config_sucursal`,
+                 SELECT id FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA}`,
                 []
             );
             const ids = rows.map(r => r.id).filter(Boolean);
@@ -36,7 +42,7 @@ function registerSucursalesIpc() {
 
             // Fallback a cualquier sucursal si ninguna está activa
             const fallback = await new Promise((resolve) => {
-                db.get(`SELECT id FROM config_sucursal LIMIT 1`, [], (err, row) => {
+                db.get(`SELECT id FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA} LIMIT 1`, [], (err, row) => {
                     resolve(row);
                 });
             });
@@ -49,7 +55,7 @@ function registerSucursalesIpc() {
     // Obtener todas las sucursales
     ipcMain.handle('obtener-todas-sucursales', async () => {
         try {
-            const rows = await allQuery(`SELECT * FROM config_sucursal`, []);
+            const rows = await allQuery(`SELECT * FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA}`, []);
             return { success: true, data: rows };
         } catch (err) {
             return { success: false, message: 'Error al obtener sucursales: ' + err.message };
@@ -168,10 +174,44 @@ function registerSucursalesIpc() {
                 });
             });
             if (row && row.activa === 1) {
-                return { success: false, message: 'No se puede eliminar la sucursal activa en este terminal. Primero activa otra sucursal.' };
+                return { success: false, code: 'SUCURSAL_ACTIVA', message: 'No se puede eliminar la sucursal activa en este terminal. Primero activa otra sucursal.' };
             }
-            await runQuery(`DELETE FROM config_sucursal WHERE id = ?`, [id]);
+
+            const inventario = await new Promise((resolve, reject) => {
+                db.get(`SELECT COALESCE(SUM(stock), 0) as stockTotal FROM inventario_sucursal WHERE sucursal_id = ?`, [id], (err, row) => {
+                    if (err) reject(err); else resolve(row);
+                });
+            });
+            if (inventario && inventario.stockTotal > 0) {
+                return {
+                    success: false,
+                    code: 'STOCK_PENDIENTE',
+                    stockTotal: inventario.stockTotal,
+                    message: `No se puede eliminar: la sucursal todavía tiene ${inventario.stockTotal} unidades en inventario. Transfiere o descarga el stock primero.`
+                };
+            }
+
+            const pedidoPendiente = await new Promise((resolve, reject) => {
+                db.get(`SELECT COUNT(*) as n FROM pedidos WHERE sucursal_id = ? AND estado = 'pendiente'`, [id], (err, row) => {
+                    if (err) reject(err); else resolve(row);
+                });
+            });
+            if (pedidoPendiente && pedidoPendiente.n > 0) {
+                return { success: false, code: 'PEDIDOS_PENDIENTES', message: `No se puede eliminar: la sucursal tiene ${pedidoPendiente.n} pedido(s)/apartado(s) pendiente(s) de entrega.` };
+            }
+
+            // Soft delete (igual que categorías/productos/clientes): se marca la fila para que el
+            // ciclo de sincronización propague el deleted_at a Supabase antes de borrarla físico
+            // en local. Un DELETE directo aquí nunca llegaba a la nube (ver syncSucursales, que
+            // solo sube filas con sync_status = 'pending').
+            await runQuery(`UPDATE config_sucursal SET sync_status = 'deleted' WHERE id = ?`, [id]);
+            // El inventario en 0 que quedó de esta sucursal ya no tiene utilidad y ensucia los
+            // selectores de "sucursales disponibles" (que también miran inventario_sucursal); se
+            // limpia porque la validación de arriba garantiza que no representa stock real.
+            await runQuery(`DELETE FROM inventario_sucursal WHERE sucursal_id = ? AND stock = 0`, [id]);
+
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, id, 'Eliminar Sucursal', `Sucursal ID: ${id}`);
+            solicitarSincronizacion('sucursal eliminada');
             return { success: true, message: 'Sucursal eliminada exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar sucursal: ' + err.message };

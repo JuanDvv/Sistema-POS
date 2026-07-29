@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
     obtenerUsuarios: () => ipcRenderer.invoke('obtener-usuarios'),
     guardarUsuario: (datos) => ipcRenderer.invoke('guardar-usuario', datos),
     eliminarUsuario: (id) => ipcRenderer.invoke('eliminar-usuario', id),
+    cambiarPasswordPropio: (datos) => ipcRenderer.invoke('cambiar-password-propio', datos),
     editarVenta: (datosVenta) => ipcRenderer.invoke('editar-venta', datosVenta),
     eliminarVenta: (datos) => ipcRenderer.invoke('eliminar-venta', datos),
     obtenerSucursalId: () => ipcRenderer.invoke('obtener-sucursal-id'),
@@ -76,6 +77,9 @@ contextBridge.exposeInMainWorld('api', {
     obtenerUsuariosAuditoria: () => ipcRenderer.invoke('obtener-usuarios-auditoria'),
 
     // Módulo de impresión térmica
+    listarImpresoras: () => ipcRenderer.invoke('listar-impresoras'),
+    obtenerImpresoraGuardada: () => ipcRenderer.invoke('obtener-impresora-guardada'),
+    guardarImpresoraLocal: (nombre) => ipcRenderer.invoke('guardar-impresora-local', nombre),
     imprimirTicket: (datosTicket, printerName) => ipcRenderer.invoke('imprimir-ticket', { printerName, datosTicket }),
     imprimirTicketPedido: (datosTicket, printerName) => ipcRenderer.invoke('imprimir-ticket-pedido', { printerName, datosTicket }),
     onImpresionFallida: (callback) => ipcRenderer.on('impresion-fallida', (event, mensaje) => callback(mensaje)),
