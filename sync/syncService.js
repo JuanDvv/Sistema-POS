@@ -1526,13 +1526,21 @@ async function syncPedidosSubir() {
 
             const detalles = await allQuery(`SELECT * FROM detalle_pedidos WHERE pedido_id = ?`, [ped.id]);
 
-            // Igual que con detalle_ventas: se borran las líneas remotas previas antes de
-            // reinsertar, porque editarPedidoTx reemplaza detalle_pedidos localmente (DELETE +
-            // INSERT con ids nuevos) y sin este paso las líneas viejas quedarían huérfanas en
-            // Supabase, duplicando productos y total al descargar en otro equipo.
+            // editarPedidoTx reemplaza detalle_pedidos localmente (DELETE + INSERT con ids
+            // nuevos), así que las líneas remotas previas de este pedido quedan obsoletas y hay
+            // que invalidarlas. Antes esto era un DELETE físico en Supabase -- pero el trigger
+            // que asigna sync_seq (usado por el pull incremental, ver descargarDesdeCursor) solo
+            // dispara en INSERT/UPDATE, nunca en DELETE. Un equipo que ya hubiera descargado la
+            // línea vieja antes de esta subida nunca se enteraba del borrado (su cursor no tenía
+            // forma de verlo) y se quedaba con una copia huérfana para siempre, mientras seguía
+            // recibiendo la línea nueva -- duplicando el producto y el total visual del pedido en
+            // ese equipo (ver detalle_pedidos.deleted_at, ya existente en el schema remoto).
+            // Igual que con detalle_ventas/gastos/etc.: soft delete (deleted_at) en vez de DELETE
+            // físico, para que quede rastro con sync_seq y el download (más abajo) pueda
+            // propagar el borrado a todos los equipos vía el cursor incremental.
             const { error: errorLimpiezaDetalle } = await supabase
                 .from('detalle_pedidos')
-                .delete()
+                .update({ deleted_at: nowISO(), updated_at: nowISO() })
                 .eq('pedido_id', ped.id);
             if (errorLimpiezaDetalle) throw errorLimpiezaDetalle;
 
@@ -1545,6 +1553,7 @@ async function syncPedidosSubir() {
                         producto_id: det.producto_id,
                         cantidad: det.cantidad,
                         precio_unitario: det.precio_unitario,
+                        deleted_at: null,
                         updated_at: nowISO()
                     });
                 if (errorDetalle) throw errorDetalle;
@@ -1600,6 +1609,10 @@ async function syncPedidosDescargar() {
 
         if (detPedidosNube) {
             for (const det of detPedidosNube) {
+                if (det.deleted_at) {
+                    await runQuery(`DELETE FROM detalle_pedidos WHERE id = ?`, [det.id]);
+                    continue;
+                }
                 await runQuery(
                     `INSERT INTO detalle_pedidos (id, pedido_id, producto_id, cantidad, precio_unitario, updated_at)
                      VALUES (?, ?, ?, ?, ?, ?)
