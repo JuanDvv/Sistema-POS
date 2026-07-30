@@ -17,7 +17,6 @@
             overflow-y: auto;
             box-sizing: border-box;
             display: flex;
-            gap: 20px;
         }
 
         /* Paneles: cada uno con su propio scroll interno (min-height: 0 permite que un hijo flex
@@ -38,19 +37,57 @@
         }
 
         .cash-grid-section {
-            flex: 1;
-            min-width: 0;
+            flex: 0 0 380px;
+            min-width: 260px;
+            max-width: 65%;
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
 
         .summary-section {
-            flex: 2;
-            min-width: 0;
+            flex: 1 1 auto;
+            min-width: 320px;
             display: flex;
             flex-direction: column;
             gap: 20px;
+        }
+
+        /* Splitter arrastrable entre los dos paneles: ancho fijo con una línea central que resalta
+           al pasar el mouse/arrastrar, para indicar que es interactivo. */
+        .panel-splitter {
+            flex: 0 0 14px;
+            width: 14px;
+            margin: 0 2px;
+            cursor: col-resize;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+        }
+
+        .panel-splitter::before {
+            content: '';
+            width: 4px;
+            height: 48px;
+            border-radius: 4px;
+            background-color: var(--border-color);
+            transition: background-color 0.15s ease, height 0.15s ease;
+        }
+
+        .panel-splitter:hover::before,
+        .panel-splitter.dragging::before {
+            background-color: var(--brand-color);
+            height: 72px;
+        }
+
+        body.splitter-dragging {
+            cursor: col-resize !important;
+            user-select: none;
+        }
+
+        body.splitter-dragging .arqueo-panel {
+            pointer-events: none;
         }
 
         h2, h3 {
@@ -244,6 +281,14 @@
             .menu-toggle-btn {
                 display: block;
             }
+            /* En columna el splitter horizontal no aplica: se apila todo a ancho completo. */
+            .panel-splitter {
+                display: none;
+            }
+            .cash-grid-section {
+                flex: 0 0 auto !important;
+                max-width: 100%;
+            }
         }
     </style>
 </head>
@@ -320,6 +365,9 @@
                 </div>
             </div>
         </div>
+
+        <!-- Splitter: permite ajustar a voluntad el ancho relativo de los dos paneles -->
+        <div class="panel-splitter" id="panel-splitter" role="separator" aria-orientation="vertical" aria-label="Ajustar ancho de paneles"></div>
 
         <!-- Panel Derecho: Comparativa y Alerta Silenciosa -->
         <div class="arqueo-panel summary-section">
