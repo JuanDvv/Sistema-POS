@@ -82,7 +82,7 @@ const calcularTotalVenta = () => {
     return subtotalProductos + valorDomicilio;
 };
 const guardarCarritoTemporal = () => {
-    localStorage.setItem('carrito_temporal', JSON.stringify(carrito));
+    sessionStorage.setItem('carrito_temporal', JSON.stringify(carrito));
 };
 const normalizeStr = (value) => {
     if (value == null) return '';
@@ -182,19 +182,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
 
-    // Cargar carrito temporal si existe para que persista al cambiar de pestaña (excepto en ventanas secundarias)
-    const queryParams = new URLSearchParams(window.location.search);
-    const esNuevaVentana = queryParams.get('nueva_ventana') === 'true';
-
-    if (!esNuevaVentana) {
-        const savedCarrito = localStorage.getItem('carrito_temporal');
-        if (savedCarrito) {
-            try {
-                carrito = JSON.parse(savedCarrito);
-                renderizarCarrito();
-            } catch (e) {
-                console.error("Error al cargar carrito temporal:", e);
-            }
+    // Cargar carrito temporal si existe para que persista al navegar a otra página dentro de esta
+    // misma ventana. sessionStorage está aislado por ventana (a diferencia de localStorage, que es
+    // compartido por todas las ventanas de ventas abiertas), así que cada ventana secundaria arranca
+    // con su propio carrito vacío sin necesidad de distinguir "nueva ventana" explícitamente.
+    const savedCarrito = sessionStorage.getItem('carrito_temporal');
+    if (savedCarrito) {
+        try {
+            carrito = JSON.parse(savedCarrito);
+            renderizarCarrito();
+        } catch (e) {
+            console.error("Error al cargar carrito temporal:", e);
         }
     }
 
@@ -861,7 +859,7 @@ function limpiarEstadoVenta() {
     carrito = [];
 
     try {
-        localStorage.setItem('carrito_temporal', JSON.stringify(carrito));
+        sessionStorage.setItem('carrito_temporal', JSON.stringify(carrito));
     } catch (e) {
         console.error('No se pudo actualizar carrito temporal:', e);
     }
@@ -1061,7 +1059,7 @@ if (btnLogout) {
     btnLogout.addEventListener('click', () => {
         carrito = [];
         try {
-            localStorage.setItem('carrito_temporal', '[]');
+            sessionStorage.setItem('carrito_temporal', '[]');
         } catch (e) {
             console.error('No se pudo limpiar carrito temporal al cerrar sesión:', e);
         }
