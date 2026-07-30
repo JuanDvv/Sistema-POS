@@ -12,9 +12,9 @@ let activeUserSession = ''; // Guardará el username de quien está logueado par
 
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Validar Rol: Administrador ve el panel completo; Operador solo Cambiar Contraseña
-    // e Impresora de Tickets (las secciones de gestión general quedan ocultas, no bloqueadas
-    // con redirección, para que ambos roles puedan llegar a esta página desde el sidebar).
+    // 1. Validar Rol: Administrador ve el panel completo; Operador ve Cambiar Contraseña,
+    // Impresora de Tickets y Clientes (las demás secciones de gestión general quedan ocultas,
+    // no bloqueadas con redirección, para que ambos roles puedan llegar a esta página desde el sidebar).
     const user = localStorage.getItem('currentUser') || 'Invitado';
     const role = localStorage.getItem('currentRole') || 'Sin Rol';
     const esAdministrador = role === 'Administrador';
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const seccionPassword = document.getElementById('section-cambiar-password');
         if (seccionPassword) seccionPassword.style.display = 'none';
     } else {
-        ['section-solicitudes', 'section-sucursales', 'section-usuarios', 'section-categorias', 'section-clientes'].forEach(id => {
+        ['section-solicitudes', 'section-sucursales', 'section-usuarios', 'section-categorias'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -82,6 +82,88 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Impresora de tickets de este equipo (disponible para Operador y Administrador)
     await cargarSeccionImpresora();
+
+    // Clientes (disponible para Operador y Administrador)
+    await cargarClientes();
+
+    const filtroClientes = document.getElementById('filtro-clientes');
+    if (filtroClientes) {
+        filtroClientes.addEventListener('change', () => renderizarClientes());
+    }
+
+    const buscadorClientes = document.getElementById('buscador-clientes');
+    if (buscadorClientes) {
+        buscadorClientes.addEventListener('input', () => renderizarClientes());
+    }
+
+    const modalCliente = document.getElementById('modal-cliente');
+    const btnNuevoCliente = document.getElementById('btn-nuevo-cliente');
+    const btnCloseModalCliente = document.getElementById('btn-close-cliente-modal');
+    const formCliente = document.getElementById('form-cliente');
+
+    if (btnNuevoCliente) {
+        btnNuevoCliente.addEventListener('click', () => {
+            editingClienteId = null;
+            document.getElementById('modal-cliente-title').innerText = "Agregar Cliente";
+            formCliente.reset();
+            modalCliente.style.display = 'flex';
+        });
+    }
+
+    if (btnCloseModalCliente) {
+        btnCloseModalCliente.addEventListener('click', () => {
+            modalCliente.style.display = 'none';
+            formCliente.reset();
+            editingClienteId = null;
+        });
+    }
+
+    window.addEventListener('click', (e) => {
+        if (e.target === modalCliente) {
+            modalCliente.style.display = 'none';
+            formCliente.reset();
+            editingClienteId = null;
+        }
+    });
+
+    if (formCliente) {
+        formCliente.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById('cliente-nombre').value.trim();
+            const tipo = document.getElementById('cliente-tipo').value;
+            const identificacion = document.getElementById('cliente-identificacion').value.trim();
+            const telefono = document.getElementById('cliente-telefono').value.trim();
+            const email = document.getElementById('cliente-email').value.trim();
+
+            if (!nombre || !tipo) {
+                alert("Por favor ingrese los campos obligatorios.");
+                return;
+            }
+
+            const res = await window.api.guardarCliente({
+                id: editingClienteId,
+                nombre,
+                tipo,
+                identificacion,
+                telefono,
+                email,
+                auditoriaUsuario: activeUserSession,
+                auditoriaRol: role
+            });
+
+            alert(res.message);
+            if (res.success) {
+                modalCliente.style.display = 'none';
+                formCliente.reset();
+                editingClienteId = null;
+                await cargarClientes();
+            }
+        });
+    }
+
+    window.addEventListener('pos-sincronizacion-completa', () => {
+        cargarClientes();
+    });
 
     if (!esAdministrador) {
         return;
@@ -288,80 +370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- 6. Cargar e Iniciar Clientes ---
-    await cargarClientes();
-
-    const filtroClientes = document.getElementById('filtro-clientes');
-    if (filtroClientes) {
-        filtroClientes.addEventListener('change', () => renderizarClientes());
-    }
-
-    const modalCliente = document.getElementById('modal-cliente');
-    const btnNuevoCliente = document.getElementById('btn-nuevo-cliente');
-    const btnCloseModalCliente = document.getElementById('btn-close-cliente-modal');
-    const formCliente = document.getElementById('form-cliente');
-
-    if (btnNuevoCliente) {
-        btnNuevoCliente.addEventListener('click', () => {
-            editingClienteId = null;
-            document.getElementById('modal-cliente-title').innerText = "Agregar Cliente";
-            formCliente.reset();
-            modalCliente.style.display = 'flex';
-        });
-    }
-
-    if (btnCloseModalCliente) {
-        btnCloseModalCliente.addEventListener('click', () => {
-            modalCliente.style.display = 'none';
-            formCliente.reset();
-            editingClienteId = null;
-        });
-    }
-
-    window.addEventListener('click', (e) => {
-        if (e.target === modalCliente) {
-            modalCliente.style.display = 'none';
-            formCliente.reset();
-            editingClienteId = null;
-        }
-    });
-
-    if (formCliente) {
-        formCliente.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const nombre = document.getElementById('cliente-nombre').value.trim();
-            const tipo = document.getElementById('cliente-tipo').value;
-            const identificacion = document.getElementById('cliente-identificacion').value.trim();
-            const telefono = document.getElementById('cliente-telefono').value.trim();
-            const email = document.getElementById('cliente-email').value.trim();
-
-            if (!nombre || !tipo) {
-                alert("Por favor ingrese los campos obligatorios.");
-                return;
-            }
-
-            const res = await window.api.guardarCliente({
-                id: editingClienteId,
-                nombre,
-                tipo,
-                identificacion,
-                telefono,
-                email,
-                auditoriaUsuario: activeUserSession,
-                auditoriaRol: 'Administrador'
-            });
-
-            alert(res.message);
-            if (res.success) {
-                modalCliente.style.display = 'none';
-                formCliente.reset();
-                editingClienteId = null;
-                await cargarClientes();
-            }
-        });
-    }
-
-    // --- 7. Cargar e Iniciar Solicitudes de Ventas de Fecha Anterior ---
+    // --- 6. Cargar e Iniciar Solicitudes de Ventas de Fecha Anterior ---
     await cargarSolicitudes();
 
     const filtroSolicitudes = document.getElementById('filtro-solicitudes');
@@ -376,7 +385,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('pos-sincronizacion-completa', () => {
         cargarSucursales();
         cargarUsuarios();
-        cargarClientes();
     });
 });
 
@@ -711,9 +719,20 @@ function renderizarClientes() {
     tbody.innerHTML = '';
 
     const filtro = document.getElementById('filtro-clientes')?.value || 'todos';
-    const clientes = filtro === 'todos'
+    const busqueda = (document.getElementById('buscador-clientes')?.value || '').trim().toLowerCase();
+
+    let clientes = filtro === 'todos'
         ? todosLosClientes
         : todosLosClientes.filter(cli => (cli.origen || 'Credito') === filtro);
+
+    if (busqueda) {
+        clientes = clientes.filter(cli =>
+            (cli.nombre || '').toLowerCase().includes(busqueda) ||
+            (cli.identificacion || '').toLowerCase().includes(busqueda) ||
+            (cli.telefono || '').toLowerCase().includes(busqueda) ||
+            (cli.email || '').toLowerCase().includes(busqueda)
+        );
+    }
 
     if (clientes.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No hay clientes para este filtro.</td></tr>`;
@@ -768,7 +787,7 @@ window.iniciarEdicionCliente = (id, nombre, tipo, identificacion, telefono, emai
 
 window.eliminarCliente = async (id, nombre) => {
     if (confirm(`¿Estás seguro de que deseas eliminar al cliente "${nombre}"?`)) {
-        const res = await window.api.eliminarCliente({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
+        const res = await window.api.eliminarCliente({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: localStorage.getItem('currentRole') || 'Sin Rol' });
         alert(res.message);
         if (res.success) {
             await cargarClientes();

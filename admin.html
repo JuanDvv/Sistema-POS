@@ -91,6 +91,19 @@
             width: 100%;
         }
 
+        .table-container-scroll {
+            overflow-x: auto;
+            overflow-y: auto;
+            width: 100%;
+            max-height: 420px;
+        }
+
+        .table-container-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -334,7 +347,9 @@
             <div
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito / Pedidos)</h3>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <input type="text" id="buscador-clientes" placeholder="🔍 Buscar por nombre, identificación, teléfono o email..."
+                        style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; min-width: 260px;">
                     <select id="filtro-clientes"
                         style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
                         <option value="todos">Todos</option>
@@ -344,7 +359,7 @@
                     <button id="btn-nuevo-cliente" class="btn-primary">➕ Nuevo Cliente</button>
                 </div>
             </div>
-            <div class="table-container">
+            <div class="table-container-scroll">
                 <table id="table-clientes">
                     <thead>
                         <tr>

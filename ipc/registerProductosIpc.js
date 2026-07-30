@@ -11,6 +11,14 @@ const { solicitarSincronizacion } = require('../sync/syncService');
 
 // SRP: catálogo de productos, inventario por sucursal y categorías.
 
+function notificarInventarioActualizado() {
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+            win.webContents.send('inventario-actualizado');
+        }
+    });
+}
+
 function registerProductosIpc() {
     // Obtener Inventario (con JOIN para traer el nombre de la categoría)
     ipcMain.handle('get-inventory', async (event, sucursalId) => {
@@ -185,6 +193,7 @@ function registerProductosIpc() {
                     : `Stock: ${stock} (sin cambios)`;
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId || 'Catálogo', 'Editar Producto', `Nombre: ${nombre} - ID: ${id} - ${detalleStock}`);
             await runQuery("COMMIT", []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('producto editado');
             return { success: true, message: 'Producto modificado exitosamente.' };
         } catch (err) {
@@ -213,6 +222,7 @@ function registerProductosIpc() {
             // Registrar en logs de auditoría
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Abastecer Stock', `Producto ID: ${id} - Cantidad: +${cantidad}`);
             await runQuery("COMMIT", []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('stock abastecido');
             return { success: true, message: 'Stock abastecido exitosamente.' };
         } catch (err) {
@@ -327,6 +337,7 @@ function registerProductosIpc() {
             const detalleProductos = validos.map((it) => `${it.nombre}: +${it.cantidad}`).join(', ');
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Abastecimiento Masivo (Archivo)', `Archivo: ${archivo || 'N/D'} - Productos: ${validos.length} - Total unidades: ${totalUnidades} - Detalle: ${detalleProductos}`);
             await runQuery('COMMIT', []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('abastecimiento masivo aplicado');
             return { success: true, message: `Abastecimiento aplicado: ${validos.length} productos, ${totalUnidades} unidades en total.` };
         } catch (err) {
