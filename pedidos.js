@@ -41,6 +41,15 @@ function formatFechaLegible(iso) {
     return new Date(iso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+// Formatea celulares colombianos (10 dígitos) como "XXX XXX-XXXX" para lectura rápida.
+// Números que no calzan en 10 dígitos (fijos, extensiones, datos importados) se muestran tal cual.
+function formatTelefono(tel) {
+    if (!tel) return '-';
+    const digitos = String(tel).replace(/\D/g, '');
+    if (digitos.length !== 10) return tel;
+    return `${digitos.slice(0, 3)} ${digitos.slice(3, 6)}-${digitos.slice(6)}`;
+}
+
 // La hora de entrega estimada es opcional: cuando el usuario no la indica, se guarda el día completo
 // usando las 23:59:59 locales como marca. Un <input type="time"> nunca produce segundos != 00, así que
 // este valor nunca se confunde con una hora real ingresada a mano.
@@ -61,6 +70,25 @@ function formatFechaEntregaLegible(iso) {
         ? { dateStyle: 'medium', timeStyle: 'short' }
         : { dateStyle: 'medium' };
     return new Date(iso).toLocaleString('es-CO', opciones);
+}
+
+// Variantes para celdas de tabla: fecha arriba y hora abajo (en vez de todo en una sola línea que
+// termina partiéndose en un punto cualquiera cuando la columna es angosta).
+function formatFechaHoraCelda(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const fecha = d.toLocaleDateString('es-CO', { dateStyle: 'medium' });
+    const hora = d.toLocaleTimeString('es-CO', { timeStyle: 'short' });
+    return `<div>${fecha}</div><div style="color: #6b7280; font-size: 0.85em;">${hora}</div>`;
+}
+
+function formatFechaEntregaCelda(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const fecha = d.toLocaleDateString('es-CO', { dateStyle: 'medium' });
+    if (!entregaTieneHoraEspecifica(iso)) return fecha;
+    const hora = d.toLocaleTimeString('es-CO', { timeStyle: 'short' });
+    return `<div>${fecha}</div><div style="color: #6b7280; font-size: 0.85em;">${hora}</div>`;
 }
 
 // Separa un ISO de entrega estimada en sus componentes {fecha, hora} para precargar los inputs
@@ -392,6 +420,17 @@ function formatFechaGrupo(iso) {
     return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
+// Clave de agrupación por día calendario LOCAL. fecha_entrega_estimada se guarda con toISOString()
+// (UTC), así que tomar los primeros 10 caracteres del string agruparía por día calendario UTC en vez
+// de local, desalineando pedidos cercanos a la medianoche del encabezado (que sí usa hora local).
+function claveGrupoEntrega(iso) {
+    if (!iso) return 'sin-fecha';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'sin-fecha';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function renderizarTablaPedidos(pedidos, agruparPorEntrega = true) {
     const tbody = document.getElementById('tbody-pedidos');
     tbody.innerHTML = '';
@@ -408,7 +447,7 @@ function renderizarTablaPedidos(pedidos, agruparPorEntrega = true) {
     let claveGrupoActual = null;
     pedidos.forEach(p => {
         if (agruparPorEntrega) {
-            const claveGrupo = p.fecha_entrega_estimada ? p.fecha_entrega_estimada.slice(0, 10) : 'sin-fecha';
+            const claveGrupo = claveGrupoEntrega(p.fecha_entrega_estimada);
             if (claveGrupo !== claveGrupoActual) {
                 claveGrupoActual = claveGrupo;
                 const trGrupo = document.createElement('tr');
@@ -422,11 +461,11 @@ function renderizarTablaPedidos(pedidos, agruparPorEntrega = true) {
         if (atrasado) tr.classList.add('atrasado');
         tr.innerHTML = `
             <td>${String(p.id).slice(0, 8)}</td>
-            <td>${formatFechaLegible(p.fecha_pedido)}</td>
+            <td>${formatFechaHoraCelda(p.fecha_pedido)}</td>
             <td>${p.cliente_nombre || '(Cliente eliminado)'}</td>
-            <td>${p.cliente_telefono || '-'}</td>
+            <td style="white-space: nowrap;">${formatTelefono(p.cliente_telefono)}</td>
             <td>${p.productos_resumen || '-'}</td>
-            <td>${formatFechaEntregaLegible(p.fecha_entrega_estimada)}</td>
+            <td>${formatFechaEntregaCelda(p.fecha_entrega_estimada)}</td>
             <td>${formatCOP(p.saldo_pendiente)}</td>
             <td>${badgeEstado(p.estado)}</td>
         `;
@@ -485,7 +524,7 @@ async function abrirDetallePedido(pedidoId) {
     document.getElementById('detalle-pedido-titulo').innerText = `Pedido ${String(pedido.id).slice(0, 8)}`;
     document.getElementById('detalle-cliente-nombre').innerText = pedido.cliente_nombre || '(Cliente eliminado)';
     document.getElementById('detalle-cliente-identificacion').innerText = pedido.cliente_identificacion || '-';
-    document.getElementById('detalle-cliente-telefono').innerText = pedido.cliente_telefono || '-';
+    document.getElementById('detalle-cliente-telefono').innerText = formatTelefono(pedido.cliente_telefono);
     document.getElementById('detalle-estado-badge').innerHTML = badgeEstado(pedido.estado);
     document.getElementById('detalle-fecha-pedido').innerText = formatFechaLegible(pedido.fecha_pedido);
     document.getElementById('detalle-venta-id').innerText = pedido.venta_id ? String(pedido.venta_id).slice(0, 8) : '-';

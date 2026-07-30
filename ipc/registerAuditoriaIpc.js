@@ -13,17 +13,34 @@ function escaparValorOr(valor) {
 
 // Trae los valores distintos (no vacíos, ordenados) de una columna de `auditoria`, para poblar
 // selectores de filtro (Usuario, Acción) con los valores que realmente existen en los datos.
+// Se pagina con .range() porque un .select() sin límite explícito se corta en el máximo de
+// PostgREST (1000 filas): con la tabla ya por encima de eso, esa página siempre traía las filas
+// más antiguas y perdía valores introducidos después (p. ej. las acciones de Pedidos), aunque sí
+// existieran en la BD.
 async function obtenerValoresDistintos(columna) {
-    const { data, error } = await supabaseLogs
-        .from('auditoria')
-        .select(columna)
-        .not(columna, 'is', null);
-    if (error) throw error;
+    const PAGE_SIZE = 1000;
+    const valores = new Set();
+    let desde = 0;
 
-    return [...new Set((data || [])
-        .map(r => (r[columna] || '').trim())
-        .filter(v => v !== ''))]
-        .sort((a, b) => a.localeCompare(b, 'es'));
+    while (true) {
+        const { data, error } = await supabaseLogs
+            .from('auditoria')
+            .select(columna)
+            .not(columna, 'is', null)
+            .range(desde, desde + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        data.forEach(r => {
+            const valor = (r[columna] || '').trim();
+            if (valor !== '') valores.add(valor);
+        });
+
+        if (data.length < PAGE_SIZE) break;
+        desde += PAGE_SIZE;
+    }
+
+    return [...valores].sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 function registerAuditoriaIpc() {

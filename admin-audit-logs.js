@@ -174,6 +174,14 @@ function formatearDetallesConNombreProducto(detalles) {
     });
 }
 
+// Los textos de "detalles" guardan timestamps en ISO/UTC crudo (p. ej. "Entrega estimada:
+// 2026-07-30T04:59:59.000Z"), lo que confunde porque no coincide con la hora local. Se detecta
+// cualquier ISO 8601 embebido y se reemplaza por su equivalente en hora de Bogotá.
+function formatearFechasIsoEnDetalles(detalles) {
+    if (!detalles) return detalles;
+    return detalles.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z/g, (iso) => formatearFechaBogota(iso));
+}
+
 // Escapar HTML antes de insertar texto libre (usuario/accion/detalles) vía innerHTML
 function escapeHtml(texto) {
     const div = document.createElement('div');
@@ -242,7 +250,7 @@ async function cargarAuditoria() {
                 <td><span class="rol-badge" style="background-color: ${esAdmin ? '#fee2e2' : '#dbeafe'}; color: ${esAdmin ? '#ef4444' : '#2563eb'};">${escapeHtml(log.rol) || '-'}</span></td>
                 <td>${escapeHtml(log.sucursal_id) || '-'}</td>
                 <td>${escapeHtml(log.accion) || '-'}</td>
-                <td class="detalles-cell">${escapeHtml(formatearDetallesConNombreProducto(log.detalles))}</td>
+                <td class="detalles-cell">${escapeHtml(formatearFechasIsoEnDetalles(formatearDetallesConNombreProducto(log.detalles)))}</td>
             `;
             tbody.appendChild(tr);
         });

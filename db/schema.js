@@ -6,6 +6,25 @@
 // Sin esto, la subida/descarga solo podía comparar sync_status, no "quién
 // editó de último", y una versión desactualizada de otro equipo podía pisar
 // una más reciente.
+// Trigger de auto-bump de `updated_at`, separado de agregarSoporteLWW para poder recrearlo
+// después de un backfill masivo (ver uso en los ALTER TABLE de cliente_*_registro más abajo):
+// cualquier UPDATE de toda la tabla que no sea un cambio real del registro (solo rellenar una
+// columna nueva) NO debe pisar `updated_at`, porque un equipo que todavía no haya descargado un
+// cambio real más reciente de otro equipo puede terminar con un `updated_at` local "del futuro"
+// que bloquea esa descarga para siempre (el pull incremental no reintenta filas ya vistas, ver
+// sync/syncService.js). Mientras el trigger esté ausente, ningún UPDATE toca updated_at.
+function crearTriggerUpdatedAt(db, tabla, columnasPk) {
+    const condicion = columnasPk.map(c => `${c} = NEW.${c}`).join(' AND ');
+    db.run(`
+        CREATE TRIGGER IF NOT EXISTS trg_${tabla}_updated_at
+        AFTER UPDATE ON ${tabla}
+        FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+            UPDATE ${tabla} SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE ${condicion};
+        END;
+    `, [], () => { });
+}
+
 function agregarSoporteLWW(db, tabla, columnasPk) {
     // SQLite rechaza "Cannot add a column with non-constant default" cuando la
     // tabla ya tiene filas (caso real: BD con datos de producción). Por eso la
@@ -16,15 +35,7 @@ function agregarSoporteLWW(db, tabla, columnasPk) {
     });
     db.run(`ALTER TABLE ${tabla} ADD COLUMN deleted_at TEXT`, [], () => { });
 
-    const condicion = columnasPk.map(c => `${c} = NEW.${c}`).join(' AND ');
-    db.run(`
-        CREATE TRIGGER IF NOT EXISTS trg_${tabla}_updated_at
-        AFTER UPDATE ON ${tabla}
-        FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
-        BEGIN
-            UPDATE ${tabla} SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE ${condicion};
-        END;
-    `, [], () => { });
+    crearTriggerUpdatedAt(db, tabla, columnasPk);
 }
 
 function initDB(db) {
@@ -382,23 +393,33 @@ function initDB(db) {
         // sin nombre en el listado/detalle. Estas columnas garantizan que el pedido conserve los
         // datos con los que se creó incluso si el cliente se elimina después (ver COALESCE en
         // registerPedidosIpc.js).
-        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_nombre_registro TEXT`, [], () => {
-            db.run(`
-                UPDATE pedidos SET cliente_nombre_registro = (SELECT nombre FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                WHERE cliente_nombre_registro IS NULL
-            `, [], () => { });
-        });
-        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_identificacion_registro TEXT`, [], () => {
-            db.run(`
-                UPDATE pedidos SET cliente_identificacion_registro = (SELECT identificacion FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                WHERE cliente_identificacion_registro IS NULL
-            `, [], () => { });
-        });
-        db.run(`ALTER TABLE pedidos ADD COLUMN cliente_telefono_registro TEXT`, [], () => {
-            db.run(`
-                UPDATE pedidos SET cliente_telefono_registro = (SELECT telefono FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                WHERE cliente_telefono_registro IS NULL
-            `, [], () => { });
+        // Estos 3 backfills reescriben columnas derivadas en TODA la tabla `pedidos`, no un cambio
+        // real de ningún pedido puntual -- por eso se quita el trigger de auto-bump de updated_at
+        // mientras corren y se recrea al final (ver crearTriggerUpdatedAt arriba). Bug real que
+        // esto corrige: sin quitar el trigger, este backfill pisaba el updated_at de pedidos que
+        // otro equipo todavía no había descargado, haciendo que esa descarga se descartara por LWW
+        // (parecía "más vieja" que el backfill) y quedara encasillada para siempre.
+        db.run(`DROP TRIGGER IF EXISTS trg_pedidos_updated_at`, [], () => {
+            db.run(`ALTER TABLE pedidos ADD COLUMN cliente_nombre_registro TEXT`, [], () => {
+                db.run(`
+                    UPDATE pedidos SET cliente_nombre_registro = (SELECT nombre FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                    WHERE cliente_nombre_registro IS NULL
+                `, [], () => { });
+            });
+            db.run(`ALTER TABLE pedidos ADD COLUMN cliente_identificacion_registro TEXT`, [], () => {
+                db.run(`
+                    UPDATE pedidos SET cliente_identificacion_registro = (SELECT identificacion FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                    WHERE cliente_identificacion_registro IS NULL
+                `, [], () => { });
+            });
+            db.run(`ALTER TABLE pedidos ADD COLUMN cliente_telefono_registro TEXT`, [], () => {
+                db.run(`
+                    UPDATE pedidos SET cliente_telefono_registro = (SELECT telefono FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                    WHERE cliente_telefono_registro IS NULL
+                `, [], () => {
+                    crearTriggerUpdatedAt(db, 'pedidos', ['id']);
+                });
+            });
         });
 
         // 17. Tabla de Detalle de Pedidos

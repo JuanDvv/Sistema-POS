@@ -24,6 +24,31 @@ function resumenCarrito(carrito) {
         : carrito.map(i => `${i.nombre} (x${i.cantidad})`).join(', ');
 }
 
+// Compara el estado previo del pedido (leído de la BD antes del UPDATE) contra los valores nuevos
+// que llegan del formulario de edición, y arma un texto legible "campo: antes -> después" solo con
+// lo que realmente cambió. Sin esto, el log de auditoría de "Editar Pedido" mostraba únicamente el
+// estado final, sin forma de saber qué se modificó.
+function describirCambiosPedido({ pedidoAnterior, detalleAnterior, fechaEntregaEstimada, notas, carrito, total }) {
+    const cambios = [];
+
+    if (pedidoAnterior.fecha_entrega_estimada !== fechaEntregaEstimada) {
+        cambios.push(`Entrega estimada: ${pedidoAnterior.fecha_entrega_estimada} -> ${fechaEntregaEstimada}`);
+    }
+    if ((pedidoAnterior.notas || '') !== (notas || '')) {
+        cambios.push(`Notas: "${pedidoAnterior.notas || ''}" -> "${notas || ''}"`);
+    }
+    if (Number(pedidoAnterior.total) !== total) {
+        cambios.push(`Total: $${pedidoAnterior.total} -> $${total}`);
+    }
+    const prodsAntes = resumenCarrito(detalleAnterior);
+    const prodsDespues = resumenCarrito(carrito);
+    if (prodsAntes !== prodsDespues) {
+        cambios.push(`Productos: [${prodsAntes}] -> [${prodsDespues}]`);
+    }
+
+    return cambios.length > 0 ? cambios.join(' | ') : 'Sin cambios detectados';
+}
+
 // Resuelve el cliente de un pedido reutilizando la tabla `clientes` que ya usa el módulo de
 // Créditos: si viene un id existente lo actualiza/retorna, si no hay id pero la identificación
 // coincide con un cliente ya registrado lo reutiliza, y solo si no hay coincidencia crea uno nuevo.
@@ -239,7 +264,7 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
 
     try {
         const pedido = await new Promise((resolve, reject) => {
-            db.get(`SELECT sucursal_id, estado FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
+            db.get(`SELECT sucursal_id, estado, total, fecha_entrega_estimada, notas FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
                 if (err) reject(err);
                 else resolve(row);
             });
@@ -255,7 +280,12 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
 
         await runQuery("BEGIN TRANSACTION", []);
 
-        const detalleOriginal = await allQuery(`SELECT producto_id, cantidad FROM detalle_pedidos WHERE pedido_id = ?`, [pedidoId]);
+        const detalleOriginal = await allQuery(
+            `SELECT dp.producto_id, dp.cantidad, dp.precio_unitario, COALESCE(p.nombre, '(Producto eliminado)') as nombre
+             FROM detalle_pedidos dp LEFT JOIN productos p ON p.id = dp.producto_id
+             WHERE dp.pedido_id = ?`,
+            [pedidoId]
+        );
         if (detalleOriginal.length > 0) {
             await ajustarStockReservado(detalleOriginal.map(d => ({ producto_id: d.producto_id, cantidad: -Number(d.cantidad) })), pedido.sucursal_id, {
                 tipo: 'EDICION_PEDIDO_REVERSA', referenciaId: pedidoId, usuario: auditoriaUsuario
@@ -280,7 +310,8 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
             [total, fechaEntregaEstimada, notas || null, pedidoId]
         );
 
-        await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Editar Pedido', `Pedido ID: ${pedidoId} - Total: $${total} - Entrega estimada: ${fechaEntregaEstimada} - Prods: [${resumenCarrito(carrito)}]`);
+        const cambios = describirCambiosPedido({ pedidoAnterior: pedido, detalleAnterior: detalleOriginal, fechaEntregaEstimada, notas, carrito, total });
+        await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Editar Pedido', `Pedido ID: ${pedidoId} - Cambios: ${cambios}`);
 
         await runQuery("COMMIT", []);
         notificarInventarioActualizado();

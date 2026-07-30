@@ -1,13 +1,13 @@
 {
   "name": "pos-delipostresturbaco",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "description": "Sistema POS offline-first para Delipostres Turbaco",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "nodemon --ext js,html,css --exec electron .",
-    "dev:test": "cross-env APP_ENV=test nodemon --ext js,html,css --exec electron .",
-    "dev:prod": "cross-env APP_ENV=production nodemon --ext js,html,css --exec electron .",
+    "dev": "nodemon --legacy-watch --ext js,html,css --exec electron .",
+    "dev:test": "cross-env APP_ENV=test nodemon --legacy-watch --ext js,html,css --exec electron .",
+    "dev:prod": "cross-env APP_ENV=production nodemon --legacy-watch --ext js,html,css --exec electron .",
     "build": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "seed:test": "node sync/seed_test_from_prod.js"
