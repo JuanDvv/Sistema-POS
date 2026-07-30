@@ -1702,6 +1702,79 @@ async function syncAbonosPedido() {
     }
 }
 
+// --- SINCRONIZAR CIERRES DE CAJA (cuadre por ventana de tiempo, ver services/cierreCajaService.js) ---
+// Tabla plana sin efectos secundarios de inventario, mismo shape que abonos_pedido: sube
+// pendientes, procesa eliminados (sin flujo de UI hoy, se mantiene por paridad) y descarga por cursor.
+async function syncCierresCaja() {
+    try {
+        const pendientes = await allQuery(`SELECT * FROM cierres_caja WHERE sync_status = 'pending'`, []);
+        for (const c of pendientes) {
+            const gano = await upsertConLWW('cierres_caja', {
+                id: c.id,
+                sucursal_id: c.sucursal_id,
+                usuario: c.usuario,
+                rol: c.rol,
+                tipo: c.tipo,
+                nota: c.nota,
+                fecha_desde: c.fecha_desde,
+                fecha_hasta: c.fecha_hasta,
+                fondo_base: c.fondo_base,
+                efectivo_esperado: c.efectivo_esperado,
+                efectivo_contado: c.efectivo_contado,
+                diferencia: c.diferencia,
+                denominaciones: c.denominaciones ? JSON.parse(c.denominaciones) : null,
+                updated_at: c.updated_at
+            });
+            if (!gano) {
+                console.log(`[Sincronizador] Cierre de caja ${c.id} no subido: hay una versión más reciente en la nube.`);
+                continue;
+            }
+            await runQuery(`UPDATE cierres_caja SET sync_status = 'synced' WHERE id = ?`, [c.id]);
+        }
+
+        const eliminados = await allQuery(`SELECT * FROM cierres_caja WHERE sync_status = 'deleted'`, []);
+        for (const c of eliminados) {
+            const gano = await softDeleteConLWW('cierres_caja', { id: c.id });
+            if (!gano) continue;
+            await runQuery(`DELETE FROM cierres_caja WHERE id = ?`, [c.id]);
+        }
+
+        const { filas, cursorNuevo } = await descargarDesdeCursor('cierres_caja');
+        if (filas) {
+            for (const c of filas) {
+                if (c.deleted_at) {
+                    await runQuery(`DELETE FROM cierres_caja WHERE id = ? AND sync_status <> 'pending'`, [c.id]);
+                    continue;
+                }
+                await runQuery(
+                    `INSERT INTO cierres_caja (id, sucursal_id, usuario, rol, tipo, nota, fecha_desde, fecha_hasta, fondo_base, efectivo_esperado, efectivo_contado, diferencia, denominaciones, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        sucursal_id = excluded.sucursal_id,
+                        usuario = excluded.usuario,
+                        rol = excluded.rol,
+                        tipo = excluded.tipo,
+                        nota = excluded.nota,
+                        fecha_desde = excluded.fecha_desde,
+                        fecha_hasta = excluded.fecha_hasta,
+                        fondo_base = excluded.fondo_base,
+                        efectivo_esperado = excluded.efectivo_esperado,
+                        efectivo_contado = excluded.efectivo_contado,
+                        diferencia = excluded.diferencia,
+                        denominaciones = excluded.denominaciones,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [c.id, c.sucursal_id, c.usuario, c.rol, c.tipo, c.nota, c.fecha_desde, c.fecha_hasta, c.fondo_base, c.efectivo_esperado, c.efectivo_contado, c.diferencia, c.denominaciones ? JSON.stringify(c.denominaciones) : null, c.updated_at]
+                );
+            }
+        }
+        if (cursorNuevo !== null) await actualizarCursor('cierres_caja', cursorNuevo);
+    } catch (err) {
+        console.log("[Sincronizador] Cierres de caja no sincronizados:", obtenerMensajeSync(err, 'cierres_caja'));
+    }
+}
+
 // --- 11. SINCRONIZAR SOLICITUDES DE VENTA RETROACTIVA (Bidireccional, con LWW) ---
 // El LWW aquí es crítico: evita que una edición vieja y sin subir de un Operador revierta en
 // silencio la aprobación/rechazo que un Administrador ya subió para la misma solicitud.
@@ -1851,6 +1924,7 @@ async function procesarSincronizacion() {
         await syncPedidosSubir();
         await syncPedidosDescargar();
         await syncAbonosPedido();
+        await syncCierresCaja();
         await syncSolicitudesVenta();
     } finally {
         estaSincronizando = false;

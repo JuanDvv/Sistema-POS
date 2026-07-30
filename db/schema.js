@@ -454,6 +454,34 @@ function initDB(db) {
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_abonos_pedido_pedido ON abonos_pedido(pedido_id)`);
 
+        // 19. Tabla de Cierres de Caja: cuadre de caja por ventana de tiempo (cambios de turno,
+        // verificaciones puntuales o cierre de día), ver services/cierreCajaService.js. Cada
+        // cierre retira físicamente el efectivo contado a caja fuerte, así que el turno siguiente
+        // siempre arranca del fondo_base fijo -- no se encadena el conteo del cierre anterior --
+        // y fecha_desde/fecha_hasta delimitan la ventana exacta que cada operador contó, para que
+        // cada uno responda solo por su propio turno y no por el de otro operador el mismo día.
+        db.run(`CREATE TABLE IF NOT EXISTS cierres_caja (
+            id TEXT PRIMARY KEY,
+            sucursal_id TEXT NOT NULL,
+            usuario TEXT,
+            rol TEXT,
+            tipo TEXT NOT NULL,
+            nota TEXT,
+            fecha_desde TEXT NOT NULL,
+            fecha_hasta TEXT NOT NULL,
+            fondo_base REAL NOT NULL,
+            efectivo_esperado REAL NOT NULL,
+            efectivo_contado REAL NOT NULL,
+            diferencia REAL NOT NULL,
+            denominaciones TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT
+        )`, [], () => {
+            agregarSoporteLWW(db, 'cierres_caja', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_cierres_caja_sucursal_fecha ON cierres_caja(sucursal_id, fecha_hasta)`);
+
         // Enlaza el gasto de reembolso generado al cancelar un pedido con el pedido que lo originó
         // (mismo propósito que gastos.venta_id para el gasto de "Domicilio", ver ventaService.js).
         db.run(`ALTER TABLE gastos ADD COLUMN pedido_id TEXT`, [], () => { });

@@ -20,7 +20,10 @@
             gap: 20px;
         }
 
-        /* Paneles */
+        /* Paneles: cada uno con su propio scroll interno (min-height: 0 permite que un hijo flex
+           se encoja por debajo de su contenido en vez de estirar la columna entera) -- si no, con
+           el historial de cierres la columna derecha se vuelve más alta que la izquierda y hace
+           scrollear la página completa en vez de solo el panel que realmente lo necesita. */
         .arqueo-panel {
             background-color: var(--bg-secondary);
             border-radius: 12px;
@@ -28,6 +31,8 @@
             box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
             border: 1px solid var(--border-color);
             box-sizing: border-box;
+            min-height: 0;
+            overflow-y: auto;
         }
 
         .cash-grid-section {
@@ -163,6 +168,67 @@
             background-color: #e5e7eb;
         }
 
+        /* Formulario de cierre: separado del resumen con un borde superior en vez de repetir el
+           tratamiento de tarjeta con borde de color (ese está reservado para el resumen financiero). */
+        .cierre-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .cierre-form select,
+        .cierre-form input[type="text"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95em;
+            box-sizing: border-box;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .btn-confirmar-cierre {
+            background-color: var(--brand-color);
+            color: white;
+            border: none;
+        }
+
+        .btn-confirmar-cierre:hover {
+            filter: brightness(0.95);
+        }
+
+        .historial-cierres {
+            padding-top: 5px;
+        }
+
+        .historial-cierres table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+        }
+
+        .historial-cierres th,
+        .historial-cierres td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .historial-cierres th {
+            background-color: #f9fafb;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .historial-cierres th.num,
+        .historial-cierres td.num {
+            text-align: right;
+        }
+
         @media (max-width: 1024px) {
             .main-content {
                 flex-direction: column;
@@ -254,6 +320,10 @@
 
             <div class="summary-card">
                 <div class="summary-row">
+                    <span>Ventana del Turno:</span>
+                    <strong id="val-ventana">—</strong>
+                </div>
+                <div class="summary-row">
                     <span>Base de Caja:</span>
                     <strong id="val-base-caja">$300.000</strong>
                 </div>
@@ -279,7 +349,37 @@
                 Calculando diferencia...
             </div>
 
-            <button class="btn-reset" id="btn-resetear">Limpiar Campos / Reiniciar</button>
+            <div class="cierre-form">
+                <select id="select-tipo-cierre">
+                    <option value="Cambio de Turno">🔄 Cambio de Turno</option>
+                    <option value="Cierre de Día">🌙 Cierre de Día</option>
+                    <option value="Verificación Puntual">🔍 Verificación Puntual</option>
+                </select>
+                <input type="text" id="input-nota-cierre" placeholder="Nota (opcional)">
+                <button class="btn-reset btn-confirmar-cierre" id="btn-confirmar-cierre">Confirmar Cierre de Caja</button>
+                <button class="btn-reset" id="btn-resetear">Limpiar Campos / Reiniciar</button>
+            </div>
+
+            <div class="historial-cierres">
+                <h3>Cierres de Hoy</h3>
+                <div style="overflow-x: auto; width: 100%;">
+                    <table id="table-historial-cierres">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Usuario</th>
+                                <th>Tipo</th>
+                                <th class="num">Esperado</th>
+                                <th class="num">Contado</th>
+                                <th class="num">Diferencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="body-historial-cierres">
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </main>
 

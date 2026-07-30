@@ -93,5 +93,10 @@ contextBridge.exposeInMainWorld('api', {
     eliminarAbonoPedido: (datos) => ipcRenderer.invoke('eliminar-abono-pedido', datos),
     entregarPedido: (datos) => ipcRenderer.invoke('entregar-pedido', datos),
     cancelarPedido: (datos) => ipcRenderer.invoke('cancelar-pedido', datos),
-    contarPedidosAtrasados: () => ipcRenderer.invoke('contar-pedidos-atrasados')
+    contarPedidosAtrasados: () => ipcRenderer.invoke('contar-pedidos-atrasados'),
+
+    // Módulo de Cierres de Caja (cuadre por ventana de tiempo)
+    obtenerVentanaCajaActual: (datos) => ipcRenderer.invoke('obtener-ventana-caja-actual', datos),
+    registrarCierreCaja: (datos) => ipcRenderer.invoke('registrar-cierre-caja', datos),
+    obtenerCierresCaja: (filtros) => ipcRenderer.invoke('obtener-cierres-caja', filtros)
 });

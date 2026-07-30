@@ -148,14 +148,23 @@ function registerPedidosIpc() {
     });
 
     // Cuenta pedidos pendientes cuya fecha estimada de entrega ya pasó, para el badge del sidebar.
+    // Se limita a la sucursal activa de este equipo, igual que el listado de obtener-pedidos:
+    // de lo contrario el badge cuenta pedidos atrasados de TODAS las sucursales aunque la lista
+    // que el usuario ve (filtrada a su sucursal) muestre menos.
     ipcMain.handle('contar-pedidos-atrasados', async () => {
         try {
+            const sucursalActiva = await new Promise((resolve, reject) => {
+                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => {
+                    if (err) reject(err); else resolve(row);
+                });
+            });
             const row = await new Promise((resolve, reject) => {
                 db.get(
                     `SELECT COUNT(*) as total FROM pedidos
                      WHERE estado = 'pendiente' AND fecha_entrega_estimada < strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                       AND (sync_status IS NULL OR sync_status <> 'deleted')`,
-                    [],
+                       AND (sync_status IS NULL OR sync_status <> 'deleted')
+                       AND sucursal_id = ?`,
+                    [sucursalActiva ? sucursalActiva.id : null],
                     (err, row) => { if (err) reject(err); else resolve(row); }
                 );
             });
