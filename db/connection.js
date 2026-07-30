@@ -5,7 +5,7 @@ const { isProd } = require('../sync/supabaseClients');
 
 // Archivo de base de datos local v4 (soporta fotos). Un archivo distinto por entorno
 // (TEST/PRODUCCIÓN) para que nunca compartan datos locales, aunque sea la misma app instalada.
-const dbFileName = isProd ? 'pos_local_v4.db' : 'pos_local_v4.test.db';
+const dbFileName = isProd ? 'pos_delipostres.db' : 'pos_delipostres.test.db';
 const dbPath = path.join(app.getPath('userData'), dbFileName);
 const db = new sqlite3.Database(dbPath);
 

@@ -162,6 +162,11 @@ async function cargarReporte(fecha) {
 
         // 1. Renderizar Tabla Ventas y sumar KPIs
         const tbodyVentas = document.querySelector('#table-ventas-dia tbody');
+        const contadorVentasDia = document.getElementById('contador-ventas-dia');
+        if (contadorVentasDia) {
+            const cantidad = ventasVisibles.length;
+            contadorVentasDia.textContent = `(${cantidad} ${cantidad === 1 ? 'movimiento' : 'movimientos'})`;
+        }
         if (tbodyVentas) {
             tbodyVentas.innerHTML = '';
 
@@ -206,17 +211,30 @@ async function cargarReporte(fecha) {
                 `;
 
                 let metodoPagoText = venta.metodo_pago;
+                let tieneComponenteTransferencia = !!venta.metodo_pago && venta.metodo_pago.startsWith('Transferencia');
                 if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
                     const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
                     const matchTr = venta.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
                     const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
                     const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
                     metodoPagoText = `Mixto (Efectivo: ${Math.round(cashVal).toLocaleString('es-CO')}, Transferencia: ${Math.round(transVal).toLocaleString('es-CO')})`;
+                    tieneComponenteTransferencia = transVal > 0;
                 } else if (venta.metodo_pago === 'Crédito') {
                     metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
                 }
                 if (venta.es_pedido) {
                     metodoPagoText = `📦 Pedido Entregado (ya cobrado en abonos)`;
+                }
+
+                let checkboxVerificada = '';
+                if (tieneComponenteTransferencia) {
+                    checkboxVerificada = `
+                        <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
+                            <input type="checkbox" ${estaTransferenciaVerificadaLocal(venta.id) ? 'checked' : ''}
+                                onchange="toggleVerificacionTransferencia('${venta.id}', this.checked)">
+                            Verificada en movimientos
+                        </label>
+                    `;
                 }
 
                 const tr = document.createElement('tr');
@@ -231,7 +249,7 @@ async function cargarReporte(fecha) {
                                 </div>
                             `).join('')}
                     </td>
-                    <td>${metodoPagoText}</td>
+                    <td>${metodoPagoText}${checkboxVerificada}</td>
                     <td><strong>${formatCOP(venta.total)}</strong></td>
                     ${tdVentaAcciones}
                 `;
@@ -1111,6 +1129,33 @@ window.iniciarEdicionGasto = function(id, tipo, descripcion, monto) {
 
         modalGasto.style.display = 'block';
     }
+};
+
+// Checkbox puramente visual: marca en este PC (localStorage) que una venta por Transferencia ya
+// se verificó contra los movimientos bancarios. No se guarda en la base de datos ni se sincroniza
+// entre equipos/sucursales -- cada terminal lleva su propia marca.
+const LS_KEY_TRANSFERENCIAS_VERIFICADAS = 'transferenciasVerificadasLocal';
+
+function obtenerTransferenciasVerificadasLocal() {
+    try {
+        return JSON.parse(localStorage.getItem(LS_KEY_TRANSFERENCIAS_VERIFICADAS) || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function estaTransferenciaVerificadaLocal(ventaId) {
+    return !!obtenerTransferenciasVerificadasLocal()[ventaId];
+}
+
+window.toggleVerificacionTransferencia = function(ventaId, checked) {
+    const marcadas = obtenerTransferenciasVerificadasLocal();
+    if (checked) {
+        marcadas[ventaId] = true;
+    } else {
+        delete marcadas[ventaId];
+    }
+    localStorage.setItem(LS_KEY_TRANSFERENCIAS_VERIFICADAS, JSON.stringify(marcadas));
 };
 
 window.resolverDevolucion = async function(id, nuevoEstado) {

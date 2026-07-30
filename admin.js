@@ -907,6 +907,7 @@ function construirDetalleSolicitudHTML(sol) {
             <div><strong>Solicitante:</strong> ${sol.usuario_solicitante}</div>
             <div><strong>Fecha de la venta:</strong> ${sol.fecha_venta}</div>
             <div><strong>Estado:</strong> ${sol.estado}${sol.motivo_rechazo ? ' — ' + sol.motivo_rechazo : ''}</div>
+            ${sol.usuario_revisor ? `<div><strong>${sol.estado === 'rechazada' ? 'Rechazado' : 'Aprobado'} por:</strong> ${sol.usuario_revisor}${sol.fecha_revision ? ' el ' + new Date(sol.fecha_revision).toLocaleString('es-CO') : ''}</div>` : ''}
         </div>
     `;
 

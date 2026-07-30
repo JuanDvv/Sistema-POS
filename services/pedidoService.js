@@ -383,11 +383,9 @@ async function cancelarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
 }
 
 // Convierte el pedido en una venta real (descuenta el stock físico, igual que cualquier venta,
-// permitiendo negativo) y libera el hold. Si al momento de entregar queda saldo pendiente, se salda
-// automáticamente con un abono final por esa diferencia (método `metodoPagoSaldoFinal`) en vez de
-// bloquear la entrega pidiendo un paso manual aparte -- así "Marcar como Entregado" siempre completa
-// el pedido y cuadra la cartera del cliente en la misma acción.
-async function entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuario, auditoriaRol }) {
+// permitiendo negativo) y libera el hold. No se permite entregar mientras quede saldo pendiente:
+// el dinero físico debe estar completo (abonos registrados) antes de marcar el pedido como entregado.
+async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
     try {
         const pedido = await new Promise((resolve, reject) => {
             db.get(`SELECT sucursal_id, estado, total FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
@@ -402,6 +400,11 @@ async function entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuar
             return { success: false, message: 'Este pedido ya fue entregado o cancelado.' };
         }
 
+        const saldo = await obtenerSaldoPedido(pedidoId);
+        if (saldo.saldoPendiente > 0) {
+            return { success: false, message: `No se puede entregar el pedido: aún hay un saldo pendiente de $${saldo.saldoPendiente}. Registra los abonos correspondientes antes de entregarlo.` };
+        }
+
         const detalle = await allQuery(
             `SELECT dp.producto_id, dp.cantidad, dp.precio_unitario, p.nombre
              FROM detalle_pedidos dp LEFT JOIN productos p ON dp.producto_id = p.id
@@ -412,14 +415,6 @@ async function entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuar
         const ventaId = uuidv4();
 
         await runQuery("BEGIN TRANSACTION", []);
-
-        const saldo = await obtenerSaldoPedido(pedidoId);
-        if (saldo.saldoPendiente > 0) {
-            await runQuery(
-                `INSERT INTO abonos_pedido (id, pedido_id, monto, fecha, metodo_pago, sync_status, updated_at) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                ['abp-' + uuidv4().substring(0, 8), pedidoId, saldo.saldoPendiente, metodoPagoSaldoFinal || 'Efectivo']
-            );
-        }
 
         const abonosPorMetodo = await allQuery(
             `SELECT metodo_pago, SUM(monto) as total FROM abonos_pedido WHERE pedido_id = ? AND (sync_status IS NULL OR sync_status <> 'deleted') GROUP BY metodo_pago`,
@@ -468,19 +463,13 @@ async function entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuar
             [ventaId, pedidoId]
         );
 
-        const notaSaldo = saldo.saldoPendiente > 0
-            ? ` - Saldo pendiente saldado automáticamente: $${saldo.saldoPendiente} (${metodoPagoSaldoFinal || 'Efectivo'})`
-            : '';
-        await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Entregar Pedido', `Pedido ID: ${pedidoId} - Venta ID: ${ventaId} - Total: $${pedido.total} - Método: ${metodoPago}${notaSaldo}`);
+        await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Entregar Pedido', `Pedido ID: ${pedidoId} - Venta ID: ${ventaId} - Total: $${pedido.total} - Método: ${metodoPago}`);
 
         await runQuery("COMMIT", []);
         notificarInventarioActualizado();
         solicitarSincronizacion('pedido entregado');
 
-        const mensaje = saldo.saldoPendiente > 0
-            ? `Pedido entregado y registrado como venta. Se saldó automáticamente el saldo pendiente de $${saldo.saldoPendiente}.`
-            : 'Pedido entregado y registrado como venta.';
-        return { success: true, message: mensaje, ventaId };
+        return { success: true, message: 'Pedido entregado y registrado como venta.', ventaId };
     } catch (err) {
         await runQuery("ROLLBACK", []).catch(() => { });
         return { success: false, message: 'Error al entregar el pedido: ' + err.message };

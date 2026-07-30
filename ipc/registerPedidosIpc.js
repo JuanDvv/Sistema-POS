@@ -138,8 +138,8 @@ function registerPedidosIpc() {
     });
 
     ipcMain.handle('entregar-pedido', async (event, datos) => {
-        const { pedidoId, metodoPagoSaldoFinal, auditoriaUsuario, auditoriaRol } = datos;
-        return entregarPedidoTx({ pedidoId, metodoPagoSaldoFinal, auditoriaUsuario, auditoriaRol });
+        const { pedidoId, auditoriaUsuario, auditoriaRol } = datos;
+        return entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol });
     });
 
     ipcMain.handle('cancelar-pedido', async (event, datos) => {

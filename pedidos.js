@@ -502,11 +502,15 @@ function renderizarAbonos(abonos, esPendiente) {
     });
 }
 
-function aplicarPermisosDetalle(estado) {
+function aplicarPermisosDetalle(estado, saldoPendiente) {
     const esPendiente = estado === 'pendiente';
     ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono']
         .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !esPendiente; });
-    document.getElementById('btn-entregar-pedido').style.display = esPendiente ? 'flex' : 'none';
+    const btnEntregar = document.getElementById('btn-entregar-pedido');
+    btnEntregar.style.display = esPendiente ? 'flex' : 'none';
+    const saldoSinSaldar = esPendiente && Number(saldoPendiente || 0) > 0;
+    btnEntregar.disabled = saldoSinSaldar;
+    btnEntregar.title = saldoSinSaldar ? 'No se puede entregar: aún hay saldo pendiente por abonar.' : '';
     document.getElementById('btn-cancelar-pedido').style.display = esPendiente ? 'flex' : 'none';
 }
 
@@ -540,7 +544,7 @@ async function abrirDetallePedido(pedidoId) {
     renderizarAbonos(abonos, pedido.estado === 'pendiente');
     document.getElementById('detalle-saldo-pendiente').innerText = formatCOP(saldo_pendiente);
 
-    aplicarPermisosDetalle(pedido.estado);
+    aplicarPermisosDetalle(pedido.estado, saldo_pendiente);
 
     document.getElementById('modal-detalle-pedido').style.display = 'flex';
 }
@@ -608,45 +612,18 @@ async function agregarAbono() {
     cargarPedidos();
 }
 
-function pedirMetodoPagoEntrega(saldoPendiente) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('modal-metodo-entrega');
-        const btnEfectivo = document.getElementById('btn-metodo-entrega-efectivo');
-        const btnTransferencia = document.getElementById('btn-metodo-entrega-transferencia');
-        const btnCancelar = document.getElementById('btn-metodo-entrega-cancelar');
-        document.getElementById('metodo-entrega-msg').textContent =
-            `El pedido tiene un saldo pendiente de ${formatCOP(saldoPendiente)}. Al entregarlo se saldará automáticamente y se descontará el inventario.`;
-
-        const cerrar = (metodo) => {
-            modal.style.display = 'none';
-            btnEfectivo.removeEventListener('click', onEfectivo);
-            btnTransferencia.removeEventListener('click', onTransferencia);
-            btnCancelar.removeEventListener('click', onCancelar);
-            resolve(metodo);
-        };
-        const onEfectivo = () => cerrar('Efectivo');
-        const onTransferencia = () => cerrar('Transferencia');
-        const onCancelar = () => cerrar(null);
-
-        btnEfectivo.addEventListener('click', onEfectivo);
-        btnTransferencia.addEventListener('click', onTransferencia);
-        btnCancelar.addEventListener('click', onCancelar);
-        modal.style.display = 'flex';
-    });
-}
-
 async function entregarPedidoActual() {
     const saldoPendiente = Number(pedidoActualDetalle?.saldo_pendiente || 0);
-    let metodoPagoSaldoFinal = null;
 
     if (saldoPendiente > 0) {
-        metodoPagoSaldoFinal = await pedirMetodoPagoEntrega(saldoPendiente);
-        if (!metodoPagoSaldoFinal) return;
-    } else if (!confirm('¿Confirmas que el cliente recogió el pedido? Esto descontará el inventario y lo registrará como venta.')) {
+        alert(`No puedes marcar este pedido como entregado: aún tiene un saldo pendiente de ${formatCOP(saldoPendiente)}. Registra los abonos correspondientes hasta que el saldo sea $0.`);
+        return;
+    }
+    if (!confirm('¿Confirmas que el cliente recogió el pedido? Esto descontará el inventario y lo registrará como venta.')) {
         return;
     }
 
-    const res = await window.api.entregarPedido({ pedidoId: pedidoActualId, metodoPagoSaldoFinal, auditoriaUsuario, auditoriaRol });
+    const res = await window.api.entregarPedido({ pedidoId: pedidoActualId, auditoriaUsuario, auditoriaRol });
     if (!res.success) {
         alert(res.message);
         return;

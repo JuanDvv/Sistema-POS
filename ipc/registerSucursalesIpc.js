@@ -18,6 +18,7 @@ function registerSucursalesIpc() {
         try {
             const rows = await allQuery(
                 `SELECT DISTINCT sucursal_id as id FROM inventario_sucursal
+                 WHERE sucursal_id IN (SELECT id FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA})
                  UNION
                  SELECT id FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA}`,
                 []

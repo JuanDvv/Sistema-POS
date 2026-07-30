@@ -198,6 +198,24 @@ function formatearFechaBogota(fechaISO) {
     });
 }
 
+// Clave "YYYY-MM-DD" en hora de Bogotá, usada para detectar cuándo cambia el día y agrupar filas.
+function claveDiaBogota(fechaISO) {
+    if (!fechaISO) return '';
+    return new Date(fechaISO).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+}
+
+// Encabezado legible del grupo, p. ej. "Jueves, 30 de julio de 2026".
+function formatearEncabezadoDia(fechaISO) {
+    const texto = new Date(fechaISO).toLocaleDateString('es-CO', {
+        timeZone: 'America/Bogota',
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+    });
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
 async function cargarAuditoria() {
     const usuario = document.getElementById('filtro-usuario').value;
     const sucursalId = document.getElementById('filtro-sucursal').value;
@@ -241,7 +259,17 @@ async function cargarAuditoria() {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #6b7280;">No se encontraron registros de auditoría con los filtros seleccionados.</td></tr>`;
     } else {
         tbody.innerHTML = '';
+        let diaActual = null;
         registros.forEach(log => {
+            const dia = claveDiaBogota(log.fecha);
+            if (dia !== diaActual) {
+                diaActual = dia;
+                const trGrupo = document.createElement('tr');
+                trGrupo.className = 'dia-header-row';
+                trGrupo.innerHTML = `<td colspan="6">${formatearEncabezadoDia(log.fecha)}</td>`;
+                tbody.appendChild(trGrupo);
+            }
+
             const tr = document.createElement('tr');
             const esAdmin = log.rol === 'Administrador';
             tr.innerHTML = `

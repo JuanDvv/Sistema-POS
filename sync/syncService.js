@@ -1806,7 +1806,6 @@ async function procesarSincronizacion() {
 
     estaSincronizando = true;
     notificarEstadoSincronizacion(true);
-    console.log("[Sincronizador] Iniciando verificación de datos pendientes...");
 
     // Fallos al subir/descargar ventas y gastos (de los que depende el Reporte Diario) se
     // registran aquí para NO reportar "éxito" al botón de sincronizar cuando en realidad la
