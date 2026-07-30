@@ -6,8 +6,18 @@ window.confirm = (msg) => { const r = originalConfirm(msg); window.api.forceRefo
 
 let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
-let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [] };
+let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], cierresCaja: [] };
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
+
+// Fila marcadora que separa, dentro de Detalle de Ventas, hasta dónde llegaron las ventas de cada
+// cierre de caja (cambio de turno). Solo se usa ahí -- las demás tablas del reporte no la necesitan.
+function crearFilaSeparadorCierre(cierre) {
+    const hora = new Date(cierre.fecha_hasta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const tr = document.createElement('tr');
+    tr.className = 'cierre-separator-row';
+    tr.innerHTML = `<td colspan="5">🔒 Cierre de Caja — ${hora} — ${cierre.tipo} — ${cierre.usuario || '-'} — Diferencia: $${formatCOP(cierre.diferencia)}</td>`;
+    return tr;
+}
 let editingGastoId = null; // ID del gasto en edición
 let editingVentaId = null; // ID de la venta en edición
 let editingVentaCarrito = []; // Productos/cantidades editables de la venta en edición
@@ -139,18 +149,24 @@ async function cargarReporte(fecha) {
         metodoFiltroVentas = selectMetodoVentas.value || 'Todos';
     }
 
-    const response = await window.api.getReporteDiario({ 
-        sucursalId, 
-        fecha, 
-        categoriaIds: selectedCats.length > 0 ? selectedCats : null 
-    });
+    const [response, cierresResponse] = await Promise.all([
+        window.api.getReporteDiario({
+            sucursalId,
+            fecha,
+            categoriaIds: selectedCats.length > 0 ? selectedCats : null
+        }),
+        window.api.obtenerCierresCaja({ sucursalId, fecha })
+    ]);
 
     if (response.success) {
         datosReporteGlobal = {
             ventas: response.ventas || [],
             gastos: response.gastos || [],
             transferencias: response.transferencias || [],
-            abonosPedido: response.abonosPedido || []
+            abonosPedido: response.abonosPedido || [],
+            // Ordenados DESC por fecha_hasta (igual que ventasVisibles por fecha), para intercalar
+            // el separador visual de cada cierre en el punto correcto de Detalle de Ventas.
+            cierresCaja: (cierresResponse.success ? cierresResponse.data : []) || []
         };
 
         const ventasVisibles = filtrarVentasPorMetodo(datosReporteGlobal.ventas, metodoFiltroVentas);
@@ -169,8 +185,18 @@ async function cargarReporte(fecha) {
         }
         if (tbodyVentas) {
             tbodyVentas.innerHTML = '';
+            // ventasVisibles y datosReporteGlobal.cierresCaja llegan ambos ordenados DESC por
+            // fecha; se recorren en paralelo para intercalar el separador de cada cierre justo
+            // antes de la primera venta (más antigua) que ya quedó fuera de esa ventana.
+            let idxCierre = 0;
+            const cierresDelDia = datosReporteGlobal.cierresCaja || [];
 
             ventasVisibles.forEach(venta => {
+                while (idxCierre < cierresDelDia.length && new Date(venta.fecha) <= new Date(cierresDelDia[idxCierre].fecha_hasta)) {
+                    tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
+                    idxCierre++;
+                }
+
                 // El dinero de un pedido/apartado entregado ya se contó día a día con sus abonos (ver
                 // más abajo), así que la venta que genera la entrega NO se vuelve a sumar aquí -- solo
                 // se lista para que quede constancia de qué salió hoy.
@@ -256,12 +282,42 @@ async function cargarReporte(fecha) {
                 tbodyVentas.appendChild(tr);
             });
 
-            if (ventasVisibles.length === 0) {
+            // Cierres que quedaron sin ninguna venta más antigua que ellos (turno sin ventas, o el
+            // cierre más antiguo del día) se muestran al final de la tabla.
+            for (; idxCierre < cierresDelDia.length; idxCierre++) {
+                tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
+            }
+
+            if (ventasVisibles.length === 0 && cierresDelDia.length === 0) {
                 const cols = 5;
                 const mensaje = metodoFiltroVentas === 'Todos'
                     ? 'No hay ventas hoy.'
                     : `No hay ventas con método ${metodoFiltroVentas.toLowerCase()}.`;
                 tbodyVentas.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#9ca3af;">${mensaje}</td></tr>`;
+            }
+        }
+
+        // 1.6. Cierres de Caja del Día: tabla resumen aparte (además del separador visual de
+        // arriba) con un vistazo rápido de todos los cierres/cambios de turno del día.
+        const tbodyCierresCaja = document.querySelector('#table-cierres-caja-dia tbody');
+        if (tbodyCierresCaja) {
+            const cierresDelDia = datosReporteGlobal.cierresCaja || [];
+            if (cierresDelDia.length === 0) {
+                tbodyCierresCaja.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#9ca3af;">No hay cierres de caja registrados hoy.</td></tr>';
+            } else {
+                tbodyCierresCaja.innerHTML = cierresDelDia.map(c => {
+                    const hora = new Date(c.fecha_hasta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    return `
+                        <tr>
+                            <td>${hora}</td>
+                            <td>${c.usuario || '-'}</td>
+                            <td>${c.tipo}</td>
+                            <td>${formatCOP(c.efectivo_esperado)}</td>
+                            <td>${formatCOP(c.efectivo_contado)}</td>
+                            <td>${formatCOP(c.diferencia)}</td>
+                        </tr>
+                    `;
+                }).join('');
             }
         }
 

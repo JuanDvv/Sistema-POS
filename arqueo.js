@@ -1,8 +1,10 @@
 let sucursalId = '';
-let expectedCash = 0;
+let efectivoEsperado = 0;
+let fondoBase = 300000;
 const STORAGE_KEY = 'arqueo-caja-inputs';
+const SPLIT_STORAGE_KEY = 'arqueo-caja-split-width';
 
-const BASE_CAJA_SUCURSAL = 300000;
+const BASE_CAJA_SUCURSAL = 300000; // Fallback local si obtenerVentanaCajaActual falla.
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
 
 function guardarValoresCuadre(inputs = document.querySelectorAll('.denom-input')) {
@@ -32,6 +34,52 @@ function restaurarValoresCuadre(inputs = document.querySelectorAll('.denom-input
     }
 }
 
+function inicializarSplitter() {
+    const splitter = document.getElementById('panel-splitter');
+    const leftPanel = document.querySelector('.cash-grid-section');
+    if (!splitter || !leftPanel) return;
+
+    const MIN_WIDTH = 260;
+
+    const anchoGuardado = parseInt(localStorage.getItem(SPLIT_STORAGE_KEY), 10);
+    if (!isNaN(anchoGuardado)) {
+        leftPanel.style.flexBasis = `${anchoGuardado}px`;
+    }
+
+    let arrastrando = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    splitter.addEventListener('pointerdown', (e) => {
+        arrastrando = true;
+        startX = e.clientX;
+        startWidth = leftPanel.getBoundingClientRect().width;
+        splitter.classList.add('dragging');
+        document.body.classList.add('splitter-dragging');
+        splitter.setPointerCapture(e.pointerId);
+    });
+
+    splitter.addEventListener('pointermove', (e) => {
+        if (!arrastrando) return;
+        const mainContent = leftPanel.parentElement;
+        const maxWidth = mainContent.getBoundingClientRect().width * 0.65;
+        let nuevoAncho = startWidth + (e.clientX - startX);
+        nuevoAncho = Math.min(Math.max(nuevoAncho, MIN_WIDTH), maxWidth);
+        leftPanel.style.flexBasis = `${nuevoAncho}px`;
+    });
+
+    const finalizarArrastre = (e) => {
+        if (!arrastrando) return;
+        arrastrando = false;
+        splitter.classList.remove('dragging');
+        document.body.classList.remove('splitter-dragging');
+        localStorage.setItem(SPLIT_STORAGE_KEY, Math.round(leftPanel.getBoundingClientRect().width));
+    };
+
+    splitter.addEventListener('pointerup', finalizarArrastre);
+    splitter.addEventListener('pointercancel', finalizarArrastre);
+}
+
 function limpiarValoresCuadre(inputs = document.querySelectorAll('.denom-input')) {
     inputs.forEach(input => {
         input.value = 0;
@@ -45,16 +93,23 @@ function limpiarValoresCuadre(inputs = document.querySelectorAll('.denom-input')
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // 0. Restaurar/activar el splitter de ancho entre paneles
+    inicializarSplitter();
+
     // 1. Obtener ID de la sucursal actual
     const resId = await window.api.obtenerSucursalId();
     if (resId.success) {
         sucursalId = resId.id;
     }
 
-    // 2. Obtener datos de ventas y gastos de hoy para calcular el efectivo esperado
-    await cargarEfectivoEsperado();
+    // 2. Obtener la ventana de caja vigente (desde el último cierre de hoy, o desde el inicio del
+    // día) y el efectivo esperado en esa ventana.
+    await cargarVentanaCajaActual();
 
-    // 3. Configurar event listeners en los inputs
+    // 3. Cargar el historial de cierres de hoy para esta sucursal
+    await cargarHistorialHoy();
+
+    // 4. Configurar event listeners en los inputs de denominaciones
     const inputs = document.querySelectorAll('.denom-input');
     inputs.forEach(input => {
         input.addEventListener('input', () => {
@@ -67,68 +122,94 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 4. Restaurar datos guardados y configurar botón resetear
+    // 5. Restaurar datos guardados y configurar botón resetear
     restaurarValoresCuadre(inputs);
     document.getElementById('btn-resetear').addEventListener('click', () => {
         limpiarValoresCuadre(inputs);
     });
 
+    // 6. Confirmar cierre de caja
+    document.getElementById('btn-confirmar-cierre').addEventListener('click', confirmarCierreCaja);
+
     // Calcular totales iniciales
     calcularTotales();
 });
 
-async function cargarEfectivoEsperado() {
-    const todayStr = new Date().toLocaleDateString('sv-SE');
-    const response = await window.api.getReporteDiario({ sucursalId, fecha: todayStr });
+async function cargarVentanaCajaActual() {
+    const response = await window.api.obtenerVentanaCajaActual({ sucursalId });
 
     if (response.success) {
-        let totalEfectivo = 0;
-        let totalGastosEfectivo = 0;
+        efectivoEsperado = response.efectivoEsperado;
+        fondoBase = response.fondoBase;
+        document.getElementById('val-esperado').innerText = formatCOP(efectivoEsperado);
+        document.getElementById('val-base-caja').innerText = formatCOP(fondoBase);
 
-        // Sumar ventas en efectivo (o la porción en efectivo de las mixtas). Las ventas generadas al
-        // entregar un pedido (venta.es_pedido) se excluyen: ese dinero ya se contó como abono el día
-        // que se recibió (ver abonosPedido más abajo), sumarlo aquí otra vez lo duplicaría.
-        if (response.ventas) {
-            response.ventas.forEach(venta => {
-                if (venta.es_pedido) return;
-                if (venta.metodo_pago === 'Efectivo') {
-                    totalEfectivo += venta.total;
-                } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
-                    const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
-                    const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
-                    totalEfectivo += cashVal;
-                }
-            });
-        }
-
-        // Sumar abonos de pedidos recibidos hoy en efectivo (dinero real que entró a la caja aunque
-        // el pedido se entregue otro día).
-        if (response.abonosPedido) {
-            response.abonosPedido.forEach(abono => {
-                if (abono.metodo_pago === 'Efectivo') {
-                    totalEfectivo += Number(abono.monto);
-                }
-            });
-        }
-
-        // Sumar gastos pagados con efectivo de caja
-        if (response.gastos) {
-            response.gastos.forEach(gasto => {
-                if (gasto.tipo !== 'Operativo') {
-                    return;
-                }
-                const metodoGasto = gasto.metodo_pago || 'Efectivo';
-                if (metodoGasto === 'Efectivo') {
-                    totalGastosEfectivo += gasto.monto;
-                }
-            });
-        }
-
-        expectedCash = totalEfectivo - totalGastosEfectivo;
-        document.getElementById('val-esperado').innerText = formatCOP(expectedCash);
+        const desde = new Date(response.fechaDesde).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+        const hasta = new Date(response.fechaHasta).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('val-ventana').innerText = `${desde} - ${hasta}`;
     } else {
-        console.error("Error al cargar el reporte del día:", response.message);
-        document.getElementById('val-esperado').innerText = "$0 (Error)";
+        console.error('Error al cargar la ventana de caja:', response.message);
+        document.getElementById('val-esperado').innerText = '$0 (Error)';
+    }
+
+    calcularTotales();
+}
+
+async function cargarHistorialHoy() {
+    const response = await window.api.obtenerCierresCaja({ sucursalId });
+    const tbody = document.getElementById('body-historial-cierres');
+
+    if (!response.success || response.data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = response.data.map(c => {
+        const hora = new Date(c.fecha_hasta).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+        return `
+            <tr>
+                <td>${hora}</td>
+                <td>${c.usuario || '-'}</td>
+                <td>${c.tipo}</td>
+                <td class="num">${formatCOP(c.efectivo_esperado)}</td>
+                <td class="num">${formatCOP(c.efectivo_contado)}</td>
+                <td class="num">${formatCOP(c.diferencia)}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function confirmarCierreCaja() {
+    const denominaciones = Array.from(document.querySelectorAll('.denom-input')).map(input => ({
+        valor: parseInt(input.getAttribute('data-value')) || 0,
+        cantidad: parseInt(input.value) || 0
+    }));
+
+    const tipo = document.getElementById('select-tipo-cierre').value;
+    const nota = document.getElementById('input-nota-cierre').value.trim();
+    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+
+    const btn = document.getElementById('btn-confirmar-cierre');
+    btn.disabled = true;
+    btn.innerText = 'Guardando...';
+
+    try {
+        const response = await window.api.registrarCierreCaja({
+            sucursalId, tipo, nota, denominaciones, auditoriaUsuario, auditoriaRol
+        });
+
+        if (response.success) {
+            limpiarValoresCuadre();
+            document.getElementById('input-nota-cierre').value = '';
+            await cargarVentanaCajaActual();
+            await cargarHistorialHoy();
+        } else {
+            alert(response.message || 'No se pudo registrar el cierre de caja.');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.innerText = 'Confirmar Cierre de Caja';
     }
 }
 
@@ -165,7 +246,8 @@ function calcularTotales() {
     });
 
     const totalContado = totalBilletes + totalMonedas;
-    const diferencia = (totalContado - BASE_CAJA_SUCURSAL) - expectedCash;
+    const base = fondoBase || BASE_CAJA_SUCURSAL;
+    const diferencia = (totalContado - base) - efectivoEsperado;
 
     // Actualizar resumen
     document.getElementById('val-billetes').innerText = formatCOP(totalBilletes);

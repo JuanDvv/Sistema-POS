@@ -17,10 +17,12 @@
             overflow-y: auto;
             box-sizing: border-box;
             display: flex;
-            gap: 20px;
         }
 
-        /* Paneles */
+        /* Paneles: cada uno con su propio scroll interno (min-height: 0 permite que un hijo flex
+           se encoja por debajo de su contenido en vez de estirar la columna entera) -- si no, con
+           el historial de cierres la columna derecha se vuelve más alta que la izquierda y hace
+           scrollear la página completa en vez de solo el panel que realmente lo necesita. */
         .arqueo-panel {
             background-color: var(--bg-secondary);
             border-radius: 12px;
@@ -28,20 +30,64 @@
             box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
             border: 1px solid var(--border-color);
             box-sizing: border-box;
+            min-height: 0;
+            min-width: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         .cash-grid-section {
-            flex: 3;
+            flex: 0 0 380px;
+            min-width: 260px;
+            max-width: 65%;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 12px;
         }
 
         .summary-section {
-            flex: 2;
+            flex: 1 1 auto;
+            min-width: 320px;
             display: flex;
             flex-direction: column;
             gap: 20px;
+        }
+
+        /* Splitter arrastrable entre los dos paneles: ancho fijo con una línea central que resalta
+           al pasar el mouse/arrastrar, para indicar que es interactivo. */
+        .panel-splitter {
+            flex: 0 0 14px;
+            width: 14px;
+            margin: 0 2px;
+            cursor: col-resize;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+        }
+
+        .panel-splitter::before {
+            content: '';
+            width: 4px;
+            height: 48px;
+            border-radius: 4px;
+            background-color: var(--border-color);
+            transition: background-color 0.15s ease, height 0.15s ease;
+        }
+
+        .panel-splitter:hover::before,
+        .panel-splitter.dragging::before {
+            background-color: var(--brand-color);
+            height: 72px;
+        }
+
+        body.splitter-dragging {
+            cursor: col-resize !important;
+            user-select: none;
+        }
+
+        body.splitter-dragging .arqueo-panel {
+            pointer-events: none;
         }
 
         h2, h3 {
@@ -51,45 +97,48 @@
 
         .denom-group {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            grid-template-columns: 1fr;
+            gap: 8px;
         }
 
         .denom-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px;
+            padding: 6px 10px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
             background-color: #f9fafb;
+            gap: 6px;
+            min-width: 0;
         }
 
         .denom-label {
             font-weight: 600;
-            font-size: 0.95em;
+            font-size: 0.85em;
             color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
+            white-space: nowrap;
         }
 
         .denom-input {
-            width: 70px;
-            padding: 6px;
+            width: 50px;
+            padding: 5px;
             border: 1px solid var(--border-color);
             border-radius: 6px;
             text-align: center;
             font-family: inherit;
-            font-size: 0.95em;
+            font-size: 0.9em;
             font-weight: bold;
         }
 
         .denom-total {
-            font-size: 0.9em;
+            font-size: 0.8em;
             color: var(--text-primary);
             font-weight: bold;
-            min-width: 80px;
+            min-width: 60px;
             text-align: right;
         }
 
@@ -163,6 +212,67 @@
             background-color: #e5e7eb;
         }
 
+        /* Formulario de cierre: separado del resumen con un borde superior en vez de repetir el
+           tratamiento de tarjeta con borde de color (ese está reservado para el resumen financiero). */
+        .cierre-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .cierre-form select,
+        .cierre-form input[type="text"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95em;
+            box-sizing: border-box;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .btn-confirmar-cierre {
+            background-color: var(--brand-color);
+            color: white;
+            border: none;
+        }
+
+        .btn-confirmar-cierre:hover {
+            filter: brightness(0.95);
+        }
+
+        .historial-cierres {
+            padding-top: 5px;
+        }
+
+        .historial-cierres table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+        }
+
+        .historial-cierres th,
+        .historial-cierres td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .historial-cierres th {
+            background-color: #f9fafb;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .historial-cierres th.num,
+        .historial-cierres td.num {
+            text-align: right;
+        }
+
         @media (max-width: 1024px) {
             .main-content {
                 flex-direction: column;
@@ -170,6 +280,14 @@
             }
             .menu-toggle-btn {
                 display: block;
+            }
+            /* En columna el splitter horizontal no aplica: se apila todo a ancho completo. */
+            .panel-splitter {
+                display: none;
+            }
+            .cash-grid-section {
+                flex: 0 0 auto !important;
+                max-width: 100%;
             }
         }
     </style>
@@ -248,11 +366,18 @@
             </div>
         </div>
 
+        <!-- Splitter: permite ajustar a voluntad el ancho relativo de los dos paneles -->
+        <div class="panel-splitter" id="panel-splitter" role="separator" aria-orientation="vertical" aria-label="Ajustar ancho de paneles"></div>
+
         <!-- Panel Derecho: Comparativa y Alerta Silenciosa -->
         <div class="arqueo-panel summary-section">
             <h2>Resultados del Cuadre</h2>
 
             <div class="summary-card">
+                <div class="summary-row">
+                    <span>Ventana del Turno:</span>
+                    <strong id="val-ventana">—</strong>
+                </div>
                 <div class="summary-row">
                     <span>Base de Caja:</span>
                     <strong id="val-base-caja">$300.000</strong>
@@ -279,7 +404,37 @@
                 Calculando diferencia...
             </div>
 
-            <button class="btn-reset" id="btn-resetear">Limpiar Campos / Reiniciar</button>
+            <div class="cierre-form">
+                <select id="select-tipo-cierre">
+                    <option value="Cambio de Turno">🔄 Cambio de Turno</option>
+                    <option value="Cierre de Día">🌙 Cierre de Día</option>
+                    <option value="Verificación Puntual">🔍 Verificación Puntual</option>
+                </select>
+                <input type="text" id="input-nota-cierre" placeholder="Nota (opcional)">
+                <button class="btn-reset btn-confirmar-cierre" id="btn-confirmar-cierre">Confirmar Cierre de Caja</button>
+                <button class="btn-reset" id="btn-resetear">Limpiar Campos / Reiniciar</button>
+            </div>
+
+            <div class="historial-cierres">
+                <h3>Cierres de Hoy</h3>
+                <div style="overflow-x: auto; width: 100%;">
+                    <table id="table-historial-cierres">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Usuario</th>
+                                <th>Tipo</th>
+                                <th class="num">Esperado</th>
+                                <th class="num">Contado</th>
+                                <th class="num">Diferencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="body-historial-cierres">
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </main>
 
