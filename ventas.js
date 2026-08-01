@@ -9,6 +9,25 @@ let carrito = []; // Guarda los items agregados temporalmente para la venta
 let sucursalId = 'sucursal-norte'; // ID de la sucursal actual
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
 let ultimoTicket = null; // Snapshot de la última venta registrada, para reimprimir
+let ventaFiscalPendiente = null; // { ventaId, clienteId } de la última venta con cliente Fiscal, para generar su cuenta de cobro
+
+async function cargarClientesFiscales() {
+    const selectClienteFiscal = document.getElementById('select-cliente-fiscal');
+    if (!selectClienteFiscal) return;
+
+    const resClientes = await window.api.obtenerClientes();
+    selectClienteFiscal.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
+    if (resClientes.success && resClientes.data) {
+        resClientes.data
+            .filter(cli => (cli.categoria || 'Normal') === 'Fiscal')
+            .forEach(cli => {
+                const opt = document.createElement('option');
+                opt.value = cli.id;
+                opt.innerText = `${cli.nombre} (${cli.tipo} - ${cli.identificacion || 'Sin ID'})`;
+                selectClienteFiscal.appendChild(opt);
+            });
+    }
+}
 let metodoPagoSelected = 'Efectivo';
 let categoriasCargadas = [];
 let filtroCategorias = null; // Instancia del selector múltiple de categorías (ver categoriaFiltro.js)
@@ -230,6 +249,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const modalPostVenta = document.getElementById('modal-post-venta');
     const btnImprimirComprobante = document.getElementById('btn-imprimir-comprobante');
     const btnCerrarPostVenta = document.getElementById('btn-cerrar-post-venta');
+    const btnGenerarCuentaCobro = document.getElementById('btn-generar-cuenta-cobro');
     if (btnImprimirComprobante) {
         btnImprimirComprobante.addEventListener('click', () => {
             if (ultimoTicket) imprimirTicket(ultimoTicket);
@@ -238,6 +258,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnCerrarPostVenta) {
         btnCerrarPostVenta.addEventListener('click', () => {
             if (modalPostVenta) modalPostVenta.style.display = 'none';
+            ventaFiscalPendiente = null;
+            if (btnGenerarCuentaCobro) btnGenerarCuentaCobro.style.display = 'none';
+        });
+    }
+    if (btnGenerarCuentaCobro) {
+        btnGenerarCuentaCobro.addEventListener('click', async () => {
+            if (!ventaFiscalPendiente) return;
+            btnGenerarCuentaCobro.disabled = true;
+            try {
+                const res = await window.api.generarCuentaCobroVentaPDF(ventaFiscalPendiente);
+                alert(res.message);
+            } finally {
+                btnGenerarCuentaCobro.disabled = false;
+            }
         });
     }
 
@@ -516,7 +550,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (resClientes.success && resClientes.data) {
             selectClienteCredito.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
             resClientes.data
-                .filter(cli => (cli.origen || 'Credito') === 'Credito')
+                .filter(cli => (cli.origen || 'Credito') === 'Credito' && (cli.categoria || 'Normal') !== 'Fiscal')
                 .forEach(cli => {
                     const opt = document.createElement('option');
                     opt.value = cli.id;
@@ -539,7 +573,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     chkDomicilio.checked = false;
                     chkDomicilio.dispatchEvent(new Event('change'));
                 }
-                
+
+                // Crédito y Fiscal son excluyentes: una venta a crédito no genera cuenta de cobro.
+                const chkFiscalExcl = document.getElementById('chk-fiscal');
+                if (chkFiscalExcl && chkFiscalExcl.checked) {
+                    chkFiscalExcl.checked = false;
+                    chkFiscalExcl.dispatchEvent(new Event('change'));
+                }
+
                 // Deshabilitar botones de método de pago
                 const buttons = document.querySelectorAll('#payment-methods-container button');
                 buttons.forEach(btn => {
@@ -568,6 +609,97 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 // Volver a seleccionar Efectivo por defecto
                 selectMethod('Efectivo');
+            }
+        });
+    }
+
+    // Cargar y rellenar selector de clientes fiscales (a los que se les genera cuenta de cobro)
+    const chkFiscal = document.getElementById('chk-fiscal');
+    const selectClienteFiscal = document.getElementById('select-cliente-fiscal');
+    const fiscalContainer = document.getElementById('fiscal-input-container');
+
+    if (chkFiscal && selectClienteFiscal && fiscalContainer) {
+        await cargarClientesFiscales();
+
+        chkFiscal.addEventListener('change', () => {
+            if (chkFiscal.checked) {
+                fiscalContainer.style.display = 'flex';
+                selectClienteFiscal.focus();
+
+                // Crédito y Fiscal son excluyentes: una venta fiscal se cobra normal (no a crédito).
+                const chkCreditoExcl = document.getElementById('chk-credito');
+                if (chkCreditoExcl && chkCreditoExcl.checked) {
+                    chkCreditoExcl.checked = false;
+                    chkCreditoExcl.dispatchEvent(new Event('change'));
+                }
+            } else {
+                fiscalContainer.style.display = 'none';
+                selectClienteFiscal.value = '';
+            }
+        });
+    }
+
+    // Modal para crear un cliente Fiscal desde ventas
+    const modalClienteFiscal = document.getElementById('modal-cliente-fiscal');
+    const btnNuevoClienteFiscal = document.getElementById('btn-nuevo-cliente-fiscal');
+    const btnCloseClienteFiscalModal = document.getElementById('btn-close-cliente-fiscal-modal');
+    const formClienteFiscal = document.getElementById('form-cliente-fiscal');
+
+    if (btnNuevoClienteFiscal && modalClienteFiscal) {
+        btnNuevoClienteFiscal.addEventListener('click', () => {
+            formClienteFiscal.reset();
+            modalClienteFiscal.style.display = 'flex';
+        });
+    }
+
+    if (btnCloseClienteFiscalModal && modalClienteFiscal) {
+        btnCloseClienteFiscalModal.addEventListener('click', () => {
+            modalClienteFiscal.style.display = 'none';
+        });
+    }
+
+    window.addEventListener('click', (e) => {
+        if (e.target === modalClienteFiscal) {
+            modalClienteFiscal.style.display = 'none';
+        }
+    });
+
+    if (formClienteFiscal) {
+        formClienteFiscal.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById('cliente-fiscal-nombre').value.trim();
+            const tipo = document.getElementById('cliente-fiscal-tipo').value;
+            const identificacion = document.getElementById('cliente-fiscal-identificacion').value.trim();
+            const telefono = document.getElementById('cliente-fiscal-telefono').value.trim();
+            const email = document.getElementById('cliente-fiscal-email').value.trim();
+
+            if (!nombre || !tipo) {
+                alert("Por favor ingrese los campos obligatorios.");
+                return;
+            }
+
+            const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
+            const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+
+            const res = await window.api.guardarCliente({
+                nombre,
+                tipo,
+                identificacion,
+                telefono,
+                email,
+                categoria: 'Fiscal',
+                auditoriaUsuario,
+                auditoriaRol
+            });
+
+            alert(res.message);
+            if (res.success) {
+                modalClienteFiscal.style.display = 'none';
+                formClienteFiscal.reset();
+                await cargarClientesFiscales();
+                if (res.clienteId && selectClienteFiscal) {
+                    selectClienteFiscal.value = res.clienteId;
+                }
             }
         });
     }
@@ -872,6 +1004,9 @@ function limpiarEstadoVenta() {
     const chkCred = document.getElementById('chk-credito');
     const selectCliCred = document.getElementById('select-cliente-credito');
     const credContainer = document.getElementById('credito-input-container');
+    const chkFis = document.getElementById('chk-fiscal');
+    const selectCliFis = document.getElementById('select-cliente-fiscal');
+    const fisContainer = document.getElementById('fiscal-input-container');
     const chkDesc = document.getElementById('chk-descuento');
     const selectDesc = document.getElementById('select-descuento');
     const descContainer = document.getElementById('descuento-input-container');
@@ -889,6 +1024,10 @@ function limpiarEstadoVenta() {
     if (chkCred) chkCred.checked = false;
     if (selectCliCred) selectCliCred.value = '';
     if (credContainer) credContainer.style.display = 'none';
+
+    if (chkFis) chkFis.checked = false;
+    if (selectCliFis) selectCliFis.value = '';
+    if (fisContainer) fisContainer.style.display = 'none';
 
     if (chkDesc) chkDesc.checked = false;
     if (selectDesc) selectDesc.value = '';
@@ -952,6 +1091,22 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
         const selectClienteCredito = document.getElementById('select-cliente-credito');
         const esCredito = chkCredito && chkCredito.checked;
         let clienteId = null;
+
+        const chkFiscal = document.getElementById('chk-fiscal');
+        const selectClienteFiscal = document.getElementById('select-cliente-fiscal');
+        const esFiscal = chkFiscal && chkFiscal.checked;
+        if (esFiscal && (!selectClienteFiscal || !selectClienteFiscal.value)) {
+            alert("Por favor seleccione el cliente fiscal para generar la cuenta de cobro.");
+            setProcessingState(false);
+            return;
+        }
+        const clienteFiscalId = esFiscal ? selectClienteFiscal.value : null;
+        // Persistir el cliente también en ventas fiscales (no solo en crédito): sin esto, cerrar
+        // el modal post-venta sin generar el PDF pierde para siempre el vínculo venta-cliente y
+        // ya no hay forma de regenerar la cuenta de cobro más adelante.
+        if (esFiscal) {
+            clienteId = clienteFiscalId;
+        }
 
         // Calculamos el total incluyendo domicilio y descuento
         let valorDomicilio = 0;
@@ -1018,6 +1173,13 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
                 total,
                 metodoPago
             };
+
+            ventaFiscalPendiente = esFiscal ? { ventaId: response.ventaId, clienteId: clienteFiscalId } : null;
+            const btnGenerarCuentaCobro = document.getElementById('btn-generar-cuenta-cobro');
+            if (btnGenerarCuentaCobro) {
+                btnGenerarCuentaCobro.style.display = ventaFiscalPendiente ? 'flex' : 'none';
+            }
+
             limpiarEstadoVenta();
 
             const msgEl = document.getElementById('post-venta-msg');

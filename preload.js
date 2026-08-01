@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
     eliminarProducto: (datos) => ipcRenderer.invoke('eliminar-producto', datos),
     exportarPDF: () => ipcRenderer.invoke('exportar-pdf'),
     generarCuentaCobroPDF: (clienteId) => ipcRenderer.invoke('generar-cuenta-cobro-pdf', clienteId),
+    generarCuentaCobroVentaPDF: (datos) => ipcRenderer.invoke('generar-cuenta-cobro-venta-pdf', datos),
     editarGasto: (datosGasto) => ipcRenderer.invoke('editar-gasto', datosGasto),
     eliminarGasto: (datos) => ipcRenderer.invoke('eliminar-gasto', datos),
     obtenerDescripcionesFrecuentesGasto: (datos) => ipcRenderer.invoke('obtener-descripciones-frecuentes-gasto', datos),
@@ -98,5 +99,6 @@ contextBridge.exposeInMainWorld('api', {
     // Módulo de Cierres de Caja (cuadre por ventana de tiempo)
     obtenerVentanaCajaActual: (datos) => ipcRenderer.invoke('obtener-ventana-caja-actual', datos),
     registrarCierreCaja: (datos) => ipcRenderer.invoke('registrar-cierre-caja', datos),
-    obtenerCierresCaja: (filtros) => ipcRenderer.invoke('obtener-cierres-caja', filtros)
+    obtenerCierresCaja: (filtros) => ipcRenderer.invoke('obtener-cierres-caja', filtros),
+    eliminarCierreCaja: (datos) => ipcRenderer.invoke('eliminar-cierre-caja', datos)
 });

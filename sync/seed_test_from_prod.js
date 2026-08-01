@@ -93,6 +93,7 @@ async function main() {
     await copiarTabla('detalle_transferencias');
     await copiarTabla('gastos');
     await copiarTabla('solicitudes_venta');
+    await copiarTabla('cierres_caja');
 
     console.log('\n=== Listo. El proyecto de TEST ya tiene una copia de los datos reales. ===');
 }

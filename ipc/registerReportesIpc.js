@@ -36,18 +36,20 @@ function registerReportesIpc() {
 
             let queryGastos = `
                 SELECT
-                    strftime('%Y-%m-%d', fecha, 'localtime') as dia,
+                    strftime('%Y-%m-%d', gastos.fecha, 'localtime') as dia,
                     tipo,
                     monto,
                     metodo_pago,
                     estado,
-                    COALESCE(descripcion, 'Sin descripción') as descripcion
+                    COALESCE(descripcion, 'Sin descripción') as descripcion,
+                    COALESCE(config_sucursal.nombre, gastos.sucursal_id) as sucursal_nombre
                 FROM gastos
-                WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ? AND (sync_status IS NULL OR sync_status <> 'deleted')
+                LEFT JOIN config_sucursal ON config_sucursal.id = gastos.sucursal_id
+                WHERE strftime('%Y-%m-%d', gastos.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', gastos.fecha, 'localtime') <= ? AND (gastos.sync_status IS NULL OR gastos.sync_status <> 'deleted')
             `;
             let paramsGastos = [fechaInicio, fechaFin];
             if (sucursalId) {
-                queryGastos += ` AND sucursal_id = ?`;
+                queryGastos += ` AND gastos.sucursal_id = ?`;
                 paramsGastos.push(sucursalId);
             }
             if (tipoGasto && Object.values(TIPOS_GASTO).includes(tipoGasto)) {
@@ -58,7 +60,7 @@ function registerReportesIpc() {
                 queryGastos += ` AND descripcion LIKE ?`;
                 paramsGastos.push(`%${conceptoGasto.trim()}%`);
             }
-            queryGastos += ` ORDER BY dia DESC, tipo ASC, fecha DESC`;
+            queryGastos += ` ORDER BY dia DESC, tipo ASC, gastos.fecha DESC`;
 
             // abonos_credito no tiene sucursal_id (los clientes no están ligados a una sucursal),
             // así que el cobro de cartera solo se refleja en la vista consolidada (sin filtro de sucursal).
@@ -120,7 +122,7 @@ function registerReportesIpc() {
                 JOIN detalle_ventas dv ON v.id = dv.venta_id
                 JOIN productos p ON dv.producto_id = p.id
                 LEFT JOIN categorias c ON p.categoria_id = c.id
-                WHERE strftime('%Y-%m-%d', v.fecha) >= ? AND strftime('%Y-%m-%d', v.fecha) <= ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                WHERE strftime('%Y-%m-%d', v.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') <= ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
             `;
             let paramsRanking = [fechaInicio, fechaFin];
             if (sucursalId) {
@@ -159,7 +161,7 @@ function registerReportesIpc() {
             `;
             const params = [ESTADOS_DEVOLUCION.PENDIENTE, TIPOS_GASTO.DEVOLUCION];
             if (fechaInicio && fechaFin) {
-                query += ` AND strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ?`;
+                query += ` AND strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?`;
                 params.push(fechaInicio, fechaFin);
             }
             if (sucursalId) {

@@ -133,6 +133,14 @@
             transform: translateX(2px);
         }
 
+        /* Tabla de Clientes: más columnas que las demás tablas de esta página, así que necesita
+           celdas y badges más compactos para no verse apretada / con badges partidos en 2 líneas. */
+        #table-clientes th,
+        #table-clientes td {
+            padding: 8px 10px;
+            font-size: 0.85em;
+        }
+
         .actions-cell {
             display: flex;
             gap: 8px;
@@ -365,6 +373,7 @@
                         <tr>
                             <th>Nombre</th>
                             <th>Tipo</th>
+                            <th>Origen</th>
                             <th>Categoría</th>
                             <th>Identificación</th>
                             <th>Teléfono</th>
@@ -483,6 +492,13 @@
                     <select id="cliente-tipo" required>
                         <option value="Empresa">Empresa</option>
                         <option value="Persona">Persona</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="cliente-categoria">Categoría *</label>
+                    <select id="cliente-categoria" required>
+                        <option value="Normal">Normal</option>
+                        <option value="Fiscal">Fiscal (requiere cuenta de cobro)</option>
                     </select>
                 </div>
                 <div class="form-group">

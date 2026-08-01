@@ -109,6 +109,7 @@ function registerVentasIpc() {
                     v.total,
                     v.cliente_id,
                     cli.nombre as cliente_nombre,
+                    cli.categoria as cliente_categoria,
                     group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
                     CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido
                  FROM ventas v

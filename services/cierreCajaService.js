@@ -132,4 +132,34 @@ async function obtenerCierresCaja({ sucursalId, fecha }) {
     );
 }
 
-module.exports = { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja };
+// Borrado restringido a Administrador (ver registerCierresCajaIpc.js): borrar un cierre reescribe
+// el historial de caja de la sucursal, así que no se expone a otros roles ni requiere flujo de
+// aprobación intermedio (a diferencia de eliminar-venta-anterior).
+async function eliminarCierreCajaTx({ cierreId, auditoriaUsuario, auditoriaRol }) {
+    const cierre = await allQuery(
+        `SELECT * FROM cierres_caja WHERE id = ? AND (sync_status IS NULL OR sync_status <> 'deleted')`,
+        [cierreId]
+    );
+    if (cierre.length === 0) {
+        return { success: false, message: 'No se encontró el cierre de caja especificado.' };
+    }
+    const c = cierre[0];
+
+    try {
+        await runQuery('BEGIN TRANSACTION', []);
+        await runQuery(`UPDATE cierres_caja SET sync_status = 'deleted' WHERE id = ?`, [cierreId]);
+        await registrarAuditoria(
+            auditoriaUsuario, auditoriaRol, c.sucursal_id, 'Eliminar Cierre de Caja',
+            `Tipo: ${c.tipo} - Esperado: $${c.efectivo_esperado} - Contado: $${c.efectivo_contado} - Diferencia: $${c.diferencia}`
+        );
+        await runQuery('COMMIT', []);
+
+        solicitarSincronizacion('cierre de caja eliminado');
+        return { success: true, message: 'Cierre de caja eliminado con éxito.' };
+    } catch (err) {
+        await runQuery('ROLLBACK', []).catch(() => { });
+        return { success: false, message: 'Error al eliminar el cierre de caja: ' + err.message };
+    }
+}
+
+module.exports = { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja, eliminarCierreCajaTx };

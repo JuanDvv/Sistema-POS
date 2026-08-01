@@ -160,9 +160,11 @@ async function cargarHistorialHoy() {
     const tbody = document.getElementById('body-historial-cierres');
 
     if (!response.success || response.data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>';
         return;
     }
+
+    const esAdministrador = (localStorage.getItem('currentRole') || 'Sin Rol') === 'Administrador';
 
     tbody.innerHTML = response.data.map(c => {
         const hora = new Date(c.fecha_hasta).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
@@ -174,9 +176,31 @@ async function cargarHistorialHoy() {
                 <td class="num">${formatCOP(c.efectivo_esperado)}</td>
                 <td class="num">${formatCOP(c.efectivo_contado)}</td>
                 <td class="num">${formatCOP(c.diferencia)}</td>
+                <td>${esAdministrador ? `<button class="btn-delete" data-cierre-id="${c.id}">Eliminar</button>` : ''}</td>
             </tr>
         `;
     }).join('');
+
+    if (esAdministrador) {
+        tbody.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', () => eliminarCierreCaja(btn.getAttribute('data-cierre-id')));
+        });
+    }
+}
+
+async function eliminarCierreCaja(cierreId) {
+    if (!confirm('¿Eliminar este cierre de caja? Esta acción no se puede deshacer.')) return;
+
+    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+
+    const response = await window.api.eliminarCierreCaja({ cierreId, auditoriaUsuario, auditoriaRol });
+    if (response.success) {
+        await cargarVentanaCajaActual();
+        await cargarHistorialHoy();
+    } else {
+        alert(response.message || 'No se pudo eliminar el cierre de caja.');
+    }
 }
 
 async function confirmarCierreCaja() {

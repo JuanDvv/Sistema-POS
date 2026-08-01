@@ -564,7 +564,7 @@ async function cargarReportesGestion() {
         const ventasPorDia = {};
         const ensureDia = (dia) => {
             if (!ventasPorDia[dia]) {
-                ventasPorDia[dia] = { efectivo: 0, transferencia: 0, abonoEfectivo: 0, abonoTransferencia: 0, abonoPedidoEfectivo: 0, abonoPedidoTransferencia: 0, total: 0 };
+                ventasPorDia[dia] = { efectivo: 0, transferencia: 0, abonoEfectivo: 0, abonoTransferencia: 0, total: 0 };
             }
             return ventasPorDia[dia];
         };
@@ -619,9 +619,9 @@ async function cargarReportesGestion() {
 
             const data = ensureDia(a.dia || 'Sin Fecha');
             if (a.metodo_pago === 'Efectivo') {
-                data.abonoPedidoEfectivo += a.total;
+                data.efectivo += a.total;
             } else {
-                data.abonoPedidoTransferencia += a.total;
+                data.transferencia += a.total;
             }
             data.total += a.total;
             totalIngresos += a.total;
@@ -677,23 +677,6 @@ async function cargarReportesGestion() {
                     tbodyIngresos.appendChild(trAbTr);
                 }
 
-                if (data.abonoPedidoEfectivo > 0) {
-                    const trAbPedEf = document.createElement('tr');
-                    trAbPedEf.innerHTML = `
-                        <td style="padding-left: 35px; color: #92400e; font-weight: 500; padding-top: 8px; padding-bottom: 8px;">📦 Abono de Pedido (Efectivo)</td>
-                        <td style="font-weight: 600; color: #d97706;">${formatCOP(data.abonoPedidoEfectivo)}</td>
-                    `;
-                    tbodyIngresos.appendChild(trAbPedEf);
-                }
-
-                if (data.abonoPedidoTransferencia > 0) {
-                    const trAbPedTr = document.createElement('tr');
-                    trAbPedTr.innerHTML = `
-                        <td style="padding-left: 35px; color: #92400e; font-weight: 500; padding-top: 8px; padding-bottom: 8px;">📦 Abono de Pedido (Transferencia)</td>
-                        <td style="font-weight: 600; color: #d97706;">${formatCOP(data.abonoPedidoTransferencia)}</td>
-                    `;
-                    tbodyIngresos.appendChild(trAbPedTr);
-                }
             });
         } else {
             tbodyIngresos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#94a3b8;">Sin ventas registradas</td></tr>';
@@ -717,7 +700,8 @@ async function cargarReportesGestion() {
                 
                 gastosPorDia[dia].categorias[tipo].push({
                     descripcion: g.descripcion,
-                    monto: g.monto
+                    monto: g.monto,
+                    sucursal: g.sucursal_nombre
                 });
                 
                 gastosPorDia[dia].total += g.monto;
@@ -763,7 +747,7 @@ async function cargarReportesGestion() {
                         const trItem = document.createElement('tr');
                         trItem.innerHTML = `
                             <td style="padding-left: 40px; color: #4b5563; font-size: 0.9em; padding-top: 4px; padding-bottom: 4px;">
-                                • ${item.descripcion}
+                                • ${item.descripcion}${item.sucursal ? ` <span style="color: #cbd5e1; font-size: 0.85em;">(${item.sucursal})</span>` : ''}
                             </td>
                             <td style="font-weight: 500; color: #1e293b; font-size: 0.9em; padding-top: 4px; padding-bottom: 4px;">
                                 ${formatCOP(item.monto)}

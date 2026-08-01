@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             e.preventDefault();
             const nombre = document.getElementById('cliente-nombre').value.trim();
             const tipo = document.getElementById('cliente-tipo').value;
+            const categoria = document.getElementById('cliente-categoria').value;
             const identificacion = document.getElementById('cliente-identificacion').value.trim();
             const telefono = document.getElementById('cliente-telefono').value.trim();
             const email = document.getElementById('cliente-email').value.trim();
@@ -144,6 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 id: editingClienteId,
                 nombre,
                 tipo,
+                categoria,
                 identificacion,
                 telefono,
                 email,
@@ -709,7 +711,7 @@ async function cargarClientes() {
         renderizarClientes();
     } else {
         todosLosClientes = [];
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444;">Error al cargar clientes.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444;">Error al cargar clientes.</td></tr>`;
     }
 }
 
@@ -735,7 +737,7 @@ function renderizarClientes() {
     }
 
     if (clientes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No hay clientes para este filtro.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No hay clientes para este filtro.</td></tr>`;
         return;
     }
 
@@ -745,6 +747,7 @@ function renderizarClientes() {
         const escId = (cli.id || '').replace(/'/g, "\\'");
         const escNombre = (cli.nombre || '').replace(/'/g, "\\'");
         const escTipo = (cli.tipo || '').replace(/'/g, "\\'");
+        const escCategoria = (cli.categoria || 'Normal').replace(/'/g, "\\'");
         const escIdent = (cli.identificacion || '').replace(/'/g, "\\'");
         const escTel = (cli.telefono || '').replace(/'/g, "\\'");
         const escEmail = (cli.email || '').replace(/'/g, "\\'");
@@ -753,16 +756,23 @@ function renderizarClientes() {
         const origenLabel = origen === 'Pedido' ? '📦 Pedido' : '💳 Crédito';
         const origenBg = origen === 'Pedido' ? '#fef3c7' : '#d1fae5';
 
+        const categoria = cli.categoria || 'Normal';
+        const categoriaLabel = categoria === 'Fiscal' ? '🧾 Fiscal' : 'Normal';
+        const categoriaBg = categoria === 'Fiscal' ? '#ede9fe' : '#f1f5f9';
+
+        const badgeStyle = (bg) => `background: ${bg}; padding: 2px 6px; border-radius: 4px; font-weight: 600; color: #1e293b; font-size: 0.78em; white-space: nowrap; display: inline-block;`;
+
         tr.innerHTML = `
             <td><strong>${cli.nombre}</strong></td>
-            <td><span class="badge" style="background: ${cli.tipo === 'Empresa' ? '#dfe7fd' : '#f0ebd8'}; padding: 4px 8px; border-radius: 4px; font-weight: 600; color: #1e293b;">${cli.tipo}</span></td>
-            <td><span class="badge" style="background: ${origenBg}; padding: 4px 8px; border-radius: 4px; font-weight: 600; color: #1e293b;">${origenLabel}</span></td>
+            <td><span class="badge" style="${badgeStyle(cli.tipo === 'Empresa' ? '#dfe7fd' : '#f0ebd8')}">${cli.tipo}</span></td>
+            <td><span class="badge" style="${badgeStyle(origenBg)}">${origenLabel}</span></td>
+            <td><span class="badge" style="${badgeStyle(categoriaBg)}">${categoriaLabel}</span></td>
             <td>${cli.identificacion || '-'}</td>
             <td>${cli.telefono || '-'}</td>
             <td>${cli.email || '-'}</td>
             <td>
                 <div class="actions-cell">
-                    <button class="btn-edit" onclick="iniciarEdicionCliente('${escId}', '${escNombre}', '${escTipo}', '${escIdent}', '${escTel}', '${escEmail}')">✏️ Editar</button>
+                    <button class="btn-edit" onclick="iniciarEdicionCliente('${escId}', '${escNombre}', '${escTipo}', '${escCategoria}', '${escIdent}', '${escTel}', '${escEmail}')">✏️ Editar</button>
                     <button class="btn-delete" onclick="eliminarCliente('${escId}', '${escNombre}')">🗑️ Borrar</button>
                 </div>
             </td>
@@ -771,13 +781,14 @@ function renderizarClientes() {
     });
 }
 
-window.iniciarEdicionCliente = (id, nombre, tipo, identificacion, telefono, email) => {
+window.iniciarEdicionCliente = (id, nombre, tipo, categoria, identificacion, telefono, email) => {
     editingClienteId = id;
     const modalCliente = document.getElementById('modal-cliente');
     document.getElementById('modal-cliente-title').innerText = "Editar Cliente";
-    
+
     document.getElementById('cliente-nombre').value = nombre;
     document.getElementById('cliente-tipo').value = tipo;
+    document.getElementById('cliente-categoria').value = categoria === 'undefined' ? 'Normal' : categoria;
     document.getElementById('cliente-identificacion').value = identificacion === 'undefined' ? '' : identificacion;
     document.getElementById('cliente-telefono').value = telefono === 'undefined' ? '' : telefono;
     document.getElementById('cliente-email').value = email === 'undefined' ? '' : email;

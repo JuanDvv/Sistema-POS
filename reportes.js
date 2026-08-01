@@ -116,6 +116,13 @@ function mostrarPreviewTicket(datosTicket) {
     if (modal) modal.style.display = 'flex';
 }
 
+// Regenerar la cuenta de cobro de una venta fiscal ya registrada (ej. si se cerró el modal
+// post-venta sin generarla en su momento).
+window.generarCuentaCobroVenta = async (ventaId, clienteId) => {
+    const res = await window.api.generarCuentaCobroVentaPDF({ ventaId, clienteId });
+    alert(res.message);
+};
+
 // Vista previa + reimpresión del comprobante de una venta ya registrada (historial del día)
 window.imprimirComprobanteHistorial = async (ventaId) => {
     const res = await window.api.obtenerDetalleVenta(ventaId);
@@ -227,10 +234,14 @@ async function cargarReporte(fecha) {
                         <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
                     `;
                 }
+                const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
+                    ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`
+                    : '';
                 const tdVentaAcciones = `
                     <td>
                         <div class="actions-cell">
                             <button class="btn-edit" style="background-color: #6b7280;" onclick="imprimirComprobanteHistorial('${venta.id}')" title="Imprimir comprobante informativo">🖨️</button>
+                            ${botonCuentaCobro}
                             ${botonesEdicion}
                         </div>
                     </td>
@@ -305,7 +316,7 @@ async function cargarReporte(fecha) {
             if (cierresDelDia.length === 0) {
                 tbodyCierresCaja.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#9ca3af;">No hay cierres de caja registrados hoy.</td></tr>';
             } else {
-                tbodyCierresCaja.innerHTML = cierresDelDia.map(c => {
+                const filas = cierresDelDia.map(c => {
                     const hora = new Date(c.fecha_hasta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                     return `
                         <tr>
@@ -318,6 +329,19 @@ async function cargarReporte(fecha) {
                         </tr>
                     `;
                 }).join('');
+
+                const totalEsperado = cierresDelDia.reduce((s, c) => s + Number(c.efectivo_esperado), 0);
+                const totalDiferencia = cierresDelDia.reduce((s, c) => s + Number(c.diferencia), 0);
+                const filaTotal = `
+                    <tr style="font-weight: 700; border-top: 2px solid var(--bg-accent);">
+                        <td colspan="3">Total</td>
+                        <td>${formatCOP(totalEsperado)}</td>
+                        <td>—</td>
+                        <td>${formatCOP(totalDiferencia)}</td>
+                    </tr>
+                `;
+
+                tbodyCierresCaja.innerHTML = filas + filaTotal;
             }
         }
 

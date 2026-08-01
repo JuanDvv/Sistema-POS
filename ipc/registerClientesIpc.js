@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
-const { formatearCOP, sanitizarNombreArchivo, numeroALetras, extraerDomicilioDeMetodoPago } = require('../services/pdfHelpers');
+const { formatearCOP, sanitizarNombreArchivo, construirHtmlCuentaCobro, extraerDomicilioDeMetodoPago } = require('../services/pdfHelpers');
 const { registrarAuditoria } = require('../services/auditService');
 
 // SRP: clientes, créditos, abonos y su cuenta de cobro en PDF.
@@ -20,23 +20,24 @@ function registerClientesIpc() {
     });
 
     ipcMain.handle('guardar-cliente', async (event, datos) => {
-        const { id, nombre, tipo, identificacion, telefono, email, auditoriaUsuario, auditoriaRol } = datos;
+        const { id, nombre, tipo, identificacion, telefono, email, categoria, auditoriaUsuario, auditoriaRol } = datos;
+        const categoriaFinal = categoria || 'Normal';
         try {
             if (id) {
                 await runQuery(
-                    `UPDATE clientes SET nombre = ?, tipo = ?, identificacion = ?, telefono = ?, email = ?, sync_status = 'pending' WHERE id = ?`,
-                    [nombre, tipo, identificacion, telefono, email, id]
+                    `UPDATE clientes SET nombre = ?, tipo = ?, identificacion = ?, telefono = ?, email = ?, categoria = ?, sync_status = 'pending' WHERE id = ?`,
+                    [nombre, tipo, identificacion, telefono, email, categoriaFinal, id]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Editar Cliente', `Nombre: ${nombre} - ID: ${id}`);
                 return { success: true, message: 'Cliente actualizado exitosamente.' };
             } else {
                 const nuevoId = 'cli-' + uuidv4().substring(0, 8);
                 await runQuery(
-                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Credito', 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                    [nuevoId, nombre, tipo, identificacion, telefono, email]
+                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, categoria, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Credito', ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                    [nuevoId, nombre, tipo, identificacion, telefono, email, categoriaFinal]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Crear Cliente', `Nombre: ${nombre} - ID: ${nuevoId}`);
-                return { success: true, message: 'Cliente creado exitosamente.' };
+                return { success: true, message: 'Cliente creado exitosamente.', clienteId: nuevoId };
             }
         } catch (err) {
             return { success: false, message: 'Error al guardar cliente: ' + err.message };
@@ -94,7 +95,12 @@ function registerClientesIpc() {
 
     ipcMain.handle('obtener-reporte-creditos', async (event, { sucursalId, fechaInicio, fechaFin } = {}) => {
         try {
-            const clientes = await allQuery(`SELECT * FROM clientes WHERE sync_status IS NULL OR sync_status <> 'deleted'`, []);
+            // Los clientes Fiscal nunca se fían (pagan de inmediato y solo piden cuenta de cobro),
+            // así que no pertenecen al reporte/listados de Crédito y Abonos.
+            const clientes = await allQuery(
+                `SELECT * FROM clientes WHERE (sync_status IS NULL OR sync_status <> 'deleted') AND (categoria IS NULL OR categoria <> 'Fiscal')`,
+                []
+            );
 
             let queryVentas = `
                 SELECT
@@ -146,12 +152,14 @@ function registerClientesIpc() {
             }
 
             const ventasCredito = await allQuery(
-                `SELECT v.id, v.total, v.fecha, v.metodo_pago
+                `SELECT v.id, v.total, v.fecha, v.metodo_pago, v.sucursal_id
                  FROM ventas v
                  WHERE v.es_credito = 1 AND v.cliente_id = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                  ORDER BY v.fecha ASC`,
                 [clienteId]
             );
+
+            const { label: sucursalLabel, direccion, telefono: telefonoSucursal } = await obtenerSucursalInfo(ventasCredito.map(v => v.sucursal_id));
 
             const totalCreditos = ventasCredito.reduce((sum, venta) => sum + Number(venta.total || 0), 0);
 
@@ -189,138 +197,159 @@ function registerClientesIpc() {
                 }
             }
 
-            const gruposPorFecha = [];
-            const gruposPorFechaMap = new Map();
-            items.forEach(item => {
-                const fechaKey = String(item.fecha || '').split('T')[0].split(' ')[0];
-                let grupo = gruposPorFechaMap.get(fechaKey);
-                if (!grupo) {
-                    grupo = { fecha: item.fecha, items: [] };
-                    gruposPorFechaMap.set(fechaKey, grupo);
-                    gruposPorFecha.push(grupo);
-                }
-                grupo.items.push(item);
-            });
-
             const fechaActual = new Date();
             const numeroCuenta = `CC-${fechaActual.getFullYear()}${String(fechaActual.getMonth() + 1).padStart(2, '0')}${String(fechaActual.getDate()).padStart(2, '0')}-${String(ventasCredito.length + 1).padStart(4, '0')}`;
 
-            const ciudadFecha = `Turbaco, ${fechaActual.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-            const sumaEnLetras = numeroALetras(totalCreditos);
-
-            const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    body { font-family: Arial, sans-serif; color: #111827; margin: 0; padding: 24px; font-size: 13px; }
-    .ciudad-fecha { text-align: right; margin-bottom: 20px; }
-    .title { font-size: 18px; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 18px; }
-    .row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
-    .row .label { color: #6b7280; }
-    .row .value { font-weight: 600; text-align: right; }
-    .beneficiario { margin: 18px 0; padding: 10px 0; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; }
-    .suma-letras { margin: 18px 0; font-weight: bold; text-transform: uppercase; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-    th { background: #f8fafc; }
-    th.num, td.num { text-align: right; }
-    tr.fecha-row td { background: #f1f5f9; font-weight: 600; color: #374151; }
-    tfoot td { font-weight: bold; text-align: right; }
-    .signature-section { margin-top: 60px; }
-    .signature-line { border-top: 1px solid #111827; width: 280px; margin-top: 48px; }
-  </style>
-</head>
-<body>
-  <div class="ciudad-fecha">${ciudadFecha}</div>
-
-  <div class="title">Cuenta de Cobro ${numeroCuenta}</div>
-
-  <div class="row"><span class="label">${cliente.nombre}</span><span class="value">NIT/CC ${cliente.identificacion || '-'}</span></div>
-
-  <div class="beneficiario row">
-    <span class="label">Debe a: KARINA DE LEON HUETO</span>
-    <span class="value">NIT / C.C. 30775919-8</span>
-  </div>
-
-  <div class="suma-letras">La suma de: ${sumaEnLetras}</div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Producto</th>
-        <th class="num">Cant.</th>
-        <th class="num">Valor Unit.</th>
-        <th class="num">Subtotal</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${gruposPorFecha.map(grupo => `
-        <tr class="fecha-row"><td colspan="4">${new Date(grupo.fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</td></tr>
-        ${grupo.items.map(item => `
-          <tr>
-            <td>${item.producto}</td>
-            <td class="num">${item.cantidad}</td>
-            <td class="num">${formatearCOP(item.precio)}</td>
-            <td class="num">${formatearCOP(item.subtotal)}</td>
-          </tr>
-        `).join('')}
-      `).join('')}
-    </tbody>
-    <tfoot>
-      <tr>
-        <td colspan="3">Total</td>
-        <td>${formatearCOP(totalCreditos)}</td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <div class="signature-section">
-    <div>Atte,</div>
-    <div class="signature-line"></div>
-    <div style="font-weight: 600;">KARINA DE LEON HUETO</div>
-    <div>c.c. 30.775.919</div>
-  </div>
-</body>
-</html>`;
-
-            const pdfOptions = {
-                marginsType: 0,
-                pageSize: 'A4',
-                printBackground: true,
-                landscape: false
-            };
-
-            const tempWindow = new BrowserWindow({
-                show: false,
-                width: 900,
-                height: 1200,
-                webPreferences: {
-                    nodeIntegration: false,
-                    contextIsolation: true
-                }
+            const html = construirHtmlCuentaCobro({
+                cliente, numeroCuenta, items, total: totalCreditos,
+                sucursalLabel, direccion, telefonoSucursal, firmaDataUri: obtenerFirmaDataUri()
             });
 
-            await tempWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-            const data = await tempWindow.webContents.printToPDF(pdfOptions);
-            tempWindow.close();
-
-            const { filePath } = await dialog.showSaveDialog(win, {
-                title: 'Guardar cuenta de cobro en PDF',
-                defaultPath: path.join(app.getPath('downloads'), `cuenta_cobro_${sanitizarNombreArchivo(cliente.nombre)}_${fechaActual.toISOString().split('T')[0]}.pdf`),
-                filters: [{ name: 'Documentos PDF', extensions: ['pdf'] }]
-            });
-
-            if (filePath) {
-                fs.writeFileSync(filePath, data);
-                return { success: true, message: 'Cuenta de cobro exportada exitosamente.' };
-            }
-
-            return { success: false, message: 'Exportación cancelada.' };
+            return await exportarCuentaCobroPDF({ win, html, nombreCliente: cliente.nombre });
         } catch (err) {
             return { success: false, message: 'Error al generar la cuenta de cobro: ' + err.message };
         }
     });
+
+    // Cuenta de cobro de una única venta (flujo de clientes "Fiscal" desde ventas.js): a
+    // diferencia de 'generar-cuenta-cobro-pdf' (que acumula todas las ventas a crédito pendientes
+    // del cliente), esta genera el documento solo con los ítems de la venta indicada.
+    ipcMain.handle('generar-cuenta-cobro-venta-pdf', async (event, { ventaId, clienteId }) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+
+        try {
+            const cliente = await new Promise((resolve) => {
+                db.get(`SELECT * FROM clientes WHERE id = ?`, [clienteId], (err, row) => resolve(row));
+            });
+            if (!cliente) {
+                return { success: false, message: 'No se encontró el cliente.' };
+            }
+
+            const venta = await new Promise((resolve) => {
+                db.get(`SELECT id, total, fecha, metodo_pago, sucursal_id FROM ventas WHERE id = ?`, [ventaId], (err, row) => resolve(row));
+            });
+            if (!venta) {
+                return { success: false, message: 'No se encontró la venta.' };
+            }
+
+            const { label: sucursalLabel, direccion, telefono: telefonoSucursal } = await obtenerSucursalInfo([venta.sucursal_id]);
+
+            const detalles = await allQuery(
+                `SELECT dv.cantidad, dv.precio_unitario, p.nombre AS producto_nombre
+                 FROM detalle_ventas dv
+                 LEFT JOIN productos p ON p.id = dv.producto_id
+                 WHERE dv.venta_id = ?`,
+                [venta.id]
+            );
+
+            const items = detalles.map(detalle => ({
+                fecha: venta.fecha,
+                producto: detalle.producto_nombre || 'Producto sin nombre',
+                cantidad: detalle.cantidad,
+                precio: Number(detalle.precio_unitario || 0),
+                subtotal: Number(detalle.cantidad || 0) * Number(detalle.precio_unitario || 0)
+            }));
+
+            const valorDomicilio = extraerDomicilioDeMetodoPago(venta.metodo_pago);
+            if (valorDomicilio > 0) {
+                items.push({
+                    fecha: venta.fecha,
+                    producto: 'Domicilio (envío)',
+                    cantidad: 1,
+                    precio: valorDomicilio,
+                    subtotal: valorDomicilio
+                });
+            }
+
+            const fechaVenta = new Date(venta.fecha);
+            const numeroCuenta = `CC-${fechaVenta.getFullYear()}${String(fechaVenta.getMonth() + 1).padStart(2, '0')}${String(fechaVenta.getDate()).padStart(2, '0')}-${venta.id.substring(0, 8)}`;
+
+            const html = construirHtmlCuentaCobro({
+                cliente, numeroCuenta, items, total: Number(venta.total || 0),
+                sucursalLabel, direccion, telefonoSucursal, firmaDataUri: obtenerFirmaDataUri()
+            });
+
+            return await exportarCuentaCobroPDF({ win, html, nombreCliente: cliente.nombre });
+        } catch (err) {
+            return { success: false, message: 'Error al generar la cuenta de cobro: ' + err.message };
+        }
+    });
+}
+
+// Resuelve la info de sucursal a partir de los sucursal_id de las ventas que entran en la cuenta
+// de cobro: `label` siempre se arma (uno o varios nombres separados por coma), pero `direccion` y
+// `telefono` solo se completan cuando todas las ventas pertenecen a UNA sola sucursal -- con varias
+// sucursales mezcladas no hay una dirección/teléfono único que mostrar sin inventar cuál usar.
+async function obtenerSucursalInfo(sucursalIds) {
+    const idsUnicos = [...new Set((sucursalIds || []).filter(Boolean))];
+    if (idsUnicos.length === 0) return { label: '', direccion: '', telefono: '' };
+
+    const placeholders = idsUnicos.map(() => '?').join(', ');
+    const rows = await allQuery(`SELECT id, nombre, direccion, telefono FROM config_sucursal WHERE id IN (${placeholders})`, idsUnicos);
+    const filasPorId = new Map(rows.map(r => [r.id, r]));
+
+    const label = idsUnicos.map(id => (filasPorId.get(id) || {}).nombre || id).join(', ');
+
+    if (idsUnicos.length === 1) {
+        const unica = filasPorId.get(idsUnicos[0]) || {};
+        return { label, direccion: unica.direccion || '', telefono: unica.telefono || '' };
+    }
+
+    return { label, direccion: '', telefono: '' };
+}
+
+// Ruta del PNG/JPG con la firma escaneada de Karina, embebido como data URI en el PDF. Se lee una
+// sola vez (cacheado en memoria) y si el archivo no existe se cae de vuelta al nombre en cursiva
+// (ver construirHtmlCuentaCobro) en lugar de romper la generación del documento.
+let firmaDataUriCache;
+function obtenerFirmaDataUri() {
+    if (firmaDataUriCache !== undefined) return firmaDataUriCache;
+    try {
+        const rutaFirma = path.join(__dirname, '..', 'build', 'Firma Karina.jpg');
+        const buffer = fs.readFileSync(rutaFirma);
+        firmaDataUriCache = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+    } catch (err) {
+        firmaDataUriCache = null;
+    }
+    return firmaDataUriCache;
+}
+
+// Renderiza el HTML de una cuenta de cobro en una ventana oculta, lo exporta a PDF y pide al
+// usuario dónde guardarlo. Compartido por los dos flujos de generación (crédito acumulado y venta puntual).
+async function exportarCuentaCobroPDF({ win, html, nombreCliente }) {
+    const pdfOptions = {
+        marginsType: 0,
+        pageSize: 'A4',
+        printBackground: true,
+        landscape: false
+    };
+
+    const tempWindow = new BrowserWindow({
+        show: false,
+        width: 900,
+        height: 1200,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+
+    await tempWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const data = await tempWindow.webContents.printToPDF(pdfOptions);
+    tempWindow.close();
+
+    const { filePath } = await dialog.showSaveDialog(win, {
+        title: 'Guardar cuenta de cobro en PDF',
+        defaultPath: path.join(app.getPath('downloads'), `cuenta_cobro_${sanitizarNombreArchivo(nombreCliente)}_${new Date().toISOString().split('T')[0]}.pdf`),
+        filters: [{ name: 'Documentos PDF', extensions: ['pdf'] }]
+    });
+
+    if (filePath) {
+        fs.writeFileSync(filePath, data);
+        return { success: true, message: 'Cuenta de cobro exportada exitosamente.' };
+    }
+
+    return { success: false, message: 'Exportación cancelada.' };
 }
 
 module.exports = { registerClientesIpc };

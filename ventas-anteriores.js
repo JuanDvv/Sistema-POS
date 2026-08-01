@@ -491,6 +491,7 @@ async function cargarListaVentasDia() {
         const metodoPagoText = venta.metodo_pago === 'Crédito'
             ? `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`
             : (venta.metodo_pago || '');
+        const esFiscal = venta.cliente_categoria === 'Fiscal';
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${hora}</td>
@@ -500,6 +501,7 @@ async function cargarListaVentasDia() {
             <td>
                 <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Editar</button>
                 <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>
+                ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id}">🧾 Cuenta de Cobro</button>` : ''}
             </td>
         `;
         tbody.appendChild(tr);
@@ -511,6 +513,19 @@ async function cargarListaVentasDia() {
     tbody.querySelectorAll('.btn-mini-delete').forEach(btn => {
         btn.addEventListener('click', () => eliminarVentaExistente(btn.dataset.id));
     });
+    tbody.querySelectorAll('.btn-mini-cuenta-cobro').forEach(btn => {
+        btn.addEventListener('click', () => generarCuentaCobroVenta(btn.dataset.id, btn.dataset.clienteId, btn));
+    });
+}
+
+async function generarCuentaCobroVenta(ventaId, clienteId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+        const res = await window.api.generarCuentaCobroVentaPDF({ ventaId, clienteId });
+        alert(res.message);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function iniciarEdicionVenta(ventaId) {

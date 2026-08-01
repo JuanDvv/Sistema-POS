@@ -10,6 +10,40 @@
             overflow: hidden;
         }
 
+        /* Formularios dentro de modales (ej. Nuevo Cliente Fiscal): esta página nunca tuvo
+           formularios con labels antes, así que .form-group no existía -- sin esto los inputs
+           quedaban pegados unos a otros y a sus labels. */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #374151;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.95em;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+
         .main-content {
             flex: 1;
             padding: 30px;
@@ -94,6 +128,81 @@
             padding: 10px 12px;
             border-radius: 6px;
             margin-bottom: 10px;
+        }
+
+        /* Fila de opciones de venta (Domicilio, Crédito, Descuento, Fiscal): grid de 4 columnas
+           fijas para que siempre entren en una sola fila, achicando todo lo necesario. */
+        .opciones-venta-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .opcion-venta-card {
+            padding: 6px 8px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 40px;
+            min-width: 0;
+        }
+
+        .opcion-venta-header {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .opcion-venta-header input[type="checkbox"] {
+            width: 13px;
+            height: 13px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .opcion-venta-header label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            user-select: none;
+            line-height: 1.15;
+        }
+
+        .opcion-venta-body {
+            flex-direction: column;
+            gap: 5px;
+            margin-top: 6px;
+        }
+
+        .opcion-venta-body input[type="text"],
+        .opcion-venta-body select,
+        .opcion-venta-body button {
+            width: 100%;
+            padding: 3px 5px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.7em;
+            box-sizing: border-box;
+        }
+
+        .opcion-venta-body select {
+            background-color: white;
+            color: #374151;
+        }
+
+        .opcion-venta-body button {
+            background: white;
+            color: #475569;
+            border-style: dashed;
+            border-color: #94a3b8;
+            cursor: pointer;
         }
 
         .summary-row {
@@ -188,43 +297,41 @@
 
             <div>
                 <div class="cart-summary">
-                    <!-- Opciones de Venta (Domicilio, Crédito y Descuentos) -->
-                    <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                    <!-- Opciones de Venta (Domicilio, Crédito, Descuento y Fiscal): grid de 4 columnas
+                         fijas para que siempre quepan en una sola fila, sin importar el ancho del panel. -->
+                    <div class="opciones-venta-grid">
                         <!-- Domicilio / Delivery Checkbox & Input -->
-                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" id="chk-domicilio" style="width: 16px; height: 16px; cursor: pointer;">
-                                <label for="chk-domicilio" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🛵 Domicilio</label>
+                        <div class="opcion-venta-card">
+                            <div class="opcion-venta-header">
+                                <input type="checkbox" id="chk-domicilio">
+                                <label for="chk-domicilio">🛵 Domicilio</label>
                             </div>
-                            <div id="domicilio-input-container" style="display: none; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px;">
-                                <input type="text" inputmode="numeric" id="input-valor-domicilio" placeholder="Valor $"
-                                    style="width: 100%; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.85em; text-align: right; box-sizing: border-box;">
+                            <div id="domicilio-input-container" class="opcion-venta-body" style="display: none; justify-content: space-between; align-items: center;">
+                                <input type="text" inputmode="numeric" id="input-valor-domicilio" placeholder="Valor $" style="text-align: right;">
                             </div>
                         </div>
 
                         <!-- Crédito Checkbox & Selector -->
-                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" id="chk-credito" style="width: 16px; height: 16px; cursor: pointer;">
-                                <label for="chk-credito" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">💳 Crédito</label>
+                        <div class="opcion-venta-card">
+                            <div class="opcion-venta-header">
+                                <input type="checkbox" id="chk-credito">
+                                <label for="chk-credito">💳 Crédito</label>
                             </div>
-                            <div id="credito-input-container" style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
-                                <select id="select-cliente-credito"
-                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                            <div id="credito-input-container" class="opcion-venta-body" style="display: none;">
+                                <select id="select-cliente-credito">
                                     <option value="">-- Cliente --</option>
                                 </select>
                             </div>
                         </div>
 
                         <!-- Descuento Checkbox & Selector -->
-                        <div style="flex: 1; min-width: 140px; padding: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; min-height: 48px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" id="chk-descuento" style="width: 16px; height: 16px; cursor: pointer;">
-                                <label for="chk-descuento" style="font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">🏷️ Descuento</label>
+                        <div class="opcion-venta-card">
+                            <div class="opcion-venta-header">
+                                <input type="checkbox" id="chk-descuento">
+                                <label for="chk-descuento">🏷️ Descuento</label>
                             </div>
-                            <div id="descuento-input-container" style="display: none; flex-direction: column; gap: 6px; margin-top: 8px;">
-                                <select id="select-descuento"
-                                    style="width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.8em; background-color: white; color: #374151; box-sizing: border-box;">
+                            <div id="descuento-input-container" class="opcion-venta-body" style="display: none;">
+                                <select id="select-descuento">
                                     <option value="">-- Porcentaje --</option>
                                     <option value="10">10%</option>
                                     <option value="15">15%</option>
@@ -232,6 +339,20 @@
                                     <option value="25">25%</option>
                                     <option value="30">30%</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Fiscal Checkbox & Selector: cliente al que se le genera cuenta de cobro -->
+                        <div class="opcion-venta-card">
+                            <div class="opcion-venta-header">
+                                <input type="checkbox" id="chk-fiscal">
+                                <label for="chk-fiscal">🧾 Fiscal</label>
+                            </div>
+                            <div id="fiscal-input-container" class="opcion-venta-body" style="display: none;">
+                                <select id="select-cliente-fiscal">
+                                    <option value="">-- Cliente --</option>
+                                </select>
+                                <button type="button" id="btn-nuevo-cliente-fiscal">+ Nuevo cliente</button>
                             </div>
                         </div>
                     </div>
@@ -292,11 +413,50 @@
         <img id="image-preview-src" src="" alt="Vista previa">
     </div>
 
+    <!-- Modal para crear un cliente Fiscal desde la página de ventas -->
+    <div id="modal-cliente-fiscal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Nuevo Cliente Fiscal</h3>
+                <button class="close-btn" id="btn-close-cliente-fiscal-modal">&times;</button>
+            </div>
+            <form id="form-cliente-fiscal">
+                <div class="form-group">
+                    <label for="cliente-fiscal-nombre">Nombre Completo / Razón Social *</label>
+                    <input type="text" id="cliente-fiscal-nombre" required placeholder="Ej. Distribuidora SAS o Juan Pérez">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-fiscal-tipo">Tipo de Cliente *</label>
+                    <select id="cliente-fiscal-tipo" required>
+                        <option value="Empresa">Empresa</option>
+                        <option value="Persona">Persona</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="cliente-fiscal-identificacion">Identificación (NIT / CC)</label>
+                    <input type="text" id="cliente-fiscal-identificacion" placeholder="Ej. 900.123.456-7 o 1.045.223.112">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-fiscal-telefono">Teléfono de Contacto</label>
+                    <input type="text" id="cliente-fiscal-telefono" placeholder="Ej. 3004567890">
+                </div>
+                <div class="form-group">
+                    <label for="cliente-fiscal-email">Correo Electrónico</label>
+                    <input type="email" id="cliente-fiscal-email" placeholder="Ej. contacto@cliente.com">
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
+                    Cliente</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal tras registrar la venta: ofrece imprimir el comprobante informativo -->
     <div id="modal-post-venta" class="modal">
         <div class="modal-content" style="width: 360px; text-align: center;">
             <h3 style="margin-top: 0;">✅ Venta Registrada</h3>
             <p id="post-venta-msg" style="color: #6b7280; font-size: 0.9em;"></p>
+            <button class="btn-primary" id="btn-generar-cuenta-cobro" style="display: none; width: 100%; justify-content: center; margin-bottom: 8px;">🧾 Generar Cuenta de Cobro</button>
             <div style="display: flex; gap: 8px;">
                 <button class="btn-primary" id="btn-imprimir-comprobante" style="flex: 1; justify-content: center;">🖨️ Imprimir Comprobante</button>
                 <button class="btn-primary" id="btn-cerrar-post-venta" style="flex: 1; justify-content: center; background-color: #6b7280;">Cerrar</button>

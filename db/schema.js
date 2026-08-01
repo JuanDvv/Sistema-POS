@@ -255,6 +255,11 @@ function initDB(db) {
         // de Administración los clientes de crédito de los que solo se ingresaron por un pedido.
         db.run(`ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'Credito'`, [], () => {});
 
+        // Migración: categoría del cliente ('Normal' por defecto, 'Fiscal' para clientes que
+        // requieren cuenta de cobro al momento de la venta). Independiente de 'origen' (cómo se
+        // creó el cliente) y de 'tipo' (Empresa/Persona).
+        db.run(`ALTER TABLE clientes ADD COLUMN categoria TEXT DEFAULT 'Normal'`, [], () => {});
+
         // 12. Tabla de Abonos de Crédito
         db.run(`CREATE TABLE IF NOT EXISTS abonos_credito (
             id TEXT PRIMARY KEY,
@@ -393,31 +398,42 @@ function initDB(db) {
         // sin nombre en el listado/detalle. Estas columnas garantizan que el pedido conserve los
         // datos con los que se creó incluso si el cliente se elimina después (ver COALESCE en
         // registerPedidosIpc.js).
-        // Estos 3 backfills reescriben columnas derivadas en TODA la tabla `pedidos`, no un cambio
-        // real de ningún pedido puntual -- por eso se quita el trigger de auto-bump de updated_at
-        // mientras corren y se recrea al final (ver crearTriggerUpdatedAt arriba). Bug real que
-        // esto corrige: sin quitar el trigger, este backfill pisaba el updated_at de pedidos que
-        // otro equipo todavía no había descargado, haciendo que esa descarga se descartara por LWW
+        // Este backfill reescribe columnas derivadas en TODA la tabla `pedidos`, no un cambio real
+        // de ningún pedido puntual -- por eso se quita el trigger de auto-bump de updated_at
+        // mientras corre y se recrea al final (ver crearTriggerUpdatedAt arriba). Bug real que esto
+        // corrige: sin quitar el trigger, este backfill pisaba el updated_at de pedidos que otro
+        // equipo todavía no había descargado, haciendo que esa descarga se descartara por LWW
         // (parecía "más vieja" que el backfill) y quedara encasillada para siempre.
+        //
+        // Dos bugs más, ya corregidos aquí (causaban el mismo encasillamiento en CADA arranque, no
+        // solo una vez, en todas las sucursales por igual -- verificado contra datos reales):
+        // 1. Antes había 3 UPDATE independientes, cada uno con su propia condición IS NULL. La de
+        //    cliente_identificacion_registro nunca dejaba de cumplirse para clientes sin cédula
+        //    registrada (la subquery sigue devolviendo NULL para siempre), así que ese "backfill de
+        //    una sola vez" en realidad se repetía en cada arranque de la app. Ahora es un solo
+        //    UPDATE con una única condición (cliente_nombre_registro IS NULL) -- nombre sí es
+        //    NOT NULL en `clientes`, así que deja de cumplirse en cuanto el pedido queda backfillado
+        //    una vez.
+        // 2. db.run() anidados dentro del callback de otro db.run() NO respetan el orden de
+        //    db.serialize() -- solo lo hacen las llamadas de nivel superior. Con 3 cadenas
+        //    ALTER->UPDATE independientes disparándose "en paralelo" entre sí, el recreate final del
+        //    trigger corría desacoplado del resto del arranque, dejando una ventana de duración
+        //    impredecible con el trigger ausente. Con un solo UPDATE, esa ventana se reduce a los 4
+        //    pasos estrictamente encadenados de abajo.
         db.run(`DROP TRIGGER IF EXISTS trg_pedidos_updated_at`, [], () => {
             db.run(`ALTER TABLE pedidos ADD COLUMN cliente_nombre_registro TEXT`, [], () => {
-                db.run(`
-                    UPDATE pedidos SET cliente_nombre_registro = (SELECT nombre FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                    WHERE cliente_nombre_registro IS NULL
-                `, [], () => { });
-            });
-            db.run(`ALTER TABLE pedidos ADD COLUMN cliente_identificacion_registro TEXT`, [], () => {
-                db.run(`
-                    UPDATE pedidos SET cliente_identificacion_registro = (SELECT identificacion FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                    WHERE cliente_identificacion_registro IS NULL
-                `, [], () => { });
-            });
-            db.run(`ALTER TABLE pedidos ADD COLUMN cliente_telefono_registro TEXT`, [], () => {
-                db.run(`
-                    UPDATE pedidos SET cliente_telefono_registro = (SELECT telefono FROM clientes WHERE clientes.id = pedidos.cliente_id)
-                    WHERE cliente_telefono_registro IS NULL
-                `, [], () => {
-                    crearTriggerUpdatedAt(db, 'pedidos', ['id']);
+                db.run(`ALTER TABLE pedidos ADD COLUMN cliente_identificacion_registro TEXT`, [], () => {
+                    db.run(`ALTER TABLE pedidos ADD COLUMN cliente_telefono_registro TEXT`, [], () => {
+                        db.run(`
+                            UPDATE pedidos SET
+                                cliente_nombre_registro = (SELECT nombre FROM clientes WHERE clientes.id = pedidos.cliente_id),
+                                cliente_identificacion_registro = (SELECT identificacion FROM clientes WHERE clientes.id = pedidos.cliente_id),
+                                cliente_telefono_registro = (SELECT telefono FROM clientes WHERE clientes.id = pedidos.cliente_id)
+                            WHERE cliente_nombre_registro IS NULL
+                        `, [], () => {
+                            crearTriggerUpdatedAt(db, 'pedidos', ['id']);
+                        });
+                    });
                 });
             });
         });
