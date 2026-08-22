@@ -1311,11 +1311,17 @@ async function syncSucursales() {
     // A. Subir cambios locales pendientes a la nube
     try {
         const sucursalesPendientes = await allQuery(
-            `SELECT id, nombre, direccion, telefono, updated_at FROM config_sucursal WHERE sync_status = 'pending'`, []
+            `SELECT id, nombre, direccion, telefono, caja_base, descuento_mayorista, updated_at FROM config_sucursal WHERE sync_status = 'pending'`, []
         );
         for (const suc of sucursalesPendientes) {
             const gano = await upsertConLWW('config_sucursal', {
-                id: suc.id, nombre: suc.nombre, direccion: suc.direccion, telefono: suc.telefono, updated_at: suc.updated_at
+                id: suc.id,
+                nombre: suc.nombre,
+                direccion: suc.direccion,
+                telefono: suc.telefono,
+                caja_base: suc.caja_base,
+                descuento_mayorista: suc.descuento_mayorista,
+                updated_at: suc.updated_at
             });
             if (!gano) {
                 console.log(`[Sincronizador] Sucursal ${suc.id} no subida: hay una versión más reciente en la nube (o RLS la bloqueó).`);
@@ -1340,16 +1346,18 @@ async function syncSucursales() {
                 }
                 // 'activa' es un flag local por terminal: nunca se sobrescribe con la nube.
                 await runQuery(
-                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, 0, 'synced', ?)
+                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, caja_base, descuento_mayorista, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, 0, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         direccion = excluded.direccion,
                         telefono = excluded.telefono,
+                        caja_base = excluded.caja_base,
+                        descuento_mayorista = excluded.descuento_mayorista,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [suc.id, suc.nombre, suc.direccion, suc.telefono, suc.updated_at]
+                    [suc.id, suc.nombre, suc.direccion, suc.telefono, suc.caja_base || 200000, suc.descuento_mayorista || 25, suc.updated_at]
                 );
             }
             if (sucursalesNube.length > 0) console.log("[Sincronizador] Configuración de sucursales sincronizada con la nube.");
@@ -1442,160 +1450,7 @@ async function syncUsuarios() {
     }
 }
 
-// --- 8. SINCRONIZAR TRANSFERENCIAS (Local -> Supabase, con LWW) ---
-async function syncTransferenciasSubir() {
-    try {
-        const transferenciasPendientes = await allQuery(`SELECT * FROM transferencias WHERE sync_status = 'pending'`, []);
-        for (const trans of transferenciasPendientes) {
-            const gano = await upsertConLWW('transferencias', {
-                id: trans.id,
-                sucursal_origen_id: trans.sucursal_origen_id,
-                sucursal_destino_id: trans.sucursal_destino_id,
-                fecha: trans.fecha,
-                usuario: trans.usuario,
-                updated_at: trans.updated_at
-            });
 
-            if (!gano) {
-                console.log(`[Sincronizador] Transferencia ${trans.id} no subida: hay una versión más reciente en la nube.`);
-                continue;
-            }
-
-            const detalles = await allQuery(`SELECT * FROM detalle_transferencias WHERE transferencia_id = ?`, [trans.id]);
-            for (const det of detalles) {
-                const { error: errDetalle } = await supabase
-                    .from('detalle_transferencias')
-                    .upsert({
-                        id: det.id,
-                        transferencia_id: det.transferencia_id,
-                        producto_id: det.producto_id,
-                        cantidad: det.cantidad,
-                        updated_at: nowISO()
-                    });
-                if (errDetalle) throw errDetalle;
-            }
-
-            await runQuery(`UPDATE transferencias SET sync_status = 'synced' WHERE id = ?`, [trans.id]);
-            console.log(`[Sincronizador] Transferencia ${trans.id} subida a Supabase.`);
-        }
-    } catch (errTrans) {
-        console.log("[Sincronizador] Transferencias no subidas (Offline o error de red):", errTrans.message);
-    }
-}
-
-// --- 8.2. SINCRONIZAR ELIMINACIONES DE TRANSFERENCIAS (Local -> Supabase, soft delete) ---
-async function syncTransferenciasEliminaciones() {
-    try {
-        const transferenciasEliminadas = await allQuery(`SELECT * FROM transferencias WHERE sync_status = 'deleted'`, []);
-        for (const trans of transferenciasEliminadas) {
-            const gano = await softDeleteConLWW('transferencias', { id: trans.id });
-            if (!gano) {
-                console.log(`[Sincronizador] Eliminación de transferencia ${trans.id} pospuesta: hay una versión más reciente en la nube.`);
-                continue;
-            }
-            await supabase.from('detalle_transferencias').delete().eq('transferencia_id', trans.id);
-            await runQuery(`DELETE FROM detalle_transferencias WHERE transferencia_id = ?`, [trans.id]);
-            await runQuery(`DELETE FROM transferencias WHERE id = ?`, [trans.id]);
-            console.log(`[Sincronizador] Eliminación de transferencia ${trans.id} sincronizada con la nube.`);
-        }
-    } catch (err) {
-        console.log("[Sincronizador] Eliminaciones de transferencias no sincronizadas:", err.message);
-    }
-}
-
-// --- 8.5. DESCARGAR TRANSFERENCIAS (Supabase -> Local, con LWW) ---
-async function syncTransferenciasDescargar() {
-    try {
-        const { filas: transNube, cursorNuevo: cursorTrans } = await descargarDesdeCursor('transferencias');
-
-        // Traslados recién llegados para ESTA sucursal (no creados aquí, sino recibidos de otra
-        // terminal vía la nube): se recolectan para notificar a las ventanas abiertas una vez
-        // tengamos también sus detalles descargados (ver más abajo).
-        const entrantesNuevos = [];
-        let sucursalLocalId = null;
-        if (transNube && transNube.length > 0) {
-            const filaSucursal = await allQuery(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, []);
-            sucursalLocalId = filaSucursal.length > 0 ? filaSucursal[0].id : null;
-        }
-
-        if (transNube) {
-            for (const trans of transNube) {
-                if (trans.deleted_at) {
-                    await runQuery(`DELETE FROM detalle_transferencias WHERE transferencia_id = ?`, [trans.id]);
-                    await runQuery(`DELETE FROM transferencias WHERE id = ? AND sync_status <> 'pending'`, [trans.id]);
-                    continue;
-                }
-
-                const yaExistiaLocal = (await allQuery(`SELECT id FROM transferencias WHERE id = ?`, [trans.id])).length > 0;
-
-                await runQuery(
-                    `INSERT INTO transferencias (id, sucursal_origen_id, sucursal_destino_id, fecha, usuario, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, 'synced', ?)
-                     ON CONFLICT(id) DO UPDATE SET
-                        sucursal_origen_id = excluded.sucursal_origen_id,
-                        sucursal_destino_id = excluded.sucursal_destino_id,
-                        fecha = excluded.fecha,
-                        usuario = excluded.usuario,
-                        sync_status = 'synced',
-                        updated_at = excluded.updated_at
-                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [trans.id, trans.sucursal_origen_id, trans.sucursal_destino_id, trans.fecha, trans.usuario, trans.updated_at]
-                );
-
-                if (!yaExistiaLocal && sucursalLocalId && trans.sucursal_destino_id === sucursalLocalId) {
-                    entrantesNuevos.push(trans);
-                }
-            }
-        }
-        if (cursorTrans !== null) await actualizarCursor('transferencias', cursorTrans);
-
-        const { filas: detNube, cursorNuevo: cursorDetTrans } = await descargarDesdeCursor('detalle_transferencias');
-
-        if (detNube) {
-            for (const det of detNube) {
-                if (det.deleted_at) {
-                    await runQuery(`DELETE FROM detalle_transferencias WHERE id = ?`, [det.id]);
-                    continue;
-                }
-                await runQuery(
-                    `INSERT INTO detalle_transferencias (id, transferencia_id, producto_id, cantidad, updated_at)
-                     VALUES (?, ?, ?, ?, ?)
-                     ON CONFLICT(id) DO UPDATE SET
-                        transferencia_id = excluded.transferencia_id,
-                        producto_id = excluded.producto_id,
-                        cantidad = excluded.cantidad,
-                        updated_at = excluded.updated_at
-                     WHERE excluded.updated_at > updated_at`,
-                    [det.id, det.transferencia_id, det.producto_id, det.cantidad, det.updated_at]
-                );
-            }
-        }
-        if (cursorDetTrans !== null) await actualizarCursor('detalle_transferencias', cursorDetTrans);
-        if (transNube.length > 0 || detNube.length > 0) {
-            console.log("[Sincronizador] Transferencias y detalles descargados desde la nube.");
-        }
-
-        // Notificar a las ventanas abiertas de esta sucursal, ahora que el detalle recién
-        // descargado (bloque de arriba) ya está disponible localmente para armar el resumen.
-        for (const trans of entrantesNuevos) {
-            const items = await allQuery(
-                `SELECT p.nombre as nombre, dt.cantidad as cantidad
-                 FROM detalle_transferencias dt
-                 JOIN productos p ON p.id = dt.producto_id
-                 WHERE dt.transferencia_id = ?`,
-                [trans.id]
-            );
-            notificarTransferenciaEntrante({
-                id: trans.id,
-                sucursalOrigenId: trans.sucursal_origen_id,
-                fecha: trans.fecha,
-                productos: items
-            });
-        }
-    } catch (err) {
-        console.log("[Sincronizador] No se pudieron descargar transferencias (Modo Offline o error de red):", err.message);
-    }
-}
 
 // --- 9. SINCRONIZAR CLIENTES (Bidireccional, con LWW) ---
 async function syncClientes() {
@@ -1659,59 +1514,7 @@ async function syncClientes() {
     }
 }
 
-// --- SINCRONIZAR SUGERIDOS SEMANALES DE PASTELERÍA (Bidireccional, con LWW) ---
-async function syncSugeridosPasteleria() {
-    try {
-        // A. Subir sugeridos locales creados/editados
-        const sugeridosPendientes = await allQuery(`SELECT * FROM sugeridos_pasteleria WHERE sync_status = 'pending'`, []);
-        for (const s of sugeridosPendientes) {
-            const gano = await upsertConLWW('sugeridos_pasteleria', {
-                id: s.id,
-                producto_id: s.producto_id,
-                sucursal_id: s.sucursal_id,
-                sugerido_martes: s.sugerido_martes,
-                sugerido_jueves: s.sugerido_jueves,
-                sugerido_sabado: s.sugerido_sabado,
-                updated_at: s.updated_at
-            });
-            if (!gano) {
-                console.log(`[Sincronizador] Sugerido ${s.id} no subido: hay una versión más reciente en la nube.`);
-                continue;
-            }
-            await runQuery(`UPDATE sugeridos_pasteleria SET sync_status = 'synced' WHERE id = ?`, [s.id]);
-        }
 
-        // B. Descargar sugeridos (sin eliminaciones: esta tabla no se borra desde la UI, solo se
-        // sobrescribe con nuevos valores -- ver upsertSugeridoPasteleriaTx en
-        // services/pedidoSugeridoPasteleriaService.js)
-        const { filas: sugeridosNube, cursorNuevo: cursorSugeridos } = await descargarDesdeCursor('sugeridos_pasteleria');
-        if (sugeridosNube) {
-            for (const s of sugeridosNube) {
-                if (s.deleted_at) {
-                    await runQuery(`DELETE FROM sugeridos_pasteleria WHERE id = ? AND sync_status <> 'pending'`, [s.id]);
-                    continue;
-                }
-                await runQuery(
-                    `INSERT INTO sugeridos_pasteleria (id, producto_id, sucursal_id, sugerido_martes, sugerido_jueves, sugerido_sabado, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, 'synced', ?)
-                     ON CONFLICT(id) DO UPDATE SET
-                        producto_id = excluded.producto_id,
-                        sucursal_id = excluded.sucursal_id,
-                        sugerido_martes = excluded.sugerido_martes,
-                        sugerido_jueves = excluded.sugerido_jueves,
-                        sugerido_sabado = excluded.sugerido_sabado,
-                        sync_status = 'synced',
-                        updated_at = excluded.updated_at
-                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [s.id, s.producto_id, s.sucursal_id, s.sugerido_martes, s.sugerido_jueves, s.sugerido_sabado, s.updated_at]
-                );
-            }
-        }
-        if (cursorSugeridos !== null) await actualizarCursor('sugeridos_pasteleria', cursorSugeridos);
-    } catch (errSug) {
-        console.log("[Sincronizador] Sugeridos de pastelería no sincronizados:", obtenerMensajeSync(errSug, 'sugeridos_pasteleria'));
-    }
-}
 
 // --- 10. SINCRONIZAR ABONOS (Bidireccional, con LWW) ---
 async function syncAbonos() {
@@ -2194,14 +1997,7 @@ function notificarEstadoSincronizacion(enCurso) {
     });
 }
 
-function notificarTransferenciaEntrante(traslado) {
-    console.log(`[Sincronizador] Traslado ${traslado.id} recibido desde ${traslado.sucursalOrigenId}. Notificando a las ventanas.`);
-    BrowserWindow.getAllWindows().forEach(win => {
-        if (win && !win.isDestroyed()) {
-            win.webContents.send('transferencia-entrante', traslado);
-        }
-    });
-}
+
 
 function notificarVentanasReportes() {
     console.log('[Sincronizador] Sincronización finalizada. Notificando a ventanas de reportes.');
@@ -2332,9 +2128,7 @@ async function procesarSincronizacion() {
         await syncSucursalesEliminaciones();
         await syncSucursales();
         await syncUsuarios();
-        await syncTransferenciasSubir();
-        await syncTransferenciasEliminaciones();
-        await syncTransferenciasDescargar();
+
         await syncClientes();
         await syncAbonos();
         await syncPedidosSubir();
@@ -2343,7 +2137,7 @@ async function procesarSincronizacion() {
         await syncCierresCaja();
         await syncSolicitudesVenta();
         await syncSolicitudesGasto();
-        await syncSugeridosPasteleria();
+
     } finally {
         estaSincronizando = false;
         notificarEstadoSincronizacion(false);

@@ -214,7 +214,8 @@
                     </div>
                     <div class="form-group">
                         <label for="cambiar-password-confirmar">Confirmar Nueva Contraseña *</label>
-                        <input type="password" id="cambiar-password-confirmar" required placeholder="Repite la nueva contraseña">
+                        <input type="password" id="cambiar-password-confirmar" required
+                            placeholder="Repite la nueva contraseña">
                     </div>
                 </div>
                 <button type="submit" class="btn-primary">💾 Guardar Contraseña</button>
@@ -411,83 +412,7 @@
             </div>
         </div>
 
-        <!-- 3b. Sección de Sugeridos Semanales de Pastelería y Heladería (solo Administrador). El
-        proveedor completa el stock físico hasta este valor en cada entrega (martes/jueves/sábado),
-        así que hay 3 cantidades distintas por producto y por sucursal -- ver
-        services/pedidoSugeridoPasteleriaService.js. -->
-        <div class="section-card" id="section-sugeridos-pasteleria">
-            <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
-                <h3 style="margin: 0; border: none; padding: 0;">🥐 Sugeridos Semanales de Pastelería y Heladería</h3>
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <input type="text" id="sugeridos-busqueda" placeholder="🔍 Buscar producto..."
-                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 220px; font-family: inherit; font-size: 0.9em;">
-                    <select id="sugeridos-sucursal-select"
-                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.9em; background-color: white; color: #374151; font-weight: bold;"></select>
-                    <button id="btn-descargar-excel-sugeridos" class="btn-primary">📥 Descargar Excel</button>
-                </div>
-            </div>
-            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
-                Cantidad acordada con el proveedor por producto y día de entrega. El proveedor completa el
-                stock físico hasta este valor en cada visita (martes/jueves/sábado).
-            </p>
-            <div class="table-container-scroll">
-                <table id="table-sugeridos-pasteleria">
-                    <thead>
-                        <tr>
-                            <th>Producto</th>
-                            <th>Sugerido Martes</th>
-                            <th>Sugerido Jueves</th>
-                            <th>Sugerido Sábado</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Insertado dinámicamente -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
 
-        <!-- 3c. Calculadora de Pedido Extra de Pastelería y Heladería (visible a Operador y
-        Administrador): cuando el stock físico se agota antes de la próxima entrega del proveedor,
-        muestra cuánto conviene pedir de extra según el promedio de ventas -- puramente informativo,
-        no guarda nada. -->
-        <div class="section-card" id="section-calculadora-pedido-extra">
-            <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
-                <h3 style="margin: 0; border: none; padding: 0;">🧁 Calculadora de Pedido Extra (Pastelería y Heladería)</h3>
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <select id="pedido-extra-sucursal-select"
-                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.9em; background-color: white; color: #374151; font-weight: bold;"></select>
-                    <button id="btn-calcular-pedido-extra" class="btn-primary">🧮 Calcular</button>
-                    <button id="btn-descargar-excel-pedido-extra" class="btn-primary">📥 Descargar Excel</button>
-                </div>
-            </div>
-            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
-                Cuánto conviene pedir de extra al proveedor por producto, teniendo en cuenta el sugerido ya
-                configurado para el día de la próxima entrega (solo se listan productos con algún sugerido mayor
-                a 0 en esta sucursal). Solo es informativo: no se guarda ni se envía ninguna solicitud. El cálculo
-                se hace a demanda: elige la sucursal y presiona "Calcular".
-            </p>
-            <div class="table-container-scroll">
-                <table id="table-pedido-extra">
-                    <thead>
-                        <tr>
-                            <th>Producto</th>
-                            <th>Stock Actual</th>
-                            <th>Promedio Diario</th>
-                            <th>Próxima Entrega</th>
-                            <th>Sugerido de ese Día</th>
-                            <th>Cantidad Recomendada</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">Presiona "Calcular" para ver las recomendaciones.</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
 
         <!-- 4. Sección de Clientes -->
         <div class="section-card" id="section-clientes">
@@ -495,7 +420,8 @@
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px;">
                 <h3 style="margin: 0; border: none; padding: 0;">🤝 Clientes (Crédito / Pedidos)</h3>
                 <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <input type="text" id="buscador-clientes" placeholder="🔍 Buscar por nombre, identificación, teléfono o email..."
+                    <input type="text" id="buscador-clientes"
+                        placeholder="🔍 Buscar por nombre, identificación, teléfono o email..."
                         style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; min-width: 260px;">
                     <select id="filtro-clientes"
                         style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
@@ -551,6 +477,14 @@
                 <div class="form-group">
                     <label for="sucursal-telefono">Teléfono</label>
                     <input type="text" id="sucursal-telefono" placeholder="Ej. 3009876543">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-caja-base">Fondo Base de Caja *</label>
+                    <input type="text" id="sucursal-caja-base" required placeholder="Ej. 200.000">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-descuento-mayorista">Descuento Mayorista (%) *</label>
+                    <input type="number" id="sucursal-descuento-mayorista" required min="0" max="100" placeholder="Ej. 25">
                 </div>
                 <button type="submit" class="btn-primary"
                     style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
@@ -638,6 +572,7 @@
                     <select id="cliente-categoria" required>
                         <option value="Normal">Normal</option>
                         <option value="Fiscal">Fiscal (requiere cuenta de cobro)</option>
+                        <option value="Mayorista">Mayorista (descuento especial)</option>
                     </select>
                 </div>
                 <div class="form-group">

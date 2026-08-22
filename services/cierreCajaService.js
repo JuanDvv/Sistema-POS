@@ -11,7 +11,7 @@ const { TIPOS_CIERRE_CAJA } = require('../utils/cierresCaja');
 // -- no se encadena el conteo del cierre anterior -- y cada operador responde solo por su propia
 // ventana (fecha_desde -> fecha_hasta), no por lo que pasó en el turno de otro operador el mismo día.
 
-const FONDO_BASE_SUCURSAL = 300000; // Duplicado a propósito frente a arqueo.js (convención del repo: sin util compartido).
+const FONDO_BASE_SUCURSAL = 200000; // Fallback por defecto a 200.000
 
 function inicioDeHoyISO() {
     const hoy = new Date();
@@ -81,7 +81,13 @@ async function calcularVentanaYEsperado(sucursalId, fechaHasta = new Date().toIS
     const fechaDesde = ultimoCierre.length > 0 ? ultimoCierre[0].fecha_hasta : inicioDeHoyISO();
     const efectivoEsperado = await calcularEfectivoVentana(sucursalId, fechaDesde, fechaHasta);
 
-    return { fechaDesde, fechaHasta, fondoBase: FONDO_BASE_SUCURSAL, efectivoEsperado };
+    // Buscar caja_base configurada en config_sucursal
+    const sucursalFilas = await allQuery(`SELECT caja_base FROM config_sucursal WHERE id = ?`, [sucursalId]);
+    const fondoBase = sucursalFilas.length > 0 && sucursalFilas[0].caja_base !== undefined && sucursalFilas[0].caja_base !== null
+        ? sucursalFilas[0].caja_base
+        : FONDO_BASE_SUCURSAL;
+
+    return { fechaDesde, fechaHasta, fondoBase, efectivoEsperado };
 }
 
 async function registrarCierreCajaTx({ sucursalId, tipo, nota, denominaciones, auditoriaUsuario, auditoriaRol }) {

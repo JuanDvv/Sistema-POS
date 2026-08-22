@@ -153,49 +153,10 @@ function renderizarCarritoEn(carritoArr, listElId, totalElId, onCambiar) {
     });
 }
 
-// Lee el valor del domicilio de un checkbox+input (compartido por "Nuevo Pedido" y el modal de
-// detalle): 0 si el checkbox no está marcado, igual que el patrón de ventas.js/ventas-anteriores.js.
-function leerValorDomicilio(chkId, inputId) {
-    const chk = document.getElementById(chkId);
-    const input = document.getElementById(inputId);
-    if (chk && chk.checked && input) return parseNumberUI(input.value);
-    return 0;
-}
 
-// Cablea el checkbox+input de domicilio (mostrar/ocultar el input, formatear mientras se escribe,
-// refrescar el total mostrado con cada cambio) -- mismo patrón que chkDomicilio en ventas.js.
-function configurarDomicilioUI(chkId, inputId, containerId, onCambiar) {
-    const chk = document.getElementById(chkId);
-    const input = document.getElementById(inputId);
-    const container = document.getElementById(containerId);
-    if (!chk || !input || !container) return;
-
-    chk.addEventListener('change', () => {
-        if (chk.checked) {
-            container.style.display = 'block';
-            input.focus();
-        } else {
-            container.style.display = 'none';
-            input.value = '';
-        }
-        onCambiar();
-    });
-
-    input.addEventListener('input', (e) => {
-        e.target.value = formatNumberUI(e.target.value);
-        onCambiar();
-    });
-
-    input.addEventListener('focus', function () { this.select(); });
-}
 
 function renderizarCarritoPedido() {
     renderizarCarritoEn(carrito, 'cart-list-pedido', 'cart-total-pedido', cambiarCantidadPedido);
-    const valorDomicilio = leerValorDomicilio('pedido-chk-domicilio', 'pedido-input-domicilio');
-    if (valorDomicilio > 0) {
-        const totalProductos = carrito.reduce((sum, i) => sum + Number(i.precio) * Number(i.cantidad), 0);
-        document.getElementById('cart-total-pedido').innerText = formatCOP(totalProductos + valorDomicilio);
-    }
 }
 
 function cambiarCantidadPedido(id, delta) {
@@ -224,19 +185,14 @@ function agregarAlCarritoPedido(prod) {
 
 function renderizarCarritoDetalle() {
     renderizarCarritoEn(carritoDetalle, 'detalle-cart-list', 'detalle-total', cambiarCantidadDetalle);
-    const valorDomicilio = leerValorDomicilio('detalle-chk-domicilio', 'detalle-input-domicilio');
     const totalProductos = carritoDetalle.reduce((sum, i) => sum + Number(i.precio) * Number(i.cantidad), 0);
-    const totalActual = totalProductos + valorDomicilio;
-    if (valorDomicilio > 0) {
-        document.getElementById('detalle-total').innerText = formatCOP(totalActual);
-    }
-    actualizarSaldoPendienteDetalle(totalActual);
+    actualizarSaldoPendienteDetalle(totalProductos);
 }
 
 // El "Saldo Pendiente" venía quedando congelado con el valor con el que se abrió el modal: al
-// agregar un producto o marcar domicilio, el "Total" de arriba se recalculaba al instante pero el
+// agregar un producto, el "Total" de arriba se recalculaba al instante pero el
 // saldo pendiente no, así que mostraban números que ya no cuadraban entre sí hasta guardar los
-// cambios (y hacer un viaje redondo al servidor). Lo abonado no cambia al editar productos/domicilio
+// cambios (y hacer un viaje redondo al servidor). Lo abonado no cambia al editar productos
 // (son abonos ya registrados), así que se puede derivar sin otra consulta: total guardado - saldo
 // guardado = abonado.
 function actualizarSaldoPendienteDetalle(totalActual) {
@@ -368,9 +324,6 @@ function limpiarFormularioNuevoPedido() {
     document.getElementById('pedido-hora-entrega').value = '';
     document.getElementById('pedido-notas').value = '';
     document.getElementById('pedido-abono-monto').value = '';
-    document.getElementById('pedido-chk-domicilio').checked = false;
-    document.getElementById('pedido-input-domicilio').value = '';
-    document.getElementById('pedido-domicilio-container').style.display = 'none';
 }
 
 async function registrarPedido() {
@@ -406,12 +359,11 @@ async function registrarPedido() {
     }
 
     const fechaEntregaEstimada = combinarFechaHoraEntrega(fechaEntregaInput, horaEntregaInput);
-    const valorDomicilio = leerValorDomicilio('pedido-chk-domicilio', 'pedido-input-domicilio');
-    const total = carrito.reduce((sum, i) => sum + i.precio * i.cantidad, 0) + valorDomicilio;
+    const total = carrito.reduce((sum, i) => sum + i.precio * i.cantidad, 0);
 
     const datos = {
         sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono,
-        fechaEntregaEstimada, carrito, notas, valorDomicilio,
+        fechaEntregaEstimada, carrito, notas, valorDomicilio: 0,
         abonoInicial: abonoMonto > 0 ? { monto: abonoMonto, metodoPago: abonoMetodo } : null,
         auditoriaUsuario, auditoriaRol
     };
@@ -423,7 +375,6 @@ async function registrarPedido() {
     }
 
     const itemsTicket = carrito.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio }));
-    if (valorDomicilio > 0) itemsTicket.push({ nombre: 'Domicilio (Envío)', cantidad: 1, precio: valorDomicilio });
 
     const ticketDatos = {
         pedidoId: res.pedidoId,
@@ -582,7 +533,7 @@ function renderizarAbonos(abonos, esPendiente) {
 
 function aplicarPermisosDetalle(estado, saldoPendiente) {
     const esPendiente = estado === 'pendiente';
-    ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono', 'detalle-chk-domicilio', 'detalle-input-domicilio']
+    ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono']
         .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !esPendiente; });
     const btnEntregar = document.getElementById('btn-entregar-pedido');
     btnEntregar.style.display = esPendiente ? 'flex' : 'none';
@@ -616,10 +567,6 @@ async function abrirDetallePedido(pedidoId) {
     document.getElementById('detalle-hora-entrega').value = horaEntregaSep;
     document.getElementById('detalle-notas').value = pedido.notas || '';
 
-    const valorDomicilioActual = Number(pedido.valor_domicilio || 0);
-    document.getElementById('detalle-chk-domicilio').checked = valorDomicilioActual > 0;
-    document.getElementById('detalle-input-domicilio').value = valorDomicilioActual > 0 ? formatNumberUI(valorDomicilioActual) : '';
-    document.getElementById('detalle-domicilio-container').style.display = valorDomicilioActual > 0 ? 'block' : 'none';
 
     carritoDetalle = detalle.map(d => ({ id: d.producto_id, nombre: d.nombre || '(Producto eliminado)', precio: Number(d.precio_unitario), cantidad: Number(d.cantidad) }));
     renderizarCarritoDetalle();
@@ -644,14 +591,13 @@ async function guardarCambiosPedido() {
         return;
     }
     const notas = document.getElementById('detalle-notas').value.trim();
-    const valorDomicilio = leerValorDomicilio('detalle-chk-domicilio', 'detalle-input-domicilio');
 
     const res = await window.api.editarPedido({
         pedidoId: pedidoActualId,
         fechaEntregaEstimada: combinarFechaHoraEntrega(fechaEntregaInput, horaEntregaInput),
         notas,
         carrito: carritoDetalle,
-        valorDomicilio,
+        valorDomicilio: 0,
         auditoriaUsuario, auditoriaRol
     });
     if (!res.success) {
@@ -741,9 +687,7 @@ function construirTicketDesdeDetalleActual() {
     if (!pedidoActualDetalle) return null;
     const { pedido, detalle, saldo_pendiente } = pedidoActualDetalle;
     const abonado = Number(pedido.total) - Number(saldo_pendiente);
-    const valorDomicilio = Number(pedido.valor_domicilio || 0);
     const itemsTicket = detalle.map(d => ({ nombre: d.nombre, cantidad: d.cantidad, precio: d.precio_unitario }));
-    if (valorDomicilio > 0) itemsTicket.push({ nombre: 'Domicilio (Envío)', cantidad: 1, precio: valorDomicilio });
     return {
         pedidoId: pedido.id,
         clienteNombre: pedido.cliente_nombre,
@@ -850,8 +794,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('detalle-abono-monto').addEventListener('input', (e) => { e.target.value = formatNumberUI(e.target.value); });
     document.getElementById('btn-guardar-pedido').addEventListener('click', registrarPedido);
 
-    configurarDomicilioUI('pedido-chk-domicilio', 'pedido-input-domicilio', 'pedido-domicilio-container', renderizarCarritoPedido);
-    configurarDomicilioUI('detalle-chk-domicilio', 'detalle-input-domicilio', 'detalle-domicilio-container', renderizarCarritoDetalle);
 
     let debounceBusqueda = null;
     document.getElementById('busqueda-pedidos').addEventListener('input', () => {

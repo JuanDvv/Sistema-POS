@@ -677,37 +677,7 @@ async function cargarReporte(fecha) {
             }
         }
 
-        // 2.7. Renderizar Tabla Transferencias
-        const tbodyTrans = document.querySelector('#table-transferencias-dia tbody');
-        if (tbodyTrans) {
-            tbodyTrans.innerHTML = '';
-            if (datosReporteGlobal.transferencias && datosReporteGlobal.transferencias.length > 0) {
-                [...datosReporteGlobal.transferencias]
-                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-                    .forEach(trans => {
-                    const hora = new Date(trans.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${hora}</td>
-                        <td><span style="font-weight:600; color:#ef4444;">${trans.sucursal_origen_id}</span></td>
-                        <td><span style="font-weight:600; color:#10b981;">${trans.sucursal_destino_id}</span></td>
-                        <td>
-                            ${(trans.productos_detalle || 'Sin detalles')
-                                .split(', ')
-                                .map((prod, idx, arr) => `
-                                    <div style="padding: 3px 0; ${idx < arr.length - 1 ? 'border-bottom: 1px dashed #e5e7eb;' : ''}">
-                                        • ${prod}
-                                    </div>
-                                `).join('')}
-                        </td>
-                        <td>${trans.usuario}</td>
-                    `;
-                    tbodyTrans.appendChild(tr);
-                });
-            } else {
-                tbodyTrans.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#9ca3af;">No hay transferencias hoy.</td></tr>';
-            }
-        }
+
 
         // 3. Pintar KPIs
         const balanceNeto = (totalEfectivo + totalTransferencia) - totalGastos;
@@ -1071,37 +1041,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ventaMixtaFields = document.getElementById('venta-mixta-fields');
     const editVentaEfectivo = document.getElementById('edit-venta-efectivo');
     const editVentaTransferencia = document.getElementById('edit-venta-transferencia');
-    const editVentaChkDomicilio = document.getElementById('edit-venta-chk-domicilio');
-    const editVentaDomicilioContainer = document.getElementById('edit-venta-domicilio-container');
-    const editVentaInputDomicilio = document.getElementById('edit-venta-input-domicilio');
-
-    if (editVentaChkDomicilio) {
-        editVentaChkDomicilio.addEventListener('change', () => {
-            if (editingVentaEsCredito) return;
-            const marcado = editVentaChkDomicilio.checked;
-            if (editVentaDomicilioContainer) editVentaDomicilioContainer.style.display = marcado ? 'block' : 'none';
-            // Los domicilios siempre se pagan por transferencia (misma regla que en Nueva Venta).
-            if (editVentaMetodo) {
-                if (marcado) editVentaMetodo.value = 'Transferencia';
-                editVentaMetodo.disabled = marcado;
-            }
-            if (ventaMixtaFields && marcado) ventaMixtaFields.style.display = 'none';
-            if (marcado && editVentaInputDomicilio) {
-                editVentaInputDomicilio.value = '';
-                editVentaInputDomicilio.focus();
-            } else if (!marcado && editVentaInputDomicilio) {
-                editVentaInputDomicilio.value = '';
-            }
-            renderizarItemsEdicionVenta();
-        });
-    }
-    if (editVentaInputDomicilio) {
-        editVentaInputDomicilio.addEventListener('input', (e) => {
-            e.target.value = formatNumberUI(e.target.value);
-            renderizarItemsEdicionVenta();
-        });
-        editVentaInputDomicilio.addEventListener('focus', function () { this.select(); });
-    }
 
     const sincronizarCamposMixtos = () => {
         if (!editVentaMetodo || editVentaMetodo.value !== 'Mixto' || !editVentaEfectivo || !editVentaTransferencia) return;
@@ -1149,13 +1088,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const role = localStorage.getItem('currentRole') || 'Sin Rol';
 
             let metodoPagoValue;
-            let valorDomicilio = 0;
             if (editingVentaEsCredito) {
                 // El método de pago de una venta a crédito no se edita desde este modal: se conserva
-                // tal cual venía (incluye el sufijo de domicilio si lo tenía).
-                metodoPagoValue = editingVentaMetodoPagoOriginal || 'Crédito';
-                const matchDomOriginal = editingVentaMetodoPagoOriginal.match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
-                if (matchDomOriginal) valorDomicilio = parseNumberUI(matchDomOriginal[1]);
+                // tal cual venía. Strip legacy domicilio suffix.
+                metodoPagoValue = (editingVentaMetodoPagoOriginal || 'Crédito').replace(/\s*\(Domicilio:.*?\)/, '').trim();
             } else {
                 const metodoPago = editVentaMetodo.value;
                 if (!metodoPago) {
@@ -1172,22 +1108,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                     metodoPagoValue = `Mixto (Efectivo: ${efectivo}, Transferencia: ${transferencia})`;
                 }
-
-                if (editVentaChkDomicilio && editVentaChkDomicilio.checked) {
-                    valorDomicilio = parseNumberUI(editVentaInputDomicilio ? editVentaInputDomicilio.value : '0');
-                    if (valorDomicilio <= 0) {
-                        alert('Ingresa el valor del domicilio.');
-                        return;
-                    }
-                    metodoPagoValue += ` (Domicilio: ${formatCOP(valorDomicilio)})`;
-                }
             }
 
             const response = await window.api.editarVenta({
                 id: editingVentaId,
                 metodoPago: metodoPagoValue,
                 carrito: editingVentaCarrito,
-                valorDomicilio,
+                valorDomicilio: 0,
                 auditoriaUsuario: user,
                 auditoriaRol: role
             });
@@ -1200,9 +1127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 editingVentaCarrito = [];
                 editingVentaEsCredito = false;
                 editingVentaMetodoPagoOriginal = '';
-                if (editVentaDomicilioContainer) editVentaDomicilioContainer.style.display = 'none';
                 if (editVentaMetodo) editVentaMetodo.disabled = false;
-                if (editVentaChkDomicilio) editVentaChkDomicilio.disabled = false;
                 await cargarReporte(inputFecha.value);
             } else {
                 alert("Error al editar venta: " + response.message);
@@ -1454,11 +1379,7 @@ window.eliminarGasto = async function(id) {
 };
 
 function calcularTotalEdicionVenta() {
-    const subtotalProductos = editingVentaCarrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-    const chkDomicilio = document.getElementById('edit-venta-chk-domicilio');
-    const inputDomicilio = document.getElementById('edit-venta-input-domicilio');
-    const valorDomicilio = (chkDomicilio && chkDomicilio.checked && inputDomicilio) ? parseNumberUI(inputDomicilio.value) : 0;
-    return subtotalProductos + valorDomicilio;
+    return editingVentaCarrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
 }
 
 function renderizarItemsEdicionVenta() {
@@ -1528,9 +1449,6 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
     const ventaMixtaFields = document.getElementById('venta-mixta-fields');
     const editVentaEfectivo = document.getElementById('edit-venta-efectivo');
     const editVentaTransferencia = document.getElementById('edit-venta-transferencia');
-    const chkDomicilio = document.getElementById('edit-venta-chk-domicilio');
-    const domicilioContainer = document.getElementById('edit-venta-domicilio-container');
-    const inputDomicilio = document.getElementById('edit-venta-input-domicilio');
     const avisoCredito = document.getElementById('edit-venta-credito-aviso');
 
     const resDetalle = await window.api.obtenerDetalleVenta(id);
@@ -1547,40 +1465,25 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
     await cargarCatalogoEdicionVenta();
 
     if (modalVenta) {
-        // El domicilio se guarda como sufijo "(Domicilio: $X)" dentro de metodo_pago. Hay que
-        // separarlo ANTES de mapear al <select>: si se deja pegado, el valor completo no matchea
-        // ninguna <option>, el <select> queda sin selección (value=""), y al guardar eso borraba
-        // el método de pago de la venta.
+        // Strip legacy domicilio suffix from metodo_pago if present in old data
         editingVentaMetodoPagoOriginal = String(metodoPago || '').trim();
-        let metodoBase = editingVentaMetodoPagoOriginal;
-        const matchDomicilio = metodoBase.match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
-        const valorDomicilioDetectado = matchDomicilio ? parseNumberUI(matchDomicilio[1]) : 0;
-        if (matchDomicilio) {
-            metodoBase = metodoBase.replace(/\s*\(Domicilio:.*?\)/, '').trim();
-        }
+        let metodoBase = editingVentaMetodoPagoOriginal.replace(/\s*\(Domicilio:.*?\)/, '').trim();
 
         editingVentaEsCredito = metodoBase === 'Crédito';
 
-        if (chkDomicilio) {
-            chkDomicilio.checked = !!matchDomicilio;
-            chkDomicilio.disabled = editingVentaEsCredito;
-        }
-        if (domicilioContainer) domicilioContainer.style.display = matchDomicilio ? 'block' : 'none';
-        if (inputDomicilio) inputDomicilio.value = matchDomicilio ? formatNumberUI(valorDomicilioDetectado) : '';
         if (avisoCredito) avisoCredito.style.display = editingVentaEsCredito ? 'block' : 'none';
 
         const isMixto = metodoBase.startsWith('Mixto');
         if (editVentaMetodo) {
-            // Los domicilios siempre se pagan por transferencia (misma regla que en Nueva Venta).
-            editVentaMetodo.value = matchDomicilio ? 'Transferencia' : (isMixto ? 'Mixto' : (metodoBase || 'Efectivo'));
-            editVentaMetodo.disabled = editingVentaEsCredito || !!matchDomicilio;
+            editVentaMetodo.value = isMixto ? 'Mixto' : (metodoBase || 'Efectivo');
+            editVentaMetodo.disabled = editingVentaEsCredito;
         }
 
         if (ventaMixtaFields) {
-            ventaMixtaFields.style.display = (isMixto && !matchDomicilio) ? 'flex' : 'none';
+            ventaMixtaFields.style.display = isMixto ? 'flex' : 'none';
         }
 
-        if (isMixto && !matchDomicilio) {
+        if (isMixto) {
             const matchEf = metodoBase.match(/Efectivo:\s*(\d+(?:\.\d+)?)/);
             const matchTr = metodoBase.match(/Transferencia:\s*(\d+(?:\.\d+)?)/);
             const efectivoInicial = matchEf ? parseFloat(matchEf[1]) : 0;

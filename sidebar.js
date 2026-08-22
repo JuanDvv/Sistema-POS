@@ -423,7 +423,7 @@
     const isDashboard = path.includes('dashboard.html');
     const isVentas = path.includes('ventas.html');
     const isGastos = path.includes('gastos.html');
-    const isTransferencias = path.includes('transferencias.html');
+
     const isReportes = path.includes('reportes.html');
     const isArqueo = path.includes('arqueo.html');
     const isAdmin = path.includes('admin.html') && !path.includes('admin-audit-logs.html');
@@ -437,7 +437,7 @@
         isDashboard ? 'Inventario' :
         isVentas ? 'Registrar Venta' :
         isGastos ? 'Registrar Gasto' :
-        isTransferencias ? 'Traslado de Productos' :
+
         isReportes ? 'Reporte Diario' :
         isArqueo ? 'Cuadre de Caja' :
         isAdmin ? 'Administración' :
@@ -450,7 +450,7 @@
     if (window.api && window.api.obtenerSucursalId) {
         window.api.obtenerSucursalId().then(res => {
             const nombreSucursal = (res && res.success && res.id) ? res.id : 'Sin asignar';
-            document.title = `POS Delipostres Turbaco - ${paginaActual} | Sucursal: ${nombreSucursal}`;
+            document.title = `POS Tienda de Kary - ${paginaActual} | Sucursal: ${nombreSucursal}`;
         }).catch(() => { });
     }
 
@@ -458,9 +458,9 @@
     container.className = 'sidebar';
     container.innerHTML = `
         <div class="sidebar-header" style="display: flex; align-items: center; margin-bottom: 16px; gap: 12px; height: 50px; overflow: hidden; flex-shrink: 0;">
-            <span style="font-size: 1.6rem; flex-shrink: 0; display: block; text-align: center; width: 24px;">🧁</span>
+            <img src="logo_kary.png" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
             <div class="sidebar-header-info" style="display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
-                <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">POS Delipostres</h2>
+                <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Tienda de Kary</h2>
                 <span style="font-size: 0.8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; margin-top: 1px;">
                     <strong id="display-user">${currentUser}</strong>
                     <span id="display-role" style="color: #FCF9F5; opacity: 0.8; font-weight: 600;">(${currentRole})</span>
@@ -475,7 +475,7 @@
                 <button class="nav-btn" onclick="window.api.abrirVentanaVentas().then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
             </div>
             <button class="nav-btn ${isGastos ? 'active' : ''}" onclick="location.href='gastos.html'"><span>💸</span> <span class="nav-text">Registrar Gasto</span></button>
-            <button class="nav-btn ${isTransferencias ? 'active' : ''}" onclick="location.href='transferencias.html'"><span>🔄</span> <span class="nav-text">Traslado de Productos</span></button>
+
             <button class="nav-btn ${isPedidos ? 'active' : ''}" id="btn-nav-pedidos" onclick="location.href='pedidos.html'" style="position: relative;"><span>📦</span> <span class="nav-text">Pedidos / Apartados</span> <span id="badge-pedidos-atrasados" style="display: none; position: absolute; top: 4px; right: 6px; background-color: #ef4444; color: white; font-size: 0.7rem; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 999px; min-width: 8px; text-align: center;"></span></button>
             <button class="nav-btn ${isArqueo ? 'active' : ''}" onclick="location.href='arqueo.html'"><span>🪙</span> <span class="nav-text">Cuadre de Caja</span></button>
             <button class="nav-btn ${isVentasAnteriores ? 'active' : ''}" onclick="location.href='ventas-anteriores.html'"><span>🗓️</span> <span class="nav-text">Edición Ventas Anteriores</span></button>
@@ -775,40 +775,7 @@
     }
     actualizarBadgePedidosAtrasados();
 
-    // Aviso de traslado entrante: el proceso principal detecta, al descargar la sincronización,
-    // un traslado nuevo cuya sucursal destino es esta terminal (ver notificarTransferenciaEntrante
-    // en sync/syncService.js) y lo empuja aquí por IPC. Se muestra en TODAS las ventanas abiertas
-    // de esta sucursal, no solo en transferencias.html, porque el traslado puede llegar mientras
-    // el usuario está vendiendo o haciendo caja.
-    function mostrarTransferenciaEntrante(traslado) {
-        let toastContainer = document.getElementById('pos-toast-container');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.id = 'pos-toast-container';
-            document.body.appendChild(toastContainer);
-        }
 
-        const resumenProductos = (traslado.productos || [])
-            .map(p => `${p.nombre} (x${p.cantidad})`)
-            .join(', ') || 'Ver detalle en Traslado de Productos';
-
-        const toast = document.createElement('div');
-        toast.className = 'pos-toast';
-        toast.innerHTML = `
-            <div class="pos-toast-titulo">📥 Traslado recibido de <span></span></div>
-            <div class="pos-toast-detalle"></div>
-        `;
-        toast.querySelector('.pos-toast-titulo span').innerText = traslado.sucursalOrigenId;
-        toast.querySelector('.pos-toast-detalle').innerText = resumenProductos;
-        toast.addEventListener('click', () => { location.href = 'transferencias.html'; });
-
-        toastContainer.appendChild(toast);
-        setTimeout(() => toast.remove(), 12000);
-    }
-
-    if (window.api && window.api.onTransferenciaEntrante) {
-        window.api.onTransferenciaEntrante(mostrarTransferenciaEntrante);
-    }
 
     // Seleccionar automáticamente todo el texto al enfocar inputs numéricos y buscadores
     document.addEventListener('focus', function (e) {

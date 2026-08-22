@@ -91,12 +91,6 @@ const esCategoriaPasteleria = (categoria) => {
 
 const calcularTotalVenta = () => {
     let subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-    let valorDomicilio = 0;
-    const chkDomicilio = document.getElementById('chk-domicilio');
-    if (chkDomicilio && chkDomicilio.checked) {
-        const inputDom = document.getElementById('input-valor-domicilio');
-        if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
-    }
 
     const porcentaje = obtenerPorcentajeDescuento();
     if (porcentaje > 0) {
@@ -110,7 +104,7 @@ const calcularTotalVenta = () => {
         subtotalProductos = Math.max(0, subtotalProductos - descuento);
     }
 
-    return subtotalProductos + valorDomicilio;
+    return subtotalProductos;
 };
 
 function actualizarEstadoDescuentoUI() {
@@ -318,36 +312,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         inputPagaCon.addEventListener('focus', function () { this.select(); });
     }
 
-    // Domicilio
-    const chkDomicilio = document.getElementById('chk-domicilio');
-    const inputDomicilio = document.getElementById('input-valor-domicilio');
-    const domContainer = document.getElementById('domicilio-input-container');
-    if (chkDomicilio && inputDomicilio && domContainer) {
-        chkDomicilio.addEventListener('change', () => {
-            if (chkDomicilio.checked) {
-                domContainer.style.display = 'flex';
-                inputDomicilio.focus();
-                selectMethod('Transferencia');
-                if (btnEfectivo) { btnEfectivo.disabled = true; btnEfectivo.style.opacity = '0.5'; btnEfectivo.style.cursor = 'not-allowed'; }
-                if (btnMixto) { btnMixto.disabled = true; btnMixto.style.opacity = '0.5'; btnMixto.style.cursor = 'not-allowed'; }
-            } else {
-                domContainer.style.display = 'none';
-                inputDomicilio.value = '';
-                if (btnEfectivo) { btnEfectivo.disabled = false; btnEfectivo.style.opacity = '1'; btnEfectivo.style.cursor = 'pointer'; }
-                if (btnMixto) { btnMixto.disabled = false; btnMixto.style.opacity = '1'; btnMixto.style.cursor = 'pointer'; }
-            }
-            renderizarCarrito();
-            calcularCambio();
-            if (metodoPagoSelected === 'Mixto') autoCalculateMixto('efectivo');
-        });
-        inputDomicilio.addEventListener('input', (e) => {
-            e.target.value = formatNumberUI(e.target.value);
-            renderizarCarrito();
-            calcularCambio();
-            if (metodoPagoSelected === 'Mixto') autoCalculateMixto('efectivo');
-        });
-        inputDomicilio.addEventListener('focus', function () { this.select(); });
-    }
 
     // Descuento
     const chkDescuento = document.getElementById('chk-descuento');
@@ -389,10 +353,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (chkCredito.checked) {
                 creditoContainer.style.display = 'flex';
                 selectClienteCredito.focus();
-                if (chkDomicilio && chkDomicilio.checked) {
-                    chkDomicilio.checked = false;
-                    chkDomicilio.dispatchEvent(new Event('change'));
-                }
+
                 const buttons = document.querySelectorAll('#payment-methods-container button');
                 buttons.forEach(btn => { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; });
                 if (mixtoContainer) mixtoContainer.style.display = 'none';
@@ -561,28 +522,18 @@ async function iniciarEdicionVenta(ventaId) {
     document.getElementById('input-fecha-venta').value = isoToFechaDia(venta.fecha);
 
     // Restablecer selectores antes de precargar
-    document.getElementById('chk-domicilio').checked = false;
-    document.getElementById('domicilio-input-container').style.display = 'none';
     document.getElementById('chk-credito').checked = false;
     document.getElementById('credito-input-container').style.display = 'none';
     document.getElementById('chk-descuento').checked = false;
     document.getElementById('descuento-input-container').style.display = 'none';
 
     let metodoBase = String(venta.metodo_pago || '');
-    const matchDomicilio = metodoBase.match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
-    if (matchDomicilio) {
-        document.getElementById('chk-domicilio').checked = true;
-        document.getElementById('input-valor-domicilio').value = formatNumberUI(parseNumberUI(matchDomicilio[1]));
-        document.getElementById('domicilio-input-container').style.display = 'flex';
-        metodoBase = metodoBase.replace(/\s*\(Domicilio:.*?\)/, '').trim();
-    }
+    // Strip legacy domicilio suffix if present in old data
+    metodoBase = metodoBase.replace(/\s*\(Domicilio:.*?\)/, '').trim();
 
-    // El % de descuento no se persiste; se infiere de la diferencia entre el total real
-    // y la suma de líneas (+domicilio) para que el Total recalculado no quede por encima del real.
-    const valorDomicilioDetectado = matchDomicilio ? parseNumberUI(matchDomicilio[1]) : 0;
     const subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
     const subtotalPasteleria = carrito.reduce((sum, item) => esCategoriaPasteleria(item) ? sum + (item.precio * item.cantidad) : sum, 0);
-    const diferenciaDescuento = subtotalProductos + valorDomicilioDetectado - Number(venta.total || 0);
+    const diferenciaDescuento = subtotalProductos - Number(venta.total || 0);
     if (diferenciaDescuento > 0 && subtotalPasteleria > 0) {
         const porcentajeImplicito = (diferenciaDescuento / subtotalPasteleria) * 100;
         const selectDescuento = document.getElementById('select-descuento');
@@ -900,9 +851,6 @@ function limpiarCarrito() {
     carrito = [];
     renderizarCarrito();
 
-    const chkDom = document.getElementById('chk-domicilio');
-    const inputDom = document.getElementById('input-valor-domicilio');
-    const domContainer = document.getElementById('domicilio-input-container');
     const chkCred = document.getElementById('chk-credito');
     const selectCliCred = document.getElementById('select-cliente-credito');
     const credContainer = document.getElementById('credito-input-container');
@@ -963,14 +911,6 @@ async function guardarVenta() {
         const esCredito = chkCredito && chkCredito.checked;
         let clienteId = null;
 
-        let valorDomicilio = 0;
-        const chkDomicilio = document.getElementById('chk-domicilio');
-        const esDomicilio = chkDomicilio && chkDomicilio.checked;
-        if (esDomicilio) {
-            const inputDom = document.getElementById('input-valor-domicilio');
-            if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
-        }
-
         const total = calcularTotalVenta();
 
         if (esCredito) {
@@ -992,16 +932,12 @@ async function guardarVenta() {
             metodoPago = `Mixto (Efectivo: ${efVal}, Transferencia: ${trVal})`;
         }
 
-        if (esDomicilio) {
-            metodoPago += ` (Domicilio: ${formatCOP(valorDomicilio)})`;
-        }
-
         const payloadBase = {
             sucursalId,
             metodoPago,
             total,
             carrito,
-            valorDomicilio,
+            valorDomicilio: 0,
             es_credito: esCredito ? 1 : 0,
             cliente_id: clienteId,
             fechaVenta,

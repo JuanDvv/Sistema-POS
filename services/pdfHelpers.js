@@ -77,9 +77,9 @@ function extraerDomicilioDeMetodoPago(metodoPago) {
 // venta (ver `direccion`/`telefonoSucursal` en construirHtmlCuentaCobro), porque el negocio opera
 // desde varias sucursales y no hay una dirección fija única del emisor.
 const EMISOR = {
-  nombreComercial: 'Delicias Karina',
+  nombreComercial: 'Tienda de Kary',
   nit: '30775919-8',
-  descripcionComercial: 'Distribuidor Autorizado DELIPOSTRES',
+  descripcionComercial: 'Tienda de Kary - Camisetas y Estampados',
   representanteNombre: 'KARINA DE LEÓN HUETO',
   representanteCC: '30775919',
   representanteCCFormateada: '30.775.919',

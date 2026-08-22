@@ -230,24 +230,7 @@ function registerVentasIpc() {
                 queryParamsResumen
             );
 
-            // Obtener transferencias de inventario que involucran a la sucursal actual para el reporte diario
-            const transferencias = await allQuery(
-                `SELECT
-                    t.id,
-                    t.sucursal_origen_id,
-                    t.sucursal_destino_id,
-                    t.fecha,
-                    t.usuario,
-                    group_concat(p.nombre || ' (x' || dt.cantidad || ')', ', ') as productos_detalle
-                 FROM transferencias t
-                 LEFT JOIN detalle_transferencias dt ON t.id = dt.transferencia_id
-                 LEFT JOIN productos p ON dt.producto_id = p.id
-                 WHERE (t.sucursal_origen_id = ? OR t.sucursal_destino_id = ?)
-                   AND strftime('%Y-%m-%d', t.fecha, 'localtime') = ?
-                   AND (t.sync_status IS NULL OR t.sync_status <> 'deleted')
-                 GROUP BY t.id`,
-                [sucursalId, sucursalId, fecha]
-            );
+
 
             // Obtener resumen de ventas por producto (Reporte BiBI)
             // El stock se "congela" al cierre del día consultado: se parte del stock actual y se le
@@ -311,7 +294,7 @@ function registerVentasIpc() {
                 queryParamsNoVendidos
             );
 
-            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, productosNoVendidos, abonosPedido };
+            return { success: true, ventas, gastos, categoriasResumen, transferencias: [], productosResumen, productosNoVendidos, abonosPedido };
         } catch (error) {
             return { success: false, message: error.message };
         }

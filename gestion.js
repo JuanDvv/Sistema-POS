@@ -483,12 +483,7 @@ const parseNumberUI = (str) => {
     return Number.isFinite(numeric) ? numeric : 0;
 };
 
-// El valor del domicilio no tiene columna propia en `ventas`; queda embebido en
-// metodo_pago como "... (Domicilio: $X)" al momento de cobrar (ver ventas.js).
-const extraerDomicilio = (metodoPago) => {
-    const match = String(metodoPago || '').match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
-    return match ? parseNumberUI(match[1]) : 0;
-};
+
 
 // Cambiar de Pestaña
 window.switchTab = (tabName) => {
@@ -960,17 +955,15 @@ function renderizarTabCreditos() {
         balancePorCliente[cli.id] = {
             cliente: cli,
             totalCreditos: 0,
-            totalDomicilios: 0,
             totalAbonos: 0,
             saldo: 0
         };
     });
 
-    // Sumar ventas a crédito (el total ya incluye el domicilio; se desglosa aparte para mostrarlo)
+    // Sumar ventas a crédito
     datosReporteCreditos.ventas.forEach(v => {
         if (balancePorCliente[v.cliente_id]) {
             balancePorCliente[v.cliente_id].totalCreditos += v.total;
-            balancePorCliente[v.cliente_id].totalDomicilios += extraerDomicilio(v.metodo_pago);
         }
     });
     
@@ -1013,7 +1006,6 @@ function renderizarTabCreditos() {
                 <td><span style="background: ${item.cliente.tipo === 'Empresa' ? '#dfe7fd' : '#f0ebd8'}; padding: 4px 8px; border-radius: 4px; font-weight: 600; color: #1e293b;">${item.cliente.tipo}</span></td>
                 <td>${item.cliente.identificacion || '-'}</td>
                 <td style="color: #3b82f6; font-weight: 600;">${formatCOP(item.totalCreditos)}</td>
-                <td style="color: #6b7280;">${formatCOP(item.totalDomicilios)}</td>
                 <td style="color: #10b981; font-weight: 600;">${formatCOP(item.totalAbonos)}</td>
                 <td style="color: ${item.saldo > 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">${formatCOP(item.saldo)}</td>
                 <td>
@@ -1200,14 +1192,13 @@ function exportarCreditosExcel() {
  
     // 1. Estado de Cartera
     csvContent += "--- ESTADO DE CARTERA ---\n";
-    csvContent += "Cliente;Tipo;Identificacion;Total Creditos;Domicilios;Total Abonos;Saldo Pendiente\n";
+    csvContent += "Cliente;Tipo;Identificacion;Total Creditos;Total Abonos;Saldo Pendiente\n";
 
     const balancePorCliente = {};
     datosReporteCreditos.clientes.forEach(cli => {
         balancePorCliente[cli.id] = {
             cliente: cli,
             totalCreditos: 0,
-            totalDomicilios: 0,
             totalAbonos: 0,
             saldo: 0
         };
@@ -1215,7 +1206,6 @@ function exportarCreditosExcel() {
     datosReporteCreditos.ventas.forEach(v => {
         if (balancePorCliente[v.cliente_id]) {
             balancePorCliente[v.cliente_id].totalCreditos += v.total;
-            balancePorCliente[v.cliente_id].totalDomicilios += extraerDomicilio(v.metodo_pago);
         }
     });
     datosReporteCreditos.abonos.forEach(ab => {
@@ -1225,7 +1215,7 @@ function exportarCreditosExcel() {
     Object.values(balancePorCliente).forEach(item => {
         item.saldo = item.totalCreditos - item.totalAbonos;
         if (filterClienteId && item.cliente.id !== filterClienteId) return;
-        csvContent += `${item.cliente.nombre};${item.cliente.tipo};${item.cliente.identificacion || '-'};${item.totalCreditos};${item.totalDomicilios};${item.totalAbonos};${item.saldo}\n`;
+        csvContent += `${item.cliente.nombre};${item.cliente.tipo};${item.cliente.identificacion || '-'};${item.totalCreditos};${item.totalAbonos};${item.saldo}\n`;
     });
     csvContent += "\n";
  

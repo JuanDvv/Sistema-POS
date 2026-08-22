@@ -174,12 +174,16 @@ function initDB(db) {
             direccion TEXT,
             telefono TEXT,
             activa INTEGER DEFAULT 0,
+            caja_base INTEGER DEFAULT 200000,
+            descuento_mayorista INTEGER DEFAULT 25,
             sync_status TEXT DEFAULT 'pending',
             updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             deleted_at TEXT
         )`, [], () => {
             // Asegurar migración de columna activa si la tabla fue creada previamente
             db.run(`ALTER TABLE config_sucursal ADD COLUMN activa INTEGER DEFAULT 0`, [], () => { });
+            db.run(`ALTER TABLE config_sucursal ADD COLUMN caja_base INTEGER DEFAULT 200000`, [], () => { });
+            db.run(`ALTER TABLE config_sucursal ADD COLUMN descuento_mayorista INTEGER DEFAULT 25`, [], () => { });
             // sync_status no existía: sin ella, la descarga de la nube sobrescribía
             // ediciones locales recién guardadas. El DEFAULT 'pending' fuerza su re-subida.
             db.run(`ALTER TABLE config_sucursal ADD COLUMN sync_status TEXT DEFAULT 'pending'`, [], () => { });
@@ -235,33 +239,7 @@ function initDB(db) {
             db.run(`ALTER TABLE reparaciones_locales ADD COLUMN intentos INTEGER DEFAULT 0`, [], () => { });
         });
 
-        // 8. Tabla de Transferencias de Inventario
-        db.run(`CREATE TABLE IF NOT EXISTS transferencias (
-            id TEXT PRIMARY KEY,
-            sucursal_origen_id TEXT NOT NULL,
-            sucursal_destino_id TEXT NOT NULL,
-            fecha TEXT NOT NULL,
-            usuario TEXT NOT NULL,
-            sync_status TEXT DEFAULT 'pending',
-            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            deleted_at TEXT
-        )`, [], () => {
-            agregarSoporteLWW(db, 'transferencias', ['id']);
-        });
 
-        // 9. Tabla de Detalle de Transferencias
-        db.run(`CREATE TABLE IF NOT EXISTS detalle_transferencias (
-            id TEXT PRIMARY KEY,
-            transferencia_id TEXT NOT NULL,
-            producto_id TEXT NOT NULL,
-            cantidad INTEGER NOT NULL,
-            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            deleted_at TEXT,
-            FOREIGN KEY(transferencia_id) REFERENCES transferencias(id) ON DELETE CASCADE,
-            FOREIGN KEY(producto_id) REFERENCES productos(id) ON DELETE CASCADE
-        )`, [], () => {
-            agregarSoporteLWW(db, 'detalle_transferencias', ['id']);
-        });
 
         // 11. Tabla de Clientes para Crédito
         db.run(`CREATE TABLE IF NOT EXISTS clientes (
@@ -281,12 +259,12 @@ function initDB(db) {
         // Migración: origen del cliente ('Credito' = alta manual desde Administración, 'Pedido' =
         // creado automáticamente al registrar un Pedido/Apartado). Permite diferenciar en el listado
         // de Administración los clientes de crédito de los que solo se ingresaron por un pedido.
-        db.run(`ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'Credito'`, [], () => {});
+        db.run(`ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'Credito'`, [], () => { });
 
         // Migración: categoría del cliente ('Normal' por defecto, 'Fiscal' para clientes que
         // requieren cuenta de cobro al momento de la venta). Independiente de 'origen' (cómo se
         // creó el cliente) y de 'tipo' (Empresa/Persona).
-        db.run(`ALTER TABLE clientes ADD COLUMN categoria TEXT DEFAULT 'Normal'`, [], () => {});
+        db.run(`ALTER TABLE clientes ADD COLUMN categoria TEXT DEFAULT 'Normal'`, [], () => { });
 
         // 12. Tabla de Abonos de Crédito
         db.run(`CREATE TABLE IF NOT EXISTS abonos_credito (
@@ -304,14 +282,14 @@ function initDB(db) {
         });
 
         // Migración de Ventas para soporte de Crédito
-        db.run(`ALTER TABLE ventas ADD COLUMN es_credito INTEGER DEFAULT 0`, [], () => {});
-        db.run(`ALTER TABLE ventas ADD COLUMN cliente_id TEXT`, [], () => {});
+        db.run(`ALTER TABLE ventas ADD COLUMN es_credito INTEGER DEFAULT 0`, [], () => { });
+        db.run(`ALTER TABLE ventas ADD COLUMN cliente_id TEXT`, [], () => { });
 
         // Monto recibido y vuelto entregados al cobrar en efectivo (o la porción en efectivo de un
         // pago Mixto). NULL para ventas sin componente en efectivo (Transferencia, Crédito) o
         // anteriores a esta migración. Ver sync/migrate_monto_recibido_venta.sql para Supabase.
-        db.run(`ALTER TABLE ventas ADD COLUMN monto_recibido REAL`, [], () => {});
-        db.run(`ALTER TABLE ventas ADD COLUMN vuelto REAL`, [], () => {});
+        db.run(`ALTER TABLE ventas ADD COLUMN monto_recibido REAL`, [], () => { });
+        db.run(`ALTER TABLE ventas ADD COLUMN vuelto REAL`, [], () => { });
 
         // 13. Tabla de Solicitudes de Venta Retroactiva (ingreso/edición/eliminación de ventas
         // de días anteriores, pendientes de aprobación cuando las crea un Operador)
@@ -568,37 +546,7 @@ function initDB(db) {
         // services/pedidoService.js), momento en que el mensajero realmente sale a hacer la entrega.
         db.run(`ALTER TABLE pedidos ADD COLUMN valor_domicilio REAL DEFAULT 0`, [], () => { });
 
-        // 20. Tabla de Sugeridos Semanales de Pastelería: 3 cantidades sugeridas por producto+sucursal
-        // (una por día de entrega del proveedor: martes/jueves/sábado), editables solo por
-        // Administrador (ver ipc/registerPedidoSugeridoIpc.js). El proveedor completa el stock físico
-        // hasta este valor en cada entrega -- no es un delta, es la meta de stock para ese día.
-        // Usa un id sintético (no PK compuesta como inventario_sucursal) para poder sincronizarse con
-        // el mecanismo genérico de upsert LWW (ON CONFLICT(id)) igual que 14+ tablas más del proyecto,
-        // en vez de la maquinaria especial de delta-sync que inventario_sucursal necesita solo porque
-        // varias terminales incrementan/decrementan su stock de forma concurrente -- aquí un
-        // Administrador simplemente sobrescribe 3 números, así que una foto LWW plana es correcta y
-        // más simple. Riesgo aceptado: si dos terminales offline crean, cada una por su lado, el
-        // primer sugerido de un mismo producto+sucursal antes de sincronizar, cada una genera un id
-        // distinto y la subida posterior puede chocar contra la restricción UNIQUE en Supabase; caso
-        // extremo poco probable (solo afecta al primer guardado de un producto que nunca tuvo
-        // sugerido) y se resuelve reintentando el guardado tras sincronizar.
-        db.run(`CREATE TABLE IF NOT EXISTS sugeridos_pasteleria (
-            id TEXT PRIMARY KEY,
-            producto_id TEXT NOT NULL,
-            sucursal_id TEXT NOT NULL,
-            sugerido_martes INTEGER NOT NULL DEFAULT 0,
-            sugerido_jueves INTEGER NOT NULL DEFAULT 0,
-            sugerido_sabado INTEGER NOT NULL DEFAULT 0,
-            sync_status TEXT DEFAULT 'pending',
-            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            deleted_at TEXT,
-            UNIQUE(producto_id, sucursal_id),
-            FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE CASCADE,
-            FOREIGN KEY (sucursal_id) REFERENCES config_sucursal(id) ON DELETE CASCADE
-        )`, [], () => {
-            agregarSoporteLWW(db, 'sugeridos_pasteleria', ['id']);
-        });
-        db.run(`CREATE INDEX IF NOT EXISTS idx_sugeridos_pasteleria_sucursal ON sugeridos_pasteleria(sucursal_id)`);
+
 
         // 10. Crear índices de optimización para búsquedas rápidas locales
         db.run(`CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)`);

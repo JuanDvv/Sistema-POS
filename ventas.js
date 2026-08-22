@@ -33,13 +33,28 @@ async function cargarClientesFiscales() {
             });
     }
 }
+
+async function cargarClientesMayoristas() {
+    const selectClienteMayorista = document.getElementById('select-cliente-mayorista');
+    if (!selectClienteMayorista) return;
+
+    const resClientes = await window.api.obtenerClientes();
+    selectClienteMayorista.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
+    if (resClientes.success && resClientes.data) {
+        resClientes.data
+            .filter(cli => (cli.categoria || 'Normal') === 'Mayorista')
+            .forEach(cli => {
+                const opt = document.createElement('option');
+                opt.value = cli.id;
+                opt.innerText = `${cli.nombre} (${cli.tipo} - ${cli.identificacion || 'Sin ID'})`;
+                selectClienteMayorista.appendChild(opt);
+            });
+    }
+}
 let metodoPagoSelected = 'Efectivo';
 let categoriasCargadas = [];
 let filtroCategorias = null; // Instancia del selector múltiple de categorías (ver categoriaFiltro.js)
-// Bolsas de empaque: son lo que más se agrega al carrito, así que tienen botones de acceso
-// rápido junto al filtro de categorías (ver HTML) y se ocultan de la grilla normal para no
-// duplicar su acceso.
-const BOLSAS_ACCESO_RAPIDO = ['Bolsas $100', 'Bolsas $500'];
+
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 const formatNumberUI = (val) => {
     const clean = String(val).replace(/\D/g, "");
@@ -55,59 +70,57 @@ const obtenerTotalCarrito = () => carrito.reduce((sum, item) => sum + (item.prec
 const obtenerPorcentajeDescuento = () => {
     const chkDescuento = document.getElementById('chk-descuento');
     const selectDescuento = document.getElementById('select-descuento');
-    if (!chkDescuento || !chkDescuento.checked || !selectDescuento || !selectDescuento.value) {
-        return 0;
+    if (chkDescuento && chkDescuento.checked && selectDescuento && selectDescuento.value) {
+        return Number(selectDescuento.value || 0);
     }
-    return Number(selectDescuento.value || 0);
+    const chkMayorista = document.getElementById('chk-mayorista');
+    const selectClienteMayorista = document.getElementById('select-cliente-mayorista');
+    if (chkMayorista && chkMayorista.checked && selectClienteMayorista && selectClienteMayorista.value) {
+        return Number(sucursalDetalle?.descuento_mayorista ?? 25);
+    }
+    return 0;
 };
-const esCategoriaPasteleria = (categoria) => {
+const esCategoriaCamiseta = (categoria) => {
     if (!categoria) return false;
 
-    const nombres = [];
+    const ids = [];
 
-    if (typeof categoria === 'string') {
-        nombres.push(categoria);
-    } else if (categoria && typeof categoria === 'object') {
-        if (categoria.categoria_nombre) nombres.push(categoria.categoria_nombre);
-        if (categoria.nombre) nombres.push(categoria.nombre);
-        if (categoria.categoria) nombres.push(categoria.categoria);
+    if (categoria && typeof categoria === 'object') {
         if (categoria.categoria_id || categoria.id) {
             const categoriaId = categoria.categoria_id || categoria.id;
             const categoriaEncontrada = categoriasCargadas.find(cat => String(cat.id) === String(categoriaId));
             if (categoriaEncontrada) {
                 let actual = categoriaEncontrada;
                 while (actual) {
-                    nombres.push(actual.nombre);
+                    ids.push(actual.id);
                     actual = categoriasCargadas.find(cat => String(cat.id) === String(actual.categoria_padre_id)) || null;
                 }
             }
         }
     }
 
-    return nombres.some(nombre => normalizeStr(nombre).includes('pasteleria') || normalizeStr(nombre).includes('pastel'));
+    // Retorna true si esta categoría o alguna de sus categorías padre tiene aplica_descuento_mayorista = 1
+    return ids.some(id => {
+        const cat = categoriasCargadas.find(c => String(c.id) === String(id));
+        return cat && Number(cat.aplica_descuento_mayorista) === 1;
+    });
 };
 const calcularTotalVenta = () => {
     let subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-    let valorDomicilio = 0;
-    const chkDomicilio = document.getElementById('chk-domicilio');
-    if (chkDomicilio && chkDomicilio.checked) {
-        const inputDom = document.getElementById('input-valor-domicilio');
-        if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
-    }
 
     const porcentaje = obtenerPorcentajeDescuento();
     if (porcentaje > 0) {
-        const subtotalPasteleria = carrito.reduce((sum, item) => {
-            if (esCategoriaPasteleria(item)) {
+        const subtotalCamisetas = carrito.reduce((sum, item) => {
+            if (esCategoriaCamiseta(item)) {
                 return sum + (item.precio * item.cantidad);
             }
             return sum;
         }, 0);
-        const descuento = subtotalPasteleria * (porcentaje / 100);
+        const descuento = subtotalCamisetas * (porcentaje / 100);
         subtotalProductos = Math.max(0, subtotalProductos - descuento);
     }
 
-    return subtotalProductos + valorDomicilio;
+    return subtotalProductos;
 };
 const guardarCarritoTemporal = () => {
     sessionStorage.setItem('carrito_temporal', JSON.stringify(carrito));
@@ -392,24 +405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Botones de acceso rápido para agregar bolsas al carrito sin buscarlas en la grilla (ver
-    // BOLSAS_ACCESO_RAPIDO, que además las oculta de la grilla normal).
-    const btnQuickBolsa100 = document.getElementById('btn-quick-bolsa-100');
-    const btnQuickBolsa500 = document.getElementById('btn-quick-bolsa-500');
-    const agregarBolsaRapida = (nombreBolsa) => {
-        const prod = productosLocales.find(p => p.nombre === nombreBolsa);
-        if (!prod) {
-            alert(`No se encontró el producto "${nombreBolsa}" en el inventario de esta sucursal.`);
-            return;
-        }
-        agregarAlCarrito(prod);
-    };
-    if (btnQuickBolsa100) {
-        btnQuickBolsa100.addEventListener('click', () => agregarBolsaRapida('Bolsas $100'));
-    }
-    if (btnQuickBolsa500) {
-        btnQuickBolsa500.addEventListener('click', () => agregarBolsaRapida('Bolsas $500'));
-    }
+
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -487,12 +483,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnMixto) btnMixto.addEventListener('click', () => selectMethod('Mixto'));
 
     const autoCalculateMixto = (changedInput) => {
-        let valorDomicilio = 0;
-        const chkDomicilio = document.getElementById('chk-domicilio');
-        if (chkDomicilio && chkDomicilio.checked) {
-            const inputDom = document.getElementById('input-valor-domicilio');
-            if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
-        }
         const total = calcularTotalVenta();
         if (changedInput === 'efectivo') {
             const rawVal = parseNumberUI(inputEfectivo.value);
@@ -533,12 +523,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calcularCambio = () => {
         if (!changeContainer || !inputPagaCon || !displayCambio) return;
 
-        let valorDomicilio = 0;
-        const chkDomicilio = document.getElementById('chk-domicilio');
-        if (chkDomicilio && chkDomicilio.checked) {
-            const inputDom = document.getElementById('input-valor-domicilio');
-            if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
-        }
         const total = calcularTotalVenta();
 
         let targetCashToPay = 0;
@@ -576,72 +560,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         inputPagaCon.addEventListener('focus', function () { this.select(); });
     }
 
-    // Manejar domicilio
-    const chkDomicilio = document.getElementById('chk-domicilio');
-    const inputDomicilio = document.getElementById('input-valor-domicilio');
-    const domContainer = document.getElementById('domicilio-input-container');
 
-    if (chkDomicilio && inputDomicilio && domContainer) {
-        chkDomicilio.addEventListener('change', () => {
-            const btnEfectivo = document.getElementById('btn-pay-efectivo');
-            const btnMixto = document.getElementById('btn-pay-mixto');
-            
-            if (chkDomicilio.checked) {
-                domContainer.style.display = 'flex';
-                inputDomicilio.focus();
-                
-                // Forzar método de pago a Transferencia
-                selectMethod('Transferencia');
-                if (btnEfectivo) {
-                    btnEfectivo.disabled = true;
-                    btnEfectivo.style.opacity = '0.5';
-                    btnEfectivo.style.cursor = 'not-allowed';
-                }
-                if (btnMixto) {
-                    btnMixto.disabled = true;
-                    btnMixto.style.opacity = '0.5';
-                    btnMixto.style.cursor = 'not-allowed';
-                }
-            } else {
-                domContainer.style.display = 'none';
-                inputDomicilio.value = '';
-                
-                // Habilitar todos los métodos
-                if (btnEfectivo) {
-                    btnEfectivo.disabled = false;
-                    btnEfectivo.style.opacity = '1';
-                    btnEfectivo.style.cursor = 'pointer';
-                }
-                if (btnMixto) {
-                    btnMixto.disabled = false;
-                    btnMixto.style.opacity = '1';
-                    btnMixto.style.cursor = 'pointer';
-                }
-            }
-            renderizarCarrito();
-            calcularCambio();
-            
-            // Si es mixto, recalcular
-            if (metodoPagoSelected === 'Mixto') {
-                autoCalculateMixto('efectivo');
-            }
-        });
-
-        inputDomicilio.addEventListener('input', (e) => {
-            e.target.value = formatNumberUI(e.target.value);
-            renderizarCarrito();
-            calcularCambio();
-            
-            // Si es mixto, recalcular
-            if (metodoPagoSelected === 'Mixto') {
-                autoCalculateMixto('efectivo');
-            }
-        });
-
-        inputDomicilio.addEventListener('focus', function () {
-            this.select();
-        });
-    }
 
     // Manejar descuento
     const chkDescuento = document.getElementById('chk-descuento');
@@ -696,13 +615,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (chkCredito.checked) {
                 creditoContainer.style.display = 'flex';
                 selectClienteCredito.focus();
-                
-                // Desactivar y desmarcar domicilio si está marcado
-                const chkDomicilio = document.getElementById('chk-domicilio');
-                if (chkDomicilio && chkDomicilio.checked) {
-                    chkDomicilio.checked = false;
-                    chkDomicilio.dispatchEvent(new Event('change'));
-                }
+
+
 
                 // Crédito y Fiscal son excluyentes: una venta a crédito no genera cuenta de cobro.
                 const chkFiscalExcl = document.getElementById('chk-fiscal');
@@ -720,15 +634,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     btn.style.backgroundColor = 'var(--bg-accent)';
                     btn.style.color = 'var(--text-primary)';
                 });
-                
+
                 if (mixtoContainer) mixtoContainer.style.display = 'none';
                 if (changeContainer) changeContainer.style.display = 'none';
-                
+
                 metodoPagoSelected = 'Crédito';
             } else {
                 creditoContainer.style.display = 'none';
                 selectClienteCredito.value = '';
-                
+
                 // Re-habilitar botones de método de pago
                 const buttons = document.querySelectorAll('#payment-methods-container button');
                 buttons.forEach(btn => {
@@ -736,7 +650,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     btn.style.opacity = '1';
                     btn.style.cursor = 'pointer';
                 });
-                
+
                 // Volver a seleccionar Efectivo por defecto
                 selectMethod('Efectivo');
             }
@@ -766,6 +680,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                 fiscalContainer.style.display = 'none';
                 selectClienteFiscal.value = '';
             }
+        });
+    }
+
+    // Cargar y rellenar selector de clientes mayoristas
+    const chkMayorista = document.getElementById('chk-mayorista');
+    const selectClienteMayorista = document.getElementById('select-cliente-mayorista');
+    const mayoristaContainer = document.getElementById('mayorista-input-container');
+
+    if (chkMayorista && selectClienteMayorista && mayoristaContainer) {
+        await cargarClientesMayoristas();
+
+        chkMayorista.addEventListener('change', () => {
+            if (chkMayorista.checked) {
+                mayoristaContainer.style.display = 'flex';
+                selectClienteMayorista.focus();
+
+                // Mayorista y Crédito/Fiscal son excluyentes
+                const chkCreditoExcl = document.getElementById('chk-credito');
+                if (chkCreditoExcl && chkCreditoExcl.checked) {
+                    chkCreditoExcl.checked = false;
+                    chkCreditoExcl.dispatchEvent(new Event('change'));
+                }
+                const chkFiscalExcl = document.getElementById('chk-fiscal');
+                if (chkFiscalExcl && chkFiscalExcl.checked) {
+                    chkFiscalExcl.checked = false;
+                    chkFiscalExcl.dispatchEvent(new Event('change'));
+                }
+            } else {
+                mayoristaContainer.style.display = 'none';
+                selectClienteMayorista.value = '';
+            }
+            renderizarCarrito();
+        });
+
+        selectClienteMayorista.addEventListener('change', () => {
+            renderizarCarrito();
         });
     }
 
@@ -880,8 +830,7 @@ function filtrarYRenderizarCatalogo() {
     });
 
     const productosFiltrados = productosLocales.filter(prod => {
-        // Las bolsas tienen su propio botón de acceso rápido: se ocultan de la grilla.
-        if (BOLSAS_ACCESO_RAPIDO.includes(prod.nombre)) return false;
+
         // Filtro de estado de stock: si hay alguna opción marcada, el producto debe cumplir al
         // menos una (disponible con stock>0, o negativo con stock<0).
         if (filtrarDisponibles || filtrarNegativos) {
@@ -1095,7 +1044,7 @@ function renderizarCarrito() {
 
     carrito.forEach(item => {
         const itemBase = item.precio * item.cantidad;
-        const aplicaDescuento = porcentajeDescuento > 0 && esCategoriaPasteleria(item);
+        const aplicaDescuento = porcentajeDescuento > 0 && esCategoriaCamiseta(item);
         const itemTotal = aplicaDescuento ? itemBase * (1 - porcentajeDescuento / 100) : itemBase;
         totalAcumulado += itemBase;
 
@@ -1105,7 +1054,7 @@ function renderizarCarrito() {
             <div>
                 <h5>${item.nombre}</h5>
                 <span style="font-size: 0.85em; color: #6b7280;">${formatCOP(item.precio)} c/u</span>
-                ${aplicaDescuento ? `<div style="font-size: 0.75em; color: #dc2626; margin-top: 4px;">-${porcentajeDescuento}% en pastelería</div>` : ''}
+                ${aplicaDescuento ? `<div style="font-size: 0.75em; color: #dc2626; margin-top: 4px;">-${porcentajeDescuento}% desc.</div>` : ''}
             </div>
             <div class="cart-controls">
                 <button class="cart-btn" onclick="cambiarCantidad('${item.id}', -1)">-</button>
@@ -1174,9 +1123,6 @@ function limpiarEstadoVenta() {
 
     renderizarCarrito();
 
-    const chkDom = document.getElementById('chk-domicilio');
-    const inputDom = document.getElementById('input-valor-domicilio');
-    const domContainer = document.getElementById('domicilio-input-container');
     const chkCred = document.getElementById('chk-credito');
     const selectCliCred = document.getElementById('select-cliente-credito');
     const credContainer = document.getElementById('credito-input-container');
@@ -1193,9 +1139,7 @@ function limpiarEstadoVenta() {
     const inputPagaCon = document.getElementById('input-paga-con');
     const displayCambio = document.getElementById('display-cambio');
 
-    if (chkDom) chkDom.checked = false;
-    if (inputDom) inputDom.value = '';
-    if (domContainer) domContainer.style.display = 'none';
+
 
     if (chkCred) chkCred.checked = false;
     if (selectCliCred) selectCliCred.value = '';
@@ -1208,6 +1152,14 @@ function limpiarEstadoVenta() {
     if (chkDesc) chkDesc.checked = false;
     if (selectDesc) selectDesc.value = '';
     if (descContainer) descContainer.style.display = 'none';
+
+    const chkMayorista = document.getElementById('chk-mayorista');
+    const selectClienteMayorista = document.getElementById('select-cliente-mayorista');
+    const mayoristaContainer = document.getElementById('mayorista-input-container');
+    if (chkMayorista) chkMayorista.checked = false;
+    if (selectClienteMayorista) selectClienteMayorista.value = '';
+    if (mayoristaContainer) mayoristaContainer.style.display = 'none';
+
     actualizarEstadoDescuentoUI();
 
     const buttons = document.querySelectorAll('#payment-methods-container button');
@@ -1284,13 +1236,16 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             clienteId = clienteFiscalId;
         }
 
-        // Calculamos el total incluyendo domicilio y descuento
-        let valorDomicilio = 0;
-        const chkDomicilio = document.getElementById('chk-domicilio');
-        const esDomicilio = chkDomicilio && chkDomicilio.checked;
-        if (esDomicilio) {
-            const inputDom = document.getElementById('input-valor-domicilio');
-            if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
+        const chkMayorista = document.getElementById('chk-mayorista');
+        const selectClienteMayorista = document.getElementById('select-cliente-mayorista');
+        const esMayorista = chkMayorista && chkMayorista.checked;
+        if (esMayorista && (!selectClienteMayorista || !selectClienteMayorista.value)) {
+            alert("Por favor seleccione el cliente mayorista.");
+            setProcessingState(false);
+            return;
+        }
+        if (esMayorista) {
+            clienteId = selectClienteMayorista.value;
         }
 
         const total = calcularTotalVenta();
@@ -1330,9 +1285,7 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             }
         }
 
-        if (esDomicilio) {
-            metodoPago += ` (Domicilio: ${formatCOP(valorDomicilio)})`;
-        }
+
 
         const porcentajeDescuento = obtenerPorcentajeDescuento();
         const descuentoAplicado = porcentajeDescuento > 0 ? porcentajeDescuento : 0;
@@ -1345,7 +1298,7 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             metodoPago: metodoPago,
             total: total,
             carrito: carrito,
-            valorDomicilio: valorDomicilio,
+            valorDomicilio: 0,
             auditoriaUsuario: auditoriaUsuario,
             auditoriaRol: auditoriaRol,
             es_credito: esCredito ? 1 : 0,
@@ -1369,6 +1322,9 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
                 montoRecibido,
                 vuelto
             };
+
+            // Impresión automática del comprobante al registrar la venta
+            imprimirTicket(ultimoTicket);
 
             ventaFiscalPendiente = esFiscal ? { ventaId: response.ventaId, clienteId: clienteFiscalId } : null;
             const btnGenerarCuentaCobro = document.getElementById('btn-generar-cuenta-cobro');

@@ -104,7 +104,7 @@ function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucur
     partes.push(ALIGN_LEFT);
     sep();
     partes.push(ALIGN_CENTER, BOLD_ON);
-    linea(`Delipostres Venecia ${sucursalNombre || ''}`.trim());
+    linea(`Tienda de Kary ${sucursalNombre || ''}`.trim());
     partes.push(BOLD_OFF);
     if (direccion) linea(direccion);
     if (telefono) linea(`Tel: ${telefono}`);
@@ -169,7 +169,7 @@ function construirTicketPedidoBuffer({ pedidoId, clienteNombre, clienteIdentific
     partes.push(ALIGN_LEFT);
     sep();
     partes.push(ALIGN_CENTER, BOLD_ON);
-    linea(`Delipostres Venecia ${sucursalNombre || ''}`.trim());
+    linea(`Tienda de Kary ${sucursalNombre || ''}`.trim());
     partes.push(BOLD_OFF);
     if (direccion) linea(direccion);
     if (telefono) linea(`Tel: ${telefono}`);

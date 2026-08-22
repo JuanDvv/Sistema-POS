@@ -1,10 +1,10 @@
 let sucursalId = '';
 let efectivoEsperado = 0;
-let fondoBase = 300000;
+let fondoBase = 200000;
 const STORAGE_KEY = 'arqueo-caja-inputs';
 const SPLIT_STORAGE_KEY = 'arqueo-caja-split-width';
 
-const BASE_CAJA_SUCURSAL = 300000; // Fallback local si obtenerVentanaCajaActual falla.
+const BASE_CAJA_SUCURSAL = 200000; // Fallback local si obtenerVentanaCajaActual falla.
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
 
 function obtenerFechaHoyStr() {

@@ -40,8 +40,6 @@ contextBridge.exposeInMainWorld('api', {
     guardarCategoria: (datos) => ipcRenderer.invoke('guardar-categoria', datos),
     eliminarCategoria: (id) => ipcRenderer.invoke('eliminar-categoria', id),
     forceRefocus: () => ipcRenderer.invoke('force-refocus'),
-    realizarTransferencia: (datos) => ipcRenderer.invoke('realizar-transferencia', datos),
-    eliminarTransferencia: (datos) => ipcRenderer.invoke('eliminar-transferencia', datos),
     obtenerBalanceFinanciero: (filtros) => ipcRenderer.invoke('obtener-balance-financiero', filtros),
     obtenerRankingProductos: (filtros) => ipcRenderer.invoke('obtener-ranking-productos', filtros),
     forzarSincronizacion: () => ipcRenderer.invoke('forzar-sincronizacion'),
@@ -116,10 +114,4 @@ contextBridge.exposeInMainWorld('api', {
     eliminarCierreCaja: (datos) => ipcRenderer.invoke('eliminar-cierre-caja', datos),
     recalcularCierreCaja: (datos) => ipcRenderer.invoke('recalcular-cierre-caja', datos),
 
-    // Módulo de Sugeridos Semanales y Calculadora de Pedido Extra de Pastelería (proveedor)
-    obtenerSugeridosPasteleria: (sucursalId) => ipcRenderer.invoke('obtener-sugeridos-pasteleria', { sucursalId }),
-    guardarSugeridoPasteleria: (datos) => ipcRenderer.invoke('guardar-sugerido-pasteleria', datos),
-    exportarExcelSugeridosPasteleria: (sucursalId) => ipcRenderer.invoke('exportar-excel-sugeridos-pasteleria', { sucursalId }),
-    obtenerRecomendacionesPedidoExtra: (sucursalId) => ipcRenderer.invoke('obtener-recomendaciones-pedido-extra', { sucursalId }),
-    exportarExcelPedidoExtra: (sucursalId) => ipcRenderer.invoke('exportar-excel-pedido-extra', { sucursalId })
 });

@@ -137,7 +137,7 @@ function registerProductosIpc() {
             solicitarSincronizacion('producto registrado');
             return { success: true, message: 'Producto registrado exitosamente.' };
         } catch (err) {
-            await runQuery("ROLLBACK", []).catch(() => {});
+            await runQuery("ROLLBACK", []).catch(() => { });
             return { success: false, message: 'Error al registrar el producto: ' + err.message };
         }
     });
@@ -226,7 +226,7 @@ function registerProductosIpc() {
             solicitarSincronizacion('stock abastecido');
             return { success: true, message: 'Stock abastecido exitosamente.' };
         } catch (err) {
-            await runQuery("ROLLBACK", []).catch(() => {});
+            await runQuery("ROLLBACK", []).catch(() => { });
             return { success: false, message: 'Error al abastecer stock: ' + err.message };
         }
     });

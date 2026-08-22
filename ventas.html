@@ -130,7 +130,7 @@
             margin-bottom: 10px;
         }
 
-        /* Fila de opciones de venta (Domicilio, Crédito, Descuento, Fiscal): grid de 4 columnas
+        /* Fila de opciones de venta (Crédito, Descuento, Fiscal): grid de 4 columnas
            fijas para que siempre entren en una sola fila, achicando todo lo necesario. */
         .opciones-venta-grid {
             display: grid;
@@ -321,12 +321,7 @@
                 <div style="display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 240px;">
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <div id="filter-categoria"></div>
-                        <div class="quick-bolsas-row">
-                            <button type="button" id="btn-quick-bolsa-100" class="btn-quick-bolsa"
-                                title="Agregar Bolsas $100 al carrito">🛍️ $100</button>
-                            <button type="button" id="btn-quick-bolsa-500" class="btn-quick-bolsa"
-                                title="Agregar Bolsas $500 al carrito">🛍️ $500</button>
-                        </div>
+
                     </div>
                     <input type="text" id="search-productos" placeholder="🔍 Buscar producto... (Enter agrega si hay 1 resultado)"
                         style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 100%; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
@@ -349,21 +344,10 @@
 
             <div>
                 <div class="cart-summary">
-                    <!-- Opciones de Venta (Domicilio, Crédito, Descuento y Fiscal): grid de 4 columnas
+                    <!-- Opciones de Venta (Crédito, Descuento y Fiscal): grid de 4 columnas
                          fijas para que siempre quepan en una sola fila, sin importar el ancho del panel. -->
                     <div class="opciones-venta-grid">
-                        <!-- Domicilio / Delivery Checkbox & Input -->
-                        <div class="opcion-venta-card">
-                            <div class="opcion-venta-header">
-                                <input type="checkbox" id="chk-domicilio">
-                                <label for="chk-domicilio">🛵 Domicilio</label>
-                            </div>
-                            <div id="domicilio-input-container" class="opcion-venta-body"
-                                style="display: none; justify-content: space-between; align-items: center;">
-                                <input type="text" inputmode="numeric" id="input-valor-domicilio" placeholder="Valor $"
-                                    style="text-align: right;">
-                            </div>
-                        </div>
+
 
                         <!-- Crédito Checkbox & Selector -->
                         <div class="opcion-venta-card">
@@ -407,6 +391,19 @@
                                     <option value="">-- Cliente --</option>
                                 </select>
                                 <button type="button" id="btn-nuevo-cliente-fiscal">+ Nuevo cliente</button>
+                            </div>
+                        </div>
+
+                        <!-- Mayorista Checkbox & Selector -->
+                        <div class="opcion-venta-card">
+                            <div class="opcion-venta-header">
+                                <input type="checkbox" id="chk-mayorista">
+                                <label for="chk-mayorista">👥 Mayorista</label>
+                            </div>
+                            <div id="mayorista-input-container" class="opcion-venta-body" style="display: none;">
+                                <select id="select-cliente-mayorista">
+                                    <option value="">-- Cliente --</option>
+                                </select>
                             </div>
                         </div>
                     </div>

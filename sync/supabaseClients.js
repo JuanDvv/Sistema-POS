@@ -22,12 +22,12 @@ console.log(`[supabaseClients] Entorno activo: ${isProd ? 'PRODUCCIÓN' : 'PRUEB
 // CONFIGURACIÓN DE SUPABASE (PROYECTO PRINCIPAL DE DATOS)
 // =================================================================
 const PROD_DATA = {
-    url: 'https://mkbwfypxupebulwhijgw.supabase.co',
-    key: 'sb_publishable_fVK6Qpm0tyP0eKu38XUEAw_Spq-ccEw'
+    url: 'https://TU_PROYECTO.supabase.co',
+    key: 'TU_KEY_PUBLICA'
 };
 const TEST_DATA = {
-    url: 'https://kfcaaiyzdmcdccmhqemf.supabase.co',
-    key: 'sb_publishable_aJj-iuP6UjR-IRDIWt3NWg_jJAEc8kG'
+    url: 'https://TU_PROYECTO_TEST.supabase.co',
+    key: 'TU_KEY_PUBLICA_TEST'
 };
 const supabaseUrl = process.env.SUPABASE_URL || (isProd ? PROD_DATA.url : TEST_DATA.url);
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || (isProd ? PROD_DATA.key : TEST_DATA.key);
@@ -42,12 +42,12 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 // CONFIGURACIÓN DE SUPABASE (SEGUNDO PROYECTO DE LOGS DE AUDITORÍA)
 // =================================================================
 const PROD_LOGS = {
-    url: 'https://jzeuyerwavkxczgiqgui.supabase.co',
-    key: 'sb_publishable_yWRjMRpOmdx8x6tbDv_T4A_pLkdfGSF'
+    url: 'https://TU_PROYECTO_LOGS.supabase.co',
+    key: 'TU_KEY_PUBLICA_LOGS'
 };
 const TEST_LOGS = {
-    url: 'https://hkjjqyqsmxupeeuelzny.supabase.co',
-    key: 'sb_publishable_tit8PwB5hKUE5VlMBasOrw_DURbja_w'
+    url: 'https://TU_PROYECTO_LOGS_TEST.supabase.co',
+    key: 'TU_KEY_PUBLICA_LOGS_TEST'
 };
 const supabaseLogsUrl = process.env.SUPABASE_LOGS_URL || (isProd ? PROD_LOGS.url : TEST_LOGS.url);
 const supabaseLogsKey = process.env.SUPABASE_LOGS_SERVICE_ROLE_KEY || process.env.SUPABASE_LOGS_ANON_KEY || (isProd ? PROD_LOGS.key : TEST_LOGS.key);

@@ -623,25 +623,7 @@
                     </table>
                 </div>
             </div>
-            <div class="table-section">
-                <h3>Detalle de Transferencias Realizadas</h3>
-                <div style="overflow-x: auto; width: 100%;">
-                    <table id="table-transferencias-dia">
-                        <thead>
-                            <tr>
-                                <th>Hora</th>
-                                <th>Sucursal Origen</th>
-                                <th>Sucursal Destino</th>
-                                <th>Productos</th>
-                                <th>Usuario</th>
-                                <th id="th-trans-acciones" style="display: none; width: 100px;">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+
             <div class="table-section">
                 <h3>Cierres de Caja del Día</h3>
                 <div style="overflow-x: auto; width: 100%;">
@@ -769,16 +751,8 @@
                     style="display: none; background-color: #fef3c7; color: #92400e; border-radius: 6px; padding: 8px 10px; font-size: 0.85em; margin-bottom: 4px;">
                     💳 Venta a crédito: el método de pago no se puede modificar desde aquí.
                 </div>
-                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="edit-venta-chk-domicilio"
-                        style="width: 16px; height: 16px; cursor: pointer;">
-                    <label for="edit-venta-chk-domicilio" style="cursor: pointer; user-select: none;">🛵
-                        Domicilio</label>
-                </div>
-                <div id="edit-venta-domicilio-container" class="form-group" style="display: none;">
-                    <label for="edit-venta-input-domicilio">Valor del domicilio ($)</label>
-                    <input type="text" inputmode="numeric" id="edit-venta-input-domicilio" placeholder="Ej. 5000">
-                </div>
+
+
                 <div class="form-group">
                     <label for="edit-venta-metodo">Método de Pago</label>
                     <select id="edit-venta-metodo">
