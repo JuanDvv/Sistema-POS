@@ -247,17 +247,21 @@ function registerProductosIpc() {
     // separador de CSV ni de la configuración regional de Excel del operador).
     ipcMain.handle('generar-plantilla-abastecimiento', async (event, { sucursalId }) => {
         const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win) console.error('[abastecimiento] BrowserWindow.fromWebContents devolvió null al generar plantilla; se abrirá el diálogo sin ventana padre.');
         try {
             const productos = await obtenerProductosConStock(sucursalId);
             if (productos.length === 0) {
                 return { success: false, message: 'No hay productos para generar la plantilla.' };
             }
 
-            const { canceled, filePath } = await dialog.showSaveDialog(win, {
+            const dialogOptions = {
                 title: 'Guardar plantilla de abastecimiento',
                 defaultPath: `plantilla-abastecimiento-${sucursalId}-${new Date().toISOString().split('T')[0]}.xlsx`,
                 filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-            });
+            };
+            const { canceled, filePath } = win
+                ? await dialog.showSaveDialog(win, dialogOptions)
+                : await dialog.showSaveDialog(dialogOptions);
             if (canceled || !filePath) {
                 return { success: false, cancelado: true };
             }
@@ -266,6 +270,7 @@ function registerProductosIpc() {
             fs.writeFileSync(filePath, buffer);
             return { success: true, message: 'Plantilla generada exitosamente.' };
         } catch (err) {
+            console.error('[abastecimiento] Error al generar la plantilla:', err);
             return { success: false, message: 'Error al generar la plantilla: ' + err.message };
         }
     });
@@ -274,12 +279,16 @@ function registerProductosIpc() {
     // con Cantidad a Ingresar > 0 entran a la previsualización; el resto del catálogo no se toca).
     ipcMain.handle('previsualizar-abastecimiento-archivo', async (event, { sucursalId }) => {
         const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win) console.error('[abastecimiento] BrowserWindow.fromWebContents devolvió null al abrir el selector de archivo; se abrirá el diálogo sin ventana padre.');
         try {
-            const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+            const dialogOptions = {
                 title: 'Seleccionar archivo de abastecimiento',
                 filters: [{ name: 'Excel', extensions: ['xlsx'] }],
                 properties: ['openFile']
-            });
+            };
+            const { canceled, filePaths } = win
+                ? await dialog.showOpenDialog(win, dialogOptions)
+                : await dialog.showOpenDialog(dialogOptions);
             if (canceled || !filePaths || filePaths.length === 0) {
                 return { success: false, cancelado: true };
             }
@@ -304,6 +313,7 @@ function registerProductosIpc() {
 
             return { success: true, items, archivo: path.basename(filePaths[0]) };
         } catch (err) {
+            console.error('[abastecimiento] Error al leer el archivo:', err);
             return { success: false, message: 'Error al leer el archivo: ' + err.message };
         }
     });

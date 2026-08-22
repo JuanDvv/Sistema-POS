@@ -90,7 +90,7 @@ function formatearFilaProducto(cantidad, nombre, precioTexto) {
     });
 }
 
-function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono } = {}) {
+function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono, montoRecibido, vuelto } = {}) {
     const formatCOP = (val) => `$${Math.round(Number(val) || 0).toLocaleString('es-CO')}`;
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -125,7 +125,14 @@ function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucur
     // en la vista previa en pantalla (no como etiqueta/valor separados con puntos de relleno).
     partes.push(ALIGN_RIGHT, BOLD_ON);
     linea(`TOTAL: ${formatCOP(total)}`);
-    partes.push(BOLD_OFF, ALIGN_LEFT);
+    partes.push(BOLD_OFF);
+    if (montoRecibido != null) {
+        linea(`Recibido: ${formatCOP(montoRecibido)}`);
+        partes.push(BOLD_ON);
+        linea(`Cambio: ${formatCOP(vuelto)}`);
+        partes.push(BOLD_OFF);
+    }
+    partes.push(ALIGN_LEFT);
     sep();
     partes.push(ALIGN_CENTER);
     linea('*** COMPROBANTE INFORMATIVO ***');

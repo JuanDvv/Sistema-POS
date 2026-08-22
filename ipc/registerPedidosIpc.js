@@ -10,10 +10,10 @@ const {
 
 function registerPedidosIpc() {
     ipcMain.handle('crear-pedido', async (event, datos) => {
-        const { sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono, fechaEntregaEstimada, carrito, notas, abonoInicial, auditoriaUsuario, auditoriaRol } = datos;
+        const { sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono, fechaEntregaEstimada, carrito, notas, abonoInicial, valorDomicilio, auditoriaUsuario, auditoriaRol } = datos;
         return crearPedidoTx({
             sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono,
-            fechaEntregaEstimada, carrito, notas, abonoInicial, auditoriaUsuario, auditoriaRol
+            fechaEntregaEstimada, carrito, notas, abonoInicial, valorDomicilio, auditoriaUsuario, auditoriaRol
         });
     });
 
@@ -123,8 +123,8 @@ function registerPedidosIpc() {
     });
 
     ipcMain.handle('editar-pedido', async (event, datos) => {
-        const { pedidoId, fechaEntregaEstimada, notas, carrito, auditoriaUsuario, auditoriaRol } = datos;
-        return editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, auditoriaUsuario, auditoriaRol });
+        const { pedidoId, fechaEntregaEstimada, notas, carrito, valorDomicilio, auditoriaUsuario, auditoriaRol } = datos;
+        return editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, valorDomicilio, auditoriaUsuario, auditoriaRol });
     });
 
     ipcMain.handle('registrar-abono-pedido', async (event, datos) => {
@@ -147,10 +147,17 @@ function registerPedidosIpc() {
         return cancelarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol });
     });
 
-    // Cuenta pedidos pendientes cuya fecha estimada de entrega ya pasó, para el badge del sidebar.
+    // Cuenta pedidos pendientes que ya vencieron O que vencen HOY, para el badge del sidebar.
     // Se limita a la sucursal activa de este equipo, igual que el listado de obtener-pedidos:
-    // de lo contrario el badge cuenta pedidos atrasados de TODAS las sucursales aunque la lista
-    // que el usuario ve (filtrada a su sucursal) muestre menos.
+    // de lo contrario el badge cuenta pedidos de TODAS las sucursales aunque la lista que el
+    // usuario ve (filtrada a su sucursal) muestre menos.
+    //
+    // El filtrado se hace en JS (no en SQL con strftime) porque fecha_entrega_estimada se guarda
+    // en UTC (toISOString(), ver pedidos.js) y comparar por día calendario en SQL usaría el día
+    // UTC en vez del día LOCAL del equipo -- un pedido que vence hoy en la noche (hora local)
+    // podría caer en el día UTC siguiente y desaparecer del badge. new Date(...) en el proceso
+    // principal sí resuelve al huso horario del equipo, igual que claveGrupoEntrega() en
+    // pedidos.js, así que ambos quedan consistentes.
     ipcMain.handle('contar-pedidos-atrasados', async () => {
         try {
             const sucursalActiva = await new Promise((resolve, reject) => {
@@ -158,17 +165,22 @@ function registerPedidosIpc() {
                     if (err) reject(err); else resolve(row);
                 });
             });
-            const row = await new Promise((resolve, reject) => {
-                db.get(
-                    `SELECT COUNT(*) as total FROM pedidos
-                     WHERE estado = 'pendiente' AND fecha_entrega_estimada < strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                       AND (sync_status IS NULL OR sync_status <> 'deleted')
-                       AND sucursal_id = ?`,
-                    [sucursalActiva ? sucursalActiva.id : null],
-                    (err, row) => { if (err) reject(err); else resolve(row); }
-                );
-            });
-            return { success: true, count: row ? row.total : 0 };
+            const pendientes = await allQuery(
+                `SELECT fecha_entrega_estimada FROM pedidos
+                 WHERE estado = 'pendiente'
+                   AND (sync_status IS NULL OR sync_status <> 'deleted')
+                   AND sucursal_id = ?`,
+                [sucursalActiva ? sucursalActiva.id : null]
+            );
+
+            const hoy = new Date();
+            const inicioManana = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1);
+            const total = pendientes.filter(p => {
+                const fechaEntrega = new Date(p.fecha_entrega_estimada);
+                return !Number.isNaN(fechaEntrega.getTime()) && fechaEntrega < inicioManana;
+            }).length;
+
+            return { success: true, count: total };
         } catch (err) {
             return { success: false, count: 0, message: err.message };
         }

@@ -292,6 +292,102 @@
                     transform: translateX(0) !important;
                 }
             }
+
+            /* Aviso de "sin conexión" -- se probaron dos versiones como overlay flotante
+               (abajo-centro, luego arriba-derecha) y ambas terminaron tapando contenido real en
+               alguna página (botones del carrito en ventas.html, fila de un producto agregado,
+               botones de encabezado en reportes/gestion/dashboard): con paneles de altura variable
+               y contenido dinámico (carrito con ítems, listas largas) no existe una esquina
+               garantizada libre en TODAS las páginas. En vez de perseguir esa esquina, el aviso
+               vive en el propio botón "Sincronizar Nube" del sidebar -- es la única zona fija
+               (sidebar-spacer) que ninguna página pinta encima, así que nunca puede tapar nada.
+               Ver aplicarEstadoConexion() más abajo y notificarEstadoConexion() en
+               sync/syncService.js (solo dispara en cada cambio real de estado, no en cada ciclo). */
+            @keyframes pos-conexion-pulso {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.35; }
+            }
+            .nav-btn-sync-new > span:first-child {
+                position: relative;
+            }
+            .sync-conexion-dot {
+                display: none;
+                position: absolute;
+                top: -2px;
+                right: -3px;
+                width: 9px;
+                height: 9px;
+                border-radius: 50%;
+                background-color: #f59e0b;
+                border: 2px solid #0f172a;
+                box-sizing: content-box;
+                animation: pos-conexion-pulso 1.6s ease-in-out infinite;
+            }
+            .nav-btn-sync-new.sin-conexion .sync-conexion-dot {
+                display: block;
+            }
+            .nav-btn-sync-new.sin-conexion {
+                background-color: rgba(245, 158, 11, 0.08);
+                color: #f59e0b;
+                border-color: rgba(245, 158, 11, 0.2);
+            }
+            .nav-btn-sync-new.sin-conexion .sync-next-time {
+                color: rgba(245, 158, 11, 0.75);
+            }
+            .nav-btn-sync-new.sin-conexion:hover:not(:disabled) {
+                background-color: #f59e0b;
+                color: #1e1b0a;
+                border-color: #f59e0b;
+            }
+
+            /* Aviso de traslado entrante (ver onTransferenciaEntrante más abajo): apilado en la
+               esquina inferior derecha, fuera del área del sidebar/spacer, para no repetir el
+               problema descrito arriba para el aviso de conexión. */
+            #pos-toast-container {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                z-index: 99999;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                pointer-events: none;
+            }
+            @keyframes pos-toast-entrada {
+                from { transform: translateX(120%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            .pos-toast {
+                pointer-events: auto;
+                background-color: #1e293b;
+                border: 1px solid rgba(59, 130, 246, 0.4);
+                border-left: 4px solid #3b82f6;
+                border-radius: 10px;
+                padding: 12px 16px;
+                width: 320px;
+                max-width: calc(100vw - 40px);
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+                color: #f8fafc;
+                font-family: inherit;
+                cursor: pointer;
+                animation: pos-toast-entrada 0.25s ease-out;
+            }
+            .pos-toast:hover {
+                border-left-color: #60a5fa;
+            }
+            .pos-toast-titulo {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-weight: 700;
+                font-size: 0.95rem;
+                margin-bottom: 4px;
+            }
+            .pos-toast-detalle {
+                font-size: 0.85rem;
+                color: #cbd5e1;
+                line-height: 1.4;
+            }
         `;
         document.head.appendChild(styleEl);
     }
@@ -391,7 +487,7 @@
 
         <div class="sidebar-footer">
             <button class="nav-btn-sync-new" id="btn-sync-now">
-                <span class="sync-icon">🔄</span>
+                <span class="sync-icon">🔄<span class="sync-conexion-dot" id="sync-conexion-dot"></span></span>
                 <span class="sync-text-col">
                     <span class="sync-text">Sincronizar Nube</span>
                     <span class="sync-next-time" id="sync-next-time"></span>
@@ -466,8 +562,9 @@
             // subida/descarga de ventas o gastos, pero el resto de entidades (productos,
             // inventario, transferencias, clientes, etc.) ya corrieron en ese mismo ciclo y
             // pudieron cambiar datos locales -- solo se omite si ni siquiera llegó a ejecutarse
-            // (ej. "ya hay una sincronización en curso"), en cuyo caso no hay nada que invalidar.
-            const huboCiclo = res.success || res.message !== 'La sincronización ya está en curso.';
+            // (ej. "ya hay una sincronización en curso" o sin conexión), en cuyo caso no hay nada
+            // que invalidar.
+            const huboCiclo = res.success || (res.message !== 'La sincronización ya está en curso.' && !res.sinConexion);
             if (huboCiclo) {
                 // No recargamos la página: eso destruiría el carrito activo y cualquier
                 // edición en curso. Cada vista decide qué refrescar escuchando este evento.
@@ -478,6 +575,12 @@
 
             if (res.success) {
                 if (mostrarAlertas) alert('Sincronización exitosa con la nube.');
+            } else if (res.sinConexion) {
+                // Sin alert() bloqueante: el banner amigable (activado por el evento
+                // 'sincronizacion-conexion' del proceso principal) ya deja claro que no hay
+                // conexión, tanto si este ciclo lo disparó el botón manual como el intervalo
+                // automático -- no hace falta interrumpir con un diálogo modal redundante.
+                console.log('[Sync] Sin conexión a internet, ciclo de sincronización omitido.');
             } else {
                 console.error('[Sync] Sincronización con error:', res.message || 'Error desconocido');
                 if (mostrarAlertas) alert('Sincronización parcial: ' + (res.message || 'Error desconocido') + (huboCiclo ? '\n(El resto de los datos sí se sincronizó correctamente.)' : ''));
@@ -581,18 +684,44 @@
         });
     }
 
-    // Estado del botón de Sincronizar: reacciona al flag global de sincronización
-    // (isSyncing), sea disparada manualmente desde este botón, por el intervalo por
-    // rol, por un evento crítico (venta/gasto/aprobación) o desde otra ventana.
+    // Estado del botón de Sincronizar: reacciona tanto al flag global de sincronización
+    // (isSyncing) como al de conectividad (ver sync/syncService.js), sea cual sea el disparador
+    // (este botón, el intervalo por rol, un evento crítico o el proceso principal desde otra
+    // ventana). Los dos estados se combinan en un solo render (actualizarBotonSync) en vez de dos
+    // handlers separados pisándose el texto -- un ciclo que arranca sin conexión dispara primero
+    // 'sincronizacion-estado' (true, "Sincronizando...") y al terminar 'sincronizacion-conexion'
+    // (false) seguido de 'sincronizacion-estado' (false); con handlers independientes, el último
+    // en llegar ("Sincronizar Nube") pisaba el aviso de "Sin conexión" del que llegó antes.
     const btnSync = container.querySelector('#btn-sync-now');
     if (btnSync) {
         const icon = btnSync.querySelector('.sync-icon');
         const text = btnSync.querySelector('.sync-text');
+        let sincronizando = false;
+        let hayConexion = true; // se asume conectado hasta que el proceso principal diga lo contrario
+
+        function actualizarBotonSync() {
+            btnSync.disabled = sincronizando;
+            btnSync.classList.toggle('sin-conexion', !hayConexion);
+            if (icon) icon.classList.toggle('spinning', sincronizando);
+            if (text) {
+                text.innerText = sincronizando
+                    ? 'Sincronizando...'
+                    : (hayConexion ? 'Sincronizar Nube' : 'Sin conexión');
+            }
+            // Sin overlay flotante (ver comentario de estilos arriba): el aviso completo y
+            // amigable vive en el title -- aparece como tooltip nativo al pasar el mouse por el
+            // botón, sin poder tapar nunca contenido de la página.
+            btnSync.title = hayConexion ? '' : 'Sin conexión a internet. Tus datos se guardan en este equipo y se sincronizarán solos al reconectar.';
+        }
 
         function aplicarEstadoSincronizando(enCurso) {
-            btnSync.disabled = enCurso;
-            if (icon) icon.classList.toggle('spinning', enCurso);
-            if (text) text.innerText = enCurso ? 'Sincronizando...' : 'Sincronizar Nube';
+            sincronizando = enCurso;
+            actualizarBotonSync();
+        }
+
+        function aplicarEstadoConexion(conectado) {
+            hayConexion = conectado;
+            actualizarBotonSync();
         }
 
         if (window.api && window.api.onSincronizacionEstado) {
@@ -600,6 +729,12 @@
         }
         if (window.api && window.api.isSincronizando) {
             window.api.isSincronizando().then(aplicarEstadoSincronizando).catch(() => { });
+        }
+        if (window.api && window.api.onSincronizacionConexion) {
+            window.api.onSincronizacionConexion(aplicarEstadoConexion);
+        }
+        if (window.api && window.api.obtenerEstadoConexion) {
+            window.api.obtenerEstadoConexion().then(aplicarEstadoConexion).catch(() => { });
         }
 
         btnSync.addEventListener('click', () => ejecutarSincronizacion({ mostrarAlertas: true }));
@@ -621,10 +756,10 @@
     }
     actualizarBadgeSolicitudes();
 
-    // Mostrar en el botón de Pedidos/Apartados la cantidad de pedidos pendientes cuya fecha
-    // estimada de entrega ya venció, para que sean "fáciles de ubicar" sin entrar a la página.
-    // A diferencia del badge de solicitudes, este es visible para cualquier rol (Operador y
-    // Administrador pueden gestionar pedidos por igual).
+    // Mostrar en el botón de Pedidos/Apartados la cantidad de pedidos pendientes que ya vencieron
+    // o que se entregan HOY, para que sean "fáciles de ubicar" sin entrar a la página. A diferencia
+    // del badge de solicitudes, este es visible para cualquier rol (Operador y Administrador
+    // pueden gestionar pedidos por igual).
     function actualizarBadgePedidosAtrasados() {
         if (!(window.api && window.api.contarPedidosAtrasados)) return;
         window.api.contarPedidosAtrasados().then(res => {
@@ -639,6 +774,41 @@
         }).catch(() => { });
     }
     actualizarBadgePedidosAtrasados();
+
+    // Aviso de traslado entrante: el proceso principal detecta, al descargar la sincronización,
+    // un traslado nuevo cuya sucursal destino es esta terminal (ver notificarTransferenciaEntrante
+    // en sync/syncService.js) y lo empuja aquí por IPC. Se muestra en TODAS las ventanas abiertas
+    // de esta sucursal, no solo en transferencias.html, porque el traslado puede llegar mientras
+    // el usuario está vendiendo o haciendo caja.
+    function mostrarTransferenciaEntrante(traslado) {
+        let toastContainer = document.getElementById('pos-toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'pos-toast-container';
+            document.body.appendChild(toastContainer);
+        }
+
+        const resumenProductos = (traslado.productos || [])
+            .map(p => `${p.nombre} (x${p.cantidad})`)
+            .join(', ') || 'Ver detalle en Traslado de Productos';
+
+        const toast = document.createElement('div');
+        toast.className = 'pos-toast';
+        toast.innerHTML = `
+            <div class="pos-toast-titulo">📥 Traslado recibido de <span></span></div>
+            <div class="pos-toast-detalle"></div>
+        `;
+        toast.querySelector('.pos-toast-titulo span').innerText = traslado.sucursalOrigenId;
+        toast.querySelector('.pos-toast-detalle').innerText = resumenProductos;
+        toast.addEventListener('click', () => { location.href = 'transferencias.html'; });
+
+        toastContainer.appendChild(toast);
+        setTimeout(() => toast.remove(), 12000);
+    }
+
+    if (window.api && window.api.onTransferenciaEntrante) {
+        window.api.onTransferenciaEntrante(mostrarTransferenciaEntrante);
+    }
 
     // Seleccionar automáticamente todo el texto al enfocar inputs numéricos y buscadores
     document.addEventListener('focus', function (e) {

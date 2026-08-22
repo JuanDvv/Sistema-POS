@@ -14,6 +14,11 @@ let carrito = [];          // Carrito de la pestaña "Nuevo Pedido"
 let carritoDetalle = [];   // Carrito del modal de detalle (edición de un pedido existente)
 let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null;
+// Sucursal cuyo listado de pedidos se está viendo en la pestaña "Listado de Pedidos". Separada de
+// `sucursalId` (la sucursal ACTIVA de este equipo, usada para crear pedidos y consultar su propio
+// inventario) porque un Administrador puede querer revisar los pedidos de otra sucursal sin
+// activarla en este PC (ver selector en la pestaña Listado, solo visible para su rol).
+let sucursalListadoId = null;
 let pedidoActualId = null;
 let pedidoActualDetalle = null; // snapshot de la última respuesta de obtenerDetallePedido, para reimprimir
 
@@ -148,8 +153,49 @@ function renderizarCarritoEn(carritoArr, listElId, totalElId, onCambiar) {
     });
 }
 
+// Lee el valor del domicilio de un checkbox+input (compartido por "Nuevo Pedido" y el modal de
+// detalle): 0 si el checkbox no está marcado, igual que el patrón de ventas.js/ventas-anteriores.js.
+function leerValorDomicilio(chkId, inputId) {
+    const chk = document.getElementById(chkId);
+    const input = document.getElementById(inputId);
+    if (chk && chk.checked && input) return parseNumberUI(input.value);
+    return 0;
+}
+
+// Cablea el checkbox+input de domicilio (mostrar/ocultar el input, formatear mientras se escribe,
+// refrescar el total mostrado con cada cambio) -- mismo patrón que chkDomicilio en ventas.js.
+function configurarDomicilioUI(chkId, inputId, containerId, onCambiar) {
+    const chk = document.getElementById(chkId);
+    const input = document.getElementById(inputId);
+    const container = document.getElementById(containerId);
+    if (!chk || !input || !container) return;
+
+    chk.addEventListener('change', () => {
+        if (chk.checked) {
+            container.style.display = 'block';
+            input.focus();
+        } else {
+            container.style.display = 'none';
+            input.value = '';
+        }
+        onCambiar();
+    });
+
+    input.addEventListener('input', (e) => {
+        e.target.value = formatNumberUI(e.target.value);
+        onCambiar();
+    });
+
+    input.addEventListener('focus', function () { this.select(); });
+}
+
 function renderizarCarritoPedido() {
     renderizarCarritoEn(carrito, 'cart-list-pedido', 'cart-total-pedido', cambiarCantidadPedido);
+    const valorDomicilio = leerValorDomicilio('pedido-chk-domicilio', 'pedido-input-domicilio');
+    if (valorDomicilio > 0) {
+        const totalProductos = carrito.reduce((sum, i) => sum + Number(i.precio) * Number(i.cantidad), 0);
+        document.getElementById('cart-total-pedido').innerText = formatCOP(totalProductos + valorDomicilio);
+    }
 }
 
 function cambiarCantidadPedido(id, delta) {
@@ -178,6 +224,26 @@ function agregarAlCarritoPedido(prod) {
 
 function renderizarCarritoDetalle() {
     renderizarCarritoEn(carritoDetalle, 'detalle-cart-list', 'detalle-total', cambiarCantidadDetalle);
+    const valorDomicilio = leerValorDomicilio('detalle-chk-domicilio', 'detalle-input-domicilio');
+    const totalProductos = carritoDetalle.reduce((sum, i) => sum + Number(i.precio) * Number(i.cantidad), 0);
+    const totalActual = totalProductos + valorDomicilio;
+    if (valorDomicilio > 0) {
+        document.getElementById('detalle-total').innerText = formatCOP(totalActual);
+    }
+    actualizarSaldoPendienteDetalle(totalActual);
+}
+
+// El "Saldo Pendiente" venía quedando congelado con el valor con el que se abrió el modal: al
+// agregar un producto o marcar domicilio, el "Total" de arriba se recalculaba al instante pero el
+// saldo pendiente no, así que mostraban números que ya no cuadraban entre sí hasta guardar los
+// cambios (y hacer un viaje redondo al servidor). Lo abonado no cambia al editar productos/domicilio
+// (son abonos ya registrados), así que se puede derivar sin otra consulta: total guardado - saldo
+// guardado = abonado.
+function actualizarSaldoPendienteDetalle(totalActual) {
+    const saldoEl = document.getElementById('detalle-saldo-pendiente');
+    if (!saldoEl || !pedidoActualDetalle) return;
+    const abonado = Number(pedidoActualDetalle.pedido.total) - Number(pedidoActualDetalle.saldo_pendiente);
+    saldoEl.innerText = formatCOP(totalActual - abonado);
 }
 
 function cambiarCantidadDetalle(id, delta) {
@@ -197,11 +263,6 @@ async function cargarCatalogo() {
         return;
     }
     productosLocales = (response.data || []).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-
-    const datalist = document.getElementById('datalist-productos');
-    if (datalist) {
-        datalist.innerHTML = productosLocales.map(p => `<option value="${p.nombre}">`).join('');
-    }
 
     filtrarYRenderizarCatalogoPedido();
 }
@@ -307,6 +368,9 @@ function limpiarFormularioNuevoPedido() {
     document.getElementById('pedido-hora-entrega').value = '';
     document.getElementById('pedido-notas').value = '';
     document.getElementById('pedido-abono-monto').value = '';
+    document.getElementById('pedido-chk-domicilio').checked = false;
+    document.getElementById('pedido-input-domicilio').value = '';
+    document.getElementById('pedido-domicilio-container').style.display = 'none';
 }
 
 async function registrarPedido() {
@@ -342,11 +406,12 @@ async function registrarPedido() {
     }
 
     const fechaEntregaEstimada = combinarFechaHoraEntrega(fechaEntregaInput, horaEntregaInput);
-    const total = carrito.reduce((sum, i) => sum + i.precio * i.cantidad, 0);
+    const valorDomicilio = leerValorDomicilio('pedido-chk-domicilio', 'pedido-input-domicilio');
+    const total = carrito.reduce((sum, i) => sum + i.precio * i.cantidad, 0) + valorDomicilio;
 
     const datos = {
         sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono,
-        fechaEntregaEstimada, carrito, notas,
+        fechaEntregaEstimada, carrito, notas, valorDomicilio,
         abonoInicial: abonoMonto > 0 ? { monto: abonoMonto, metodoPago: abonoMetodo } : null,
         auditoriaUsuario, auditoriaRol
     };
@@ -357,12 +422,15 @@ async function registrarPedido() {
         return;
     }
 
+    const itemsTicket = carrito.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio }));
+    if (valorDomicilio > 0) itemsTicket.push({ nombre: 'Domicilio (Envío)', cantidad: 1, precio: valorDomicilio });
+
     const ticketDatos = {
         pedidoId: res.pedidoId,
         clienteNombre, clienteIdentificacion, clienteTelefono,
         fechaPedido: new Date().toISOString(),
         fechaEntregaEstimada,
-        items: carrito.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
+        items: itemsTicket,
         total,
         abonado: abonoMonto > 0 ? abonoMonto : 0,
         saldoPendiente: total - (abonoMonto > 0 ? abonoMonto : 0),
@@ -374,12 +442,6 @@ async function registrarPedido() {
     document.getElementById('post-pedido-msg').innerText = res.message;
     document.getElementById('modal-post-pedido').dataset.ticket = JSON.stringify(ticketDatos);
     document.getElementById('modal-post-pedido').style.display = 'flex';
-
-    // Por defecto se imprimen dos comprobantes idénticos: uno para el cliente y otro para
-    // que el local lo coloque en el producto. Se imprimen en serie (no en paralelo) porque
-    // ambas llamadas comparten el mismo script temporal de impresión RAW.
-    await imprimirComprobantePedido(ticketDatos);
-    await imprimirComprobantePedido(ticketDatos);
 
     limpiarFormularioNuevoPedido();
     cargarCatalogo();
@@ -402,7 +464,7 @@ async function cargarPedidos() {
     const busqueda = document.getElementById('busqueda-pedidos').value.trim();
     const estado = document.getElementById('filtro-estado-pedidos').value;
     const soloHoy = document.getElementById('filtro-creados-hoy').checked;
-    const res = await window.api.obtenerPedidos({ sucursalId, estado: estado || undefined, busqueda: busqueda || undefined, soloHoy: soloHoy || undefined });
+    const res = await window.api.obtenerPedidos({ sucursalId: sucursalListadoId || sucursalId, estado: estado || undefined, busqueda: busqueda || undefined, soloHoy: soloHoy || undefined });
     if (!res.success) {
         alert(res.message);
         return;
@@ -476,21 +538,37 @@ function renderizarTablaPedidos(pedidos, agruparPorEntrega = true) {
 
 // ==================== DETALLE / EDICIÓN DE UN PEDIDO ====================
 
+// Mismo día calendario LOCAL (no solo "hace menos de 24h"): un abono de hoy a las 8am sigue
+// siendo "de hoy" a las 11pm. Mismo criterio que usa el backend (strftime('%Y-%m-%d', fecha,
+// 'localtime')) para bloquear el borrado de abonos de un día anterior a un Operador.
+function esFechaDeHoy(iso) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    const hoy = new Date();
+    return d.getFullYear() === hoy.getFullYear() && d.getMonth() === hoy.getMonth() && d.getDate() === hoy.getDate();
+}
+
 function renderizarAbonos(abonos, esPendiente) {
     const cont = document.getElementById('detalle-abonos-list');
     if (!abonos.length) {
         cont.innerHTML = '<p style="color: #6b7280; font-size: 0.9em;">Sin abonos registrados.</p>';
         return;
     }
-    cont.innerHTML = abonos.map(a => `
+    cont.innerHTML = abonos.map(a => {
+        // Un abono de un día anterior solo lo puede borrar un Administrador (el backend ya lo
+        // bloquea, ver eliminarAbonoPedidoTx; esto solo evita mostrarle el botón a quien de
+        // todas formas recibiría el error al hacer clic).
+        const puedeEliminar = esPendiente && (auditoriaRol === 'Administrador' || esFechaDeHoy(a.fecha));
+        return `
         <div class="abono-row">
             <span>${formatFechaLegible(a.fecha)} - ${a.metodo_pago}</span>
             <span style="display: flex; align-items: center; gap: 8px;">
                 <strong>${formatCOP(a.monto)}</strong>
-                ${esPendiente ? `<button class="btn-delete" data-abono-id="${a.id}">🗑️</button>` : ''}
+                ${puedeEliminar ? `<button class="btn-delete" data-abono-id="${a.id}">🗑️</button>` : ''}
             </span>
         </div>
-    `).join('');
+        `;
+    }).join('');
 
     cont.querySelectorAll('button[data-abono-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -504,7 +582,7 @@ function renderizarAbonos(abonos, esPendiente) {
 
 function aplicarPermisosDetalle(estado, saldoPendiente) {
     const esPendiente = estado === 'pendiente';
-    ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono']
+    ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono', 'detalle-chk-domicilio', 'detalle-input-domicilio']
         .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !esPendiente; });
     const btnEntregar = document.getElementById('btn-entregar-pedido');
     btnEntregar.style.display = esPendiente ? 'flex' : 'none';
@@ -538,6 +616,11 @@ async function abrirDetallePedido(pedidoId) {
     document.getElementById('detalle-hora-entrega').value = horaEntregaSep;
     document.getElementById('detalle-notas').value = pedido.notas || '';
 
+    const valorDomicilioActual = Number(pedido.valor_domicilio || 0);
+    document.getElementById('detalle-chk-domicilio').checked = valorDomicilioActual > 0;
+    document.getElementById('detalle-input-domicilio').value = valorDomicilioActual > 0 ? formatNumberUI(valorDomicilioActual) : '';
+    document.getElementById('detalle-domicilio-container').style.display = valorDomicilioActual > 0 ? 'block' : 'none';
+
     carritoDetalle = detalle.map(d => ({ id: d.producto_id, nombre: d.nombre || '(Producto eliminado)', precio: Number(d.precio_unitario), cantidad: Number(d.cantidad) }));
     renderizarCarritoDetalle();
 
@@ -561,12 +644,14 @@ async function guardarCambiosPedido() {
         return;
     }
     const notas = document.getElementById('detalle-notas').value.trim();
+    const valorDomicilio = leerValorDomicilio('detalle-chk-domicilio', 'detalle-input-domicilio');
 
     const res = await window.api.editarPedido({
         pedidoId: pedidoActualId,
         fechaEntregaEstimada: combinarFechaHoraEntrega(fechaEntregaInput, horaEntregaInput),
         notas,
         carrito: carritoDetalle,
+        valorDomicilio,
         auditoriaUsuario, auditoriaRol
     });
     if (!res.success) {
@@ -656,6 +741,9 @@ function construirTicketDesdeDetalleActual() {
     if (!pedidoActualDetalle) return null;
     const { pedido, detalle, saldo_pendiente } = pedidoActualDetalle;
     const abonado = Number(pedido.total) - Number(saldo_pendiente);
+    const valorDomicilio = Number(pedido.valor_domicilio || 0);
+    const itemsTicket = detalle.map(d => ({ nombre: d.nombre, cantidad: d.cantidad, precio: d.precio_unitario }));
+    if (valorDomicilio > 0) itemsTicket.push({ nombre: 'Domicilio (Envío)', cantidad: 1, precio: valorDomicilio });
     return {
         pedidoId: pedido.id,
         clienteNombre: pedido.cliente_nombre,
@@ -663,7 +751,7 @@ function construirTicketDesdeDetalleActual() {
         clienteTelefono: pedido.cliente_telefono,
         fechaPedido: pedido.fecha_pedido,
         fechaEntregaEstimada: pedido.fecha_entrega_estimada,
-        items: detalle.map(d => ({ nombre: d.nombre, cantidad: d.cantidad, precio: d.precio_unitario })),
+        items: itemsTicket,
         total: pedido.total,
         abonado,
         saldoPendiente: saldo_pendiente,
@@ -694,6 +782,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (badgeSucursal) {
         badgeSucursal.textContent = `📍 ${sucursalDetalle?.nombre || sucursalId}`;
         badgeSucursal.style.display = 'inline-block';
+    }
+
+    // Selector de sucursal del listado (solo Administrador): permite ver los pedidos de
+    // cualquier sucursal sin tener que marcarla como activa en este equipo (eso cambiaría también
+    // el inventario/creación de pedidos de esta terminal, que deben seguir atados a su propia
+    // sucursal física). Ver sucursalListadoId arriba y su uso en cargarPedidos().
+    const selectSucursalListado = document.getElementById('filtro-sucursal-pedidos');
+    if (selectSucursalListado && auditoriaRol === 'Administrador') {
+        const resSucs = await window.api.obtenerTodasSucursales();
+        if (resSucs.success && resSucs.data) {
+            selectSucursalListado.innerHTML = '';
+            resSucs.data.forEach(suc => {
+                const opt = document.createElement('option');
+                opt.value = suc.id;
+                opt.innerText = `🏢 ${suc.nombre || suc.id}${suc.id === sucursalId ? ' (activa aquí)' : ''}`;
+                selectSucursalListado.appendChild(opt);
+            });
+            selectSucursalListado.value = sucursalId;
+            sucursalListadoId = sucursalId;
+            selectSucursalListado.style.display = 'inline-block';
+            selectSucursalListado.addEventListener('change', () => {
+                sucursalListadoId = selectSucursalListado.value;
+                cargarPedidos();
+            });
+        }
     }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -737,6 +850,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('detalle-abono-monto').addEventListener('input', (e) => { e.target.value = formatNumberUI(e.target.value); });
     document.getElementById('btn-guardar-pedido').addEventListener('click', registrarPedido);
 
+    configurarDomicilioUI('pedido-chk-domicilio', 'pedido-input-domicilio', 'pedido-domicilio-container', renderizarCarritoPedido);
+    configurarDomicilioUI('detalle-chk-domicilio', 'detalle-input-domicilio', 'detalle-domicilio-container', renderizarCarritoDetalle);
+
     let debounceBusqueda = null;
     document.getElementById('busqueda-pedidos').addEventListener('input', () => {
         clearTimeout(debounceBusqueda);
@@ -750,6 +866,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     document.getElementById('btn-guardar-productos-pedido').addEventListener('click', guardarCambiosPedido);
     document.getElementById('btn-agregar-producto-detalle').addEventListener('click', agregarProductoAlDetalle);
+
+    // Sugerencias sin tildes y sin importar el orden de las palabras al agregar un producto al
+    // detalle de un pedido existente (ver productoBuscador.js).
+    const inputAgregarProductoDetalle = document.getElementById('detalle-agregar-producto');
+    if (inputAgregarProductoDetalle) {
+        crearBuscadorProducto({
+            input: inputAgregarProductoDetalle,
+            obtenerProductos: () => productosLocales,
+            detalle: (p) => `stock: ${p.stock || 0}`
+        });
+    }
     document.getElementById('btn-agregar-abono').addEventListener('click', agregarAbono);
     document.getElementById('btn-entregar-pedido').addEventListener('click', entregarPedidoActual);
     document.getElementById('btn-cancelar-pedido').addEventListener('click', cancelarPedidoActual);

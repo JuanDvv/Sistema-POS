@@ -1,6 +1,6 @@
 const { ipcMain, BrowserWindow, screen } = require('electron');
 const path = require('path');
-const { procesarSincronizacion, isSincronizando } = require('../sync/syncService');
+const { procesarSincronizacion, isSincronizando, hayConexionConocida } = require('../sync/syncService');
 
 // SRP: utilidades transversales de la app (ventanas secundarias, foco, sincronización manual).
 
@@ -44,7 +44,10 @@ function registerSistemaIpc() {
         try {
             const win = BrowserWindow.fromWebContents(event.sender);
             if (win) {
-                win.blur();
+                if (win.isMinimized()) {
+                    win.restore();
+                }
+                // Evitamos win.blur() ya que en Windows puede causar que la ventana se minimice o se envíe al fondo
                 win.focus();
             }
             return { success: true };
@@ -58,6 +61,13 @@ function registerSistemaIpc() {
         return isSincronizando();
     });
 
+    // Consultar el último estado de conexión conocido (ej. al montar el sidebar o abrir una
+    // ventana secundaria a mitad de un período sin conexión, para que el banner amigable
+    // aparezca de inmediato en vez de esperar al próximo cambio de estado).
+    ipcMain.handle('obtener-estado-conexion', async () => {
+        return hayConexionConocida();
+    });
+
     // Forzar Sincronización Manualmente
     ipcMain.handle('forzar-sincronizacion', async () => {
         if (isSincronizando()) {
@@ -67,7 +77,7 @@ function registerSistemaIpc() {
             await procesarSincronizacion();
             return { success: true };
         } catch (err) {
-            return { success: false, message: err.message };
+            return { success: false, message: err.message, sinConexion: err.sinConexion === true };
         }
     });
 }

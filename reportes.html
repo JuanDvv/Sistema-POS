@@ -174,6 +174,54 @@
             color: var(--text-primary);
         }
 
+        /* Detalle de Gastos: puede crecer mucho en días con muchos registros; se le da un alto
+           fijo con scroll interno (mismo criterio que .table-container-scroll en admin.html) en
+           vez de dejar que empuje el resto del reporte hacia abajo indefinidamente. */
+        .table-container-scroll {
+            overflow-x: auto;
+            overflow-y: auto;
+            width: 100%;
+            max-height: 420px;
+        }
+
+        .table-container-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        /* Botón flotante "Volver arriba": el reporte puede tener muchas secciones apiladas
+           (gastos, transferencias, cierres...) y .main-content es el contenedor con scroll real
+           (ver overflow-y:auto arriba), no la ventana. Oculto hasta que haya scroll suficiente. */
+        #btn-volver-arriba {
+            position: fixed;
+            right: 28px;
+            bottom: 28px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: none;
+            background-color: #1f2937;
+            color: #fff;
+            font-size: 1.2em;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 500;
+            transition: background-color 0.2s;
+        }
+
+        #btn-volver-arriba.visible {
+            display: flex;
+        }
+
+        #btn-volver-arriba:hover {
+            background-color: #374151;
+        }
+
         .cierre-separator-row td {
             background-color: #fffbeb;
             color: #92400e;
@@ -477,7 +525,8 @@
 
         <div class="split-tables">
             <div class="table-section">
-                <h3>Detalle de Ventas <span id="contador-ventas-dia" style="font-size:0.7em; font-weight:500; color:#6b7280;">(0 movimientos)</span></h3>
+                <h3>Detalle de Ventas <span id="contador-ventas-dia"
+                        style="font-size:0.7em; font-weight:500; color:#6b7280;">(0 movimientos)</span></h3>
                 <div style="overflow-x: auto; width: 100%;">
                     <table id="table-ventas-dia">
                         <thead>
@@ -487,23 +536,6 @@
                                 <th>Método</th>
                                 <th>Total</th>
                                 <th style="width: 190px;">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="table-section">
-                <h3>💳 Abonos de Pedidos Recibidos Hoy</h3>
-                <div style="overflow-x: auto; width: 100%;">
-                    <table id="table-abonos-pedido-dia">
-                        <thead>
-                            <tr>
-                                <th>Hora</th>
-                                <th>Cliente</th>
-                                <th>Método</th>
-                                <th>Monto</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -547,11 +579,36 @@
                 </div>
             </div>
             <div class="table-section">
-                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 15px;">
-                    <h3 style="margin: 0;">Detalle de Gastos</h3>
-                    <button type="button" class="btn-seguimiento-devoluciones" id="btn-abrir-devoluciones">🔄 Seguimiento de Devoluciones</button>
+                <div id="toggle-no-vendidos"
+                    style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0;">📦 Stock de Productos no vendidos</h3>
+                    <span id="icono-no-vendidos"
+                        style="font-size: 1.1em; color: #6b7280; transition: transform 0.2s;">▸</span>
                 </div>
-                <div style="overflow-x: auto; width: 100%;">
+                <div id="contenido-no-vendidos" style="display: none; margin-top: 15px;">
+                    <div style="overflow-x: auto; width: 100%;">
+                        <table id="table-productos-no-vendidos">
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th>Stock al Cierre del Día</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Llenado dinámico -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="table-section">
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Detalle de Gastos</h3>
+                    <button type="button" class="btn-seguimiento-devoluciones" id="btn-abrir-devoluciones">🔄
+                        Seguimiento de Devoluciones</button>
+                </div>
+                <div class="table-container-scroll">
                     <table id="table-gastos-dia">
                         <thead>
                             <tr>
@@ -607,6 +664,8 @@
         </div>
     </main>
 
+    <button type="button" id="btn-volver-arriba" title="Volver arriba">⬆️</button>
+
     <!-- Modal para editar gasto -->
     <div id="modal-gasto" class="modal">
         <div class="modal-content">
@@ -618,9 +677,11 @@
                 <div class="form-group">
                     <label for="edit-gasto-tipo">Clasificación del Gasto</label>
                     <select id="edit-gasto-tipo">
-                        <option value="Gastos Administrativos">🏢 Gastos Administrativos (Arriendo, servicios, mercancía, aseo)
+                        <option value="Gastos Administrativos">🏢 Gastos Administrativos (Arriendo, servicios,
+                            mercancía, aseo)
                         </option>
-                        <option value="Operativo">💸 Gasto Operativo (Día a día en sucursal, sale dinero de caja)</option>
+                        <option value="Operativo">💸 Gasto Operativo (Día a día en sucursal, sale dinero de caja)
+                        </option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -645,7 +706,8 @@
                 <h3>Seguimiento de Devoluciones de Producto</h3>
                 <button class="close-btn" id="btn-close-devoluciones-modal">&times;</button>
             </div>
-            <div style="display: flex; gap: 12px; padding: 10px 0; flex-shrink: 0; font-size: 0.9em; flex-wrap: wrap; align-items: center;">
+            <div
+                style="display: flex; gap: 12px; padding: 10px 0; flex-shrink: 0; font-size: 0.9em; flex-wrap: wrap; align-items: center;">
                 <span>⏳ Pendientes: <strong id="resumen-devoluciones-pendientes">0</strong></span>
                 <span>✅ Devueltas: <strong id="resumen-devoluciones-devueltas">0</strong></span>
                 <span>❌ Rechazadas: <strong id="resumen-devoluciones-rechazadas">0</strong></span>
@@ -693,9 +755,8 @@
                 <div class="form-group" style="display: flex; gap: 8px; align-items: flex-end;">
                     <div style="flex: 1;">
                         <label for="edit-venta-input-producto">Agregar producto</label>
-                        <input type="text" id="edit-venta-input-producto" list="datalist-edit-venta-productos"
-                            placeholder="Buscar producto..." autocomplete="off">
-                        <datalist id="datalist-edit-venta-productos"></datalist>
+                        <input type="text" id="edit-venta-input-producto" placeholder="Buscar producto..."
+                            autocomplete="off">
                     </div>
                     <button type="button" class="btn-primary" onclick="agregarProductoEdicionVenta()">➕ Agregar</button>
                 </div>
@@ -709,8 +770,10 @@
                     💳 Venta a crédito: el método de pago no se puede modificar desde aquí.
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="edit-venta-chk-domicilio" style="width: 16px; height: 16px; cursor: pointer;">
-                    <label for="edit-venta-chk-domicilio" style="cursor: pointer; user-select: none;">🛵 Domicilio</label>
+                    <input type="checkbox" id="edit-venta-chk-domicilio"
+                        style="width: 16px; height: 16px; cursor: pointer;">
+                    <label for="edit-venta-chk-domicilio" style="cursor: pointer; user-select: none;">🛵
+                        Domicilio</label>
                 </div>
                 <div id="edit-venta-domicilio-container" class="form-group" style="display: none;">
                     <label for="edit-venta-input-domicilio">Valor del domicilio ($)</label>
@@ -765,6 +828,7 @@
     <div id="area-ticket-impresion"></div>
 
     <script src="./sidebar.js"></script>
+    <script src="./productoBuscador.js"></script>
     <script src="./reportes.js"></script>
 </body>
 

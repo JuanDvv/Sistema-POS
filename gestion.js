@@ -1,5 +1,16 @@
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
+const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
+const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
 let datosReporteGlobal = { ventas: [], gastos: [], ranking: [], abonos: [], abonosPedido: [] };
+
+// Mismo día calendario LOCAL (no solo "hace menos de 24h"). Mismo criterio que usa el backend
+// (strftime('%Y-%m-%d', fecha, 'localtime')) para bloquear el borrado de abonos de un día anterior.
+function esFechaDeHoy(iso) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    const hoy = new Date();
+    return d.getFullYear() === hoy.getFullYear() && d.getMonth() === hoy.getMonth() && d.getDate() === hoy.getDate();
+}
 let gFechaInicio = '';
 let gFechaFin = '';
 
@@ -1098,10 +1109,14 @@ function renderizarTabCreditos() {
         const tr = document.createElement('tr');
         const fechaLegible = new Date(mov.fecha).toLocaleString('es-CO');
         const escId = mov.id.replace(/'/g, "\\'");
-        const btnDeleteHtml = mov.isVenta 
-            ? '-' 
-            : `<button class="btn-delete" onclick="eliminarAbono('${escId}')">🗑️ Borrar</button>`;
-            
+        // Un abono de un día anterior solo lo puede borrar un Administrador (el backend ya lo
+        // bloquea, ver 'eliminar-abono' en ipc/registerClientesIpc.js; esto solo evita mostrarle
+        // el botón a quien de todas formas recibiría el error al hacer clic).
+        const puedeEliminarAbono = !mov.isVenta && (auditoriaRol === 'Administrador' || esFechaDeHoy(mov.fecha));
+        const btnDeleteHtml = puedeEliminarAbono
+            ? `<button class="btn-delete" onclick="eliminarAbono('${escId}')">🗑️ Borrar</button>`
+            : '-';
+
         tr.innerHTML = `
             <td>${fechaLegible}</td>
             <td><strong>${mov.clienteNombre}</strong></td>
@@ -1161,7 +1176,7 @@ window.verDetalleCliente = (clienteId) => {
 
 window.eliminarAbono = async (abonoId) => {
     if (confirm("¿Estás seguro de que deseas eliminar este abono? El saldo del cliente se incrementará correspondiente al monto del abono.")) {
-        const res = await window.api.eliminarAbono(abonoId);
+        const res = await window.api.eliminarAbono({ id: abonoId, auditoriaUsuario, auditoriaRol });
         alert(res.message);
         if (res.success) {
             await cargarReporteCreditos();

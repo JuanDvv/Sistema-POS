@@ -8,6 +8,42 @@ let totalRegistros = 0;
 let debounceFiltrosAuditoria = null;
 const mapaProductos = new Map(); // id de producto -> nombre, para mostrar nombres en vez de IDs en los detalles
 
+// Recuerda los filtros seleccionados mientras dura la sesión de la ventana: al navegar a otra
+// pantalla y volver (cada pantalla es una carga de página completa, no una SPA) se restauran en
+// vez de resetearse. sessionStorage y no localStorage para aislar por ventana, igual que el
+// carrito temporal (ver 'carrito_temporal' en ventas.js).
+const STORAGE_KEY_FILTROS_AUDITORIA = 'auditoria_filtros';
+
+function guardarFiltrosEnStorage() {
+    const filtros = {
+        usuario: document.getElementById('filtro-usuario').value,
+        sucursal: document.getElementById('filtro-sucursal').value,
+        accion: document.getElementById('filtro-accion').value,
+        detalles: document.getElementById('filtro-detalles').value,
+        fechaDesde: document.getElementById('filtro-fecha-desde').value,
+        fechaHasta: document.getElementById('filtro-fecha-hasta').value
+    };
+    sessionStorage.setItem(STORAGE_KEY_FILTROS_AUDITORIA, JSON.stringify(filtros));
+}
+
+// Se llama después de poblar los <select> con sus opciones dinámicas (usuarios/sucursales/
+// acciones), para que el valor guardado ya tenga un <option> al que engancharse.
+function restaurarFiltrosDesdeStorage() {
+    const guardado = sessionStorage.getItem(STORAGE_KEY_FILTROS_AUDITORIA);
+    if (!guardado) return;
+    try {
+        const filtros = JSON.parse(guardado);
+        document.getElementById('filtro-usuario').value = filtros.usuario || '';
+        document.getElementById('filtro-sucursal').value = filtros.sucursal || '';
+        document.getElementById('filtro-accion').value = filtros.accion || '';
+        document.getElementById('filtro-detalles').value = filtros.detalles || '';
+        document.getElementById('filtro-fecha-desde').value = filtros.fechaDesde || '';
+        document.getElementById('filtro-fecha-hasta').value = filtros.fechaHasta || '';
+    } catch {
+        sessionStorage.removeItem(STORAGE_KEY_FILTROS_AUDITORIA);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Validar Rol de Administrador
     const role = localStorage.getItem('currentRole') || 'Sin Rol';
@@ -33,6 +69,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await Promise.all([cargarSucursalesFiltro(), cargarAccionesFiltro(), cargarUsuariosFiltro(), cargarProductosParaAuditoria()]);
+    restaurarFiltrosDesdeStorage();
     await cargarAuditoria();
 
     const filtroUsuario = document.getElementById('filtro-usuario');
@@ -56,6 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         filtroDetalles.value = '';
         filtroFechaDesde.value = '';
         filtroFechaHasta.value = '';
+        sessionStorage.removeItem(STORAGE_KEY_FILTROS_AUDITORIA);
         paginaActual = 1;
         cargarAuditoria();
     });
@@ -82,6 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function recargarConDebounce() {
+    guardarFiltrosEnStorage();
     clearTimeout(debounceFiltrosAuditoria);
     debounceFiltrosAuditoria = setTimeout(() => {
         paginaActual = 1;
@@ -153,13 +192,23 @@ async function cargarProductosParaAuditoria() {
     }
 }
 
-// Devuelve los IDs de producto cuyo nombre contiene el texto buscado (usado para que el filtro de
-// Detalles también encuentre coincidencias por nombre, aunque en la BD los detalles guarden el ID).
+// Quita tildes/diacríticos y pasa a minúsculas, igual que en ventas.js: permite que la búsqueda de
+// "Detalles" ignore tildes tanto en el propio texto (resuelto server-side en buscar_auditoria, ver
+// sync/migrate_auditoria_busqueda_insensible.sql) como al resolver nombres de producto acá.
+function normalizeStr(value) {
+    if (value == null) return '';
+    return String(value).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Devuelve los IDs de producto cuyo nombre contiene todas las palabras del texto buscado, sin
+// importar tildes ni el orden (usado para que el filtro de Detalles también encuentre coincidencias
+// por nombre, aunque en la BD los detalles guarden el ID).
 function productoIdsPorNombre(texto) {
-    const textoLower = texto.toLowerCase();
+    const terminos = normalizeStr(texto).split(/\s+/).filter(Boolean);
     const ids = [];
     mapaProductos.forEach((nombre, id) => {
-        if (nombre && nombre.toLowerCase().includes(textoLower)) ids.push(id);
+        const nombreNormalizado = normalizeStr(nombre);
+        if (terminos.every(t => nombreNormalizado.includes(t))) ids.push(id);
     });
     return ids;
 }

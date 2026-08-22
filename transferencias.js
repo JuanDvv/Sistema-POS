@@ -3,6 +3,8 @@ let sucursalDestinoId = "";
 let productosLocales = [];
 let transferCart = []; // Elementos que se van a transferir: { id, nombre, cantidad, stockMaximo }
 let sucursalesDisponibles = [];
+let categoriasCargadas = [];
+let filtroCategorias = null; // Instancia del selector múltiple de categorías (ver categoriaFiltro.js)
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 
 // Datos de sesión activa
@@ -13,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectOrigen = document.getElementById('select-sucursal-origen');
     const selectDestino = document.getElementById('select-sucursal-destino');
     const searchInput = document.getElementById('search-productos');
+    const filterCat = document.getElementById('filter-categoria');
 
     // Event listeners
     if (selectOrigen) {
@@ -31,16 +34,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Cargar y montar el selector múltiple de categorías
+    if (filterCat) {
+        const resCat = await window.api.obtenerCategorias();
+        if (resCat.success && resCat.data) {
+            categoriasCargadas = resCat.data;
+        }
+        filtroCategorias = crearFiltroCategorias({
+            contenedor: filterCat,
+            categorias: categoriasCargadas,
+            tieneNegativos: false,
+            onChange: () => filtrarYRenderizarCatalogo()
+        });
+    }
+
     if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            const query = normalizeStr(e.target.value);
-            const terms = query.split(/\s+/).filter(Boolean);
-            const filtrados = productosLocales.filter(p => {
-                const nombre = normalizeStr(p.nombre);
-                const desc = normalizeStr(p.descripcion || '');
-                return terms.every(term => nombre.includes(term) || desc.includes(term));
-            });
-            renderizarCatalogo(filtrados);
+        searchInput.addEventListener('input', () => {
+            filtrarYRenderizarCatalogo();
         });
     }
 
@@ -171,8 +181,46 @@ async function cargarCatalogo() {
         productosLocales = response.data || [];
         // Ordenar alfabéticamente por nombre
         productosLocales.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-        renderizarCatalogo(productosLocales);
+        filtrarYRenderizarCatalogo();
     }
+}
+
+function filtrarYRenderizarCatalogo() {
+    const searchInput = document.getElementById('search-productos');
+    const query = searchInput ? normalizeStr(searchInput.value) : "";
+
+    // Selección del filtro múltiple de categorías: puede traer ids de categoría reales (la opción
+    // "Con Unidades Negativas" no se ofrece aquí, ver tieneNegativos: false más arriba).
+    const seleccion = filtroCategorias ? filtroCategorias.getSeleccion() : new Set();
+    const filtrarDisponibles = seleccion.has('disponibles');
+    const catIdsSeleccionadas = [...seleccion].filter(id => id !== 'disponibles' && id !== 'negativos');
+    let allowedCatIds = [];
+    catIdsSeleccionadas.forEach(catId => {
+        allowedCatIds.push(catId);
+        // Agregar subcategorías
+        const subcats = categoriasCargadas.filter(cat => cat.categoria_padre_id === catId);
+        subcats.forEach(sub => {
+            allowedCatIds.push(sub.id);
+        });
+    });
+
+    const productosFiltrados = productosLocales.filter(prod => {
+        if (filtrarDisponibles && Number(prod.stock || 0) <= 0) {
+            return false;
+        }
+        if (catIdsSeleccionadas.length > 0 && !allowedCatIds.includes(prod.categoria_id)) {
+            return false;
+        }
+        if (query) {
+            const terms = query.split(/\s+/).filter(Boolean);
+            const nombre = normalizeStr(prod.nombre);
+            const desc = normalizeStr(prod.descripcion || '');
+            return terms.every(term => nombre.includes(term) || desc.includes(term));
+        }
+        return true;
+    });
+
+    renderizarCatalogo(productosFiltrados);
 }
 
 function renderizarCatalogo(productos) {

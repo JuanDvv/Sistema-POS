@@ -246,6 +246,8 @@
                         <option value="entregado">Entregado</option>
                         <option value="cancelado">Cancelado</option>
                     </select>
+                    <select id="filtro-sucursal-pedidos" title="Ver pedidos de otra sucursal sin activarla en este equipo"
+                        style="display: none; flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;"></select>
                     <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9em; color: #374151; white-space: nowrap; padding: 0 6px;">
                         <input type="checkbox" id="filtro-creados-hoy">
                         🆕 Creados hoy
@@ -292,6 +294,16 @@
                         <div class="cart-list" id="cart-list-pedido">
                             <p style="color: #6b7280; text-align: center; margin: 20px 0;">El pedido está vacío.</p>
                         </div>
+
+                        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <input type="checkbox" id="pedido-chk-domicilio" style="width: auto;">
+                            <label for="pedido-chk-domicilio" style="margin: 0;">🛵 Domicilio</label>
+                        </div>
+                        <div class="form-group" id="pedido-domicilio-container" style="display: none;">
+                            <label for="pedido-input-domicilio">Valor del Domicilio ($)</label>
+                            <input type="text" inputmode="numeric" id="pedido-input-domicilio" placeholder="0">
+                        </div>
+
                         <div class="summary-row" style="display: flex; justify-content: space-between; margin: 12px 0; font-size: 1.05em;">
                             <span>Total:</span>
                             <strong id="cart-total-pedido" style="color: #10b981; font-size: 1.2em;">$0</strong>
@@ -396,11 +408,20 @@
 
             <h4>Productos</h4>
             <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                <input type="text" id="detalle-agregar-producto" list="datalist-productos" placeholder="Agregar producto por nombre..." style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
-                <datalist id="datalist-productos"></datalist>
+                <input type="text" id="detalle-agregar-producto" placeholder="Agregar producto por nombre..." style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
                 <button class="btn-primary" id="btn-agregar-producto-detalle">➕</button>
             </div>
             <div class="cart-list" id="detalle-cart-list"></div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; margin-top: 8px;">
+                <input type="checkbox" id="detalle-chk-domicilio" style="width: auto;">
+                <label for="detalle-chk-domicilio" style="margin: 0;">🛵 Domicilio</label>
+            </div>
+            <div class="form-group" id="detalle-domicilio-container" style="display: none;">
+                <label for="detalle-input-domicilio">Valor del Domicilio ($)</label>
+                <input type="text" inputmode="numeric" id="detalle-input-domicilio" placeholder="0">
+            </div>
+
             <div class="summary-row" style="display: flex; justify-content: space-between; margin: 10px 0; font-weight: bold;">
                 <span>Total:</span>
                 <span id="detalle-total">$0</span>
@@ -437,6 +458,7 @@
 
     <script src="./sidebar.js"></script>
     <script src="./categoriaFiltro.js"></script>
+    <script src="./productoBuscador.js"></script>
     <script src="./pedidos.js"></script>
 </body>
 

@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('api', {
     onSincronizacionCompleta: (callback) => ipcRenderer.on('sincronizacion-completa', () => callback()),
     onSincronizacionEstado: (callback) => ipcRenderer.on('sincronizacion-estado', (event, enCurso) => callback(enCurso)),
     isSincronizando: () => ipcRenderer.invoke('is-sincronizando'),
+    onSincronizacionConexion: (callback) => ipcRenderer.on('sincronizacion-conexion', (event, conectado) => callback(conectado)),
+    obtenerEstadoConexion: () => ipcRenderer.invoke('obtener-estado-conexion'),
+    onTransferenciaEntrante: (callback) => ipcRenderer.on('transferencia-entrante', (event, traslado) => callback(traslado)),
 
     // Módulo de créditos a clientes
     obtenerClientes: () => ipcRenderer.invoke('obtener-clientes'),
@@ -59,8 +62,12 @@ contextBridge.exposeInMainWorld('api', {
     eliminarCliente: (id) => ipcRenderer.invoke('eliminar-cliente', id),
     obtenerAbonos: (clienteId) => ipcRenderer.invoke('obtener-abonos', clienteId),
     registrarAbono: (datos) => ipcRenderer.invoke('registrar-abono', datos),
-    eliminarAbono: (id) => ipcRenderer.invoke('eliminar-abono', id),
+    eliminarAbono: (datos) => ipcRenderer.invoke('eliminar-abono', datos),
     obtenerReporteCreditos: (params) => ipcRenderer.invoke('obtener-reporte-creditos', params),
+
+    // Recuperación de Abonos eliminados (Crédito y Pedidos), Administrador únicamente
+    listarAbonosEliminados: () => ipcRenderer.invoke('listar-abonos-eliminados'),
+    recuperarAbono: (datos) => ipcRenderer.invoke('recuperar-abono', datos),
 
     // Módulo de Ventas de Fecha Anterior (con cola de aprobación para Operadores)
     registrarVentaAnterior: (datos) => ipcRenderer.invoke('registrar-venta-anterior', datos),
@@ -71,6 +78,12 @@ contextBridge.exposeInMainWorld('api', {
     aprobarSolicitudVenta: (datos) => ipcRenderer.invoke('aprobar-solicitud-venta', datos),
     rechazarSolicitudVenta: (datos) => ipcRenderer.invoke('rechazar-solicitud-venta', datos),
     contarSolicitudesPendientes: () => ipcRenderer.invoke('contar-solicitudes-pendientes'),
+
+    // Módulo de Gastos de Fecha Anterior (con cola de aprobación para Operadores)
+    registrarGastoAnterior: (datos) => ipcRenderer.invoke('registrar-gasto-anterior', datos),
+    obtenerSolicitudesGasto: (filtros) => ipcRenderer.invoke('obtener-solicitudes-gasto', filtros),
+    aprobarSolicitudGasto: (datos) => ipcRenderer.invoke('aprobar-solicitud-gasto', datos),
+    rechazarSolicitudGasto: (datos) => ipcRenderer.invoke('rechazar-solicitud-gasto', datos),
 
     // Módulo de Logs de Auditoría (Administrador)
     obtenerAuditoria: (filtros) => ipcRenderer.invoke('obtener-auditoria', filtros),
@@ -100,5 +113,13 @@ contextBridge.exposeInMainWorld('api', {
     obtenerVentanaCajaActual: (datos) => ipcRenderer.invoke('obtener-ventana-caja-actual', datos),
     registrarCierreCaja: (datos) => ipcRenderer.invoke('registrar-cierre-caja', datos),
     obtenerCierresCaja: (filtros) => ipcRenderer.invoke('obtener-cierres-caja', filtros),
-    eliminarCierreCaja: (datos) => ipcRenderer.invoke('eliminar-cierre-caja', datos)
+    eliminarCierreCaja: (datos) => ipcRenderer.invoke('eliminar-cierre-caja', datos),
+    recalcularCierreCaja: (datos) => ipcRenderer.invoke('recalcular-cierre-caja', datos),
+
+    // Módulo de Sugeridos Semanales y Calculadora de Pedido Extra de Pastelería (proveedor)
+    obtenerSugeridosPasteleria: (sucursalId) => ipcRenderer.invoke('obtener-sugeridos-pasteleria', { sucursalId }),
+    guardarSugeridoPasteleria: (datos) => ipcRenderer.invoke('guardar-sugerido-pasteleria', datos),
+    exportarExcelSugeridosPasteleria: (sucursalId) => ipcRenderer.invoke('exportar-excel-sugeridos-pasteleria', { sucursalId }),
+    obtenerRecomendacionesPedidoExtra: (sucursalId) => ipcRenderer.invoke('obtener-recomendaciones-pedido-extra', { sucursalId }),
+    exportarExcelPedidoExtra: (sucursalId) => ipcRenderer.invoke('exportar-excel-pedido-extra', { sucursalId })
 });

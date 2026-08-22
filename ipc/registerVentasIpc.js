@@ -9,11 +9,55 @@ const { solicitarSincronizacion } = require('../sync/syncService');
 // SRP: expone como IPC el ciclo de vida de una venta (día actual, fecha anterior y
 // aprobación de solicitudes). La lógica transaccional vive en services/ventaService.
 
+// Calcula la fecha/hora real de una venta de fecha anterior: se coloca justo después de la
+// última venta ya registrada ese día en la sucursal (1s más tarde), para que aparezca al final
+// del listado del día en vez de "metida" a mediodía entre ventas reales con hora real. Si no hay
+// ventas previas ese día, cae al mediodía como antes (construirFechaISODeDia).
+async function calcularFechaVentaAnterior(fechaDia, sucursalId, excluirVentaId = null) {
+    const params = [sucursalId, fechaDia];
+    let excluirSql = '';
+    if (excluirVentaId) {
+        excluirSql = ' AND id != ?';
+        params.push(excluirVentaId);
+    }
+    const fila = await new Promise((resolve, reject) => {
+        db.get(
+            `SELECT MAX(fecha) as ultima FROM ventas WHERE sucursal_id = ? AND strftime('%Y-%m-%d', fecha, 'localtime') = ? AND (sync_status IS NULL OR sync_status <> 'deleted')${excluirSql}`,
+            params,
+            (err, row) => { if (err) reject(err); else resolve(row); }
+        );
+    });
+
+    if (fila && fila.ultima) {
+        const siguiente = new Date(fila.ultima);
+        siguiente.setSeconds(siguiente.getSeconds() + 1);
+
+        // Si sumar 1s empuja la hora al día calendario local siguiente (última venta real muy
+        // cerca de medianoche), se deja en el último segundo del día elegido para que la venta no
+        // "se fugue" al día siguiente y desaparezca del reporte del día que se está registrando.
+        const y = siguiente.getFullYear();
+        const m = String(siguiente.getMonth() + 1).padStart(2, '0');
+        const d = String(siguiente.getDate()).padStart(2, '0');
+        if (`${y}-${m}-${d}` !== fechaDia) {
+            siguiente.setHours(23, 59, 59, 0);
+        }
+
+        return siguiente.toISOString();
+    }
+
+    return construirFechaISODeDia(fechaDia);
+}
+
 function registerVentasIpc() {
     ipcMain.handle('registrar-venta', async (event, datosVenta) => {
-        const { sucursalId, metodoPago, total, carrito, auditoriaUsuario, auditoriaRol, valorDomicilio, es_credito, cliente_id } = datosVenta;
+        const { sucursalId, metodoPago, total, carrito, auditoriaUsuario, auditoriaRol, valorDomicilio, es_credito, cliente_id, montoRecibido, vuelto } = datosVenta;
+
+        if (!Array.isArray(carrito) || carrito.length === 0) {
+            return { success: false, message: 'El carrito está vacío. Agrega productos para cobrar.' };
+        }
+
         return insertarVentaTx({
-            sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id,
+            sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id, montoRecibido, vuelto,
             fecha: new Date().toISOString(),
             auditoriaUsuario, auditoriaRol,
             accion: 'Registrar Venta',
@@ -111,7 +155,22 @@ function registerVentasIpc() {
                     cli.nombre as cliente_nombre,
                     cli.categoria as cliente_categoria,
                     group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
-                    CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido
+                    CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido,
+                    -- Para pedidos entregados: entregarPedidoTx exige saldo $0 antes de entregar,
+                    -- así que el total abonado siempre iguala v.total -- se recalcula aquí (en vez
+                    -- de confiar en v.total) por si algún abono quedó excluido por soft-delete.
+                    -- pedido_abonado_mismo_dia distingue si el saldo se completó HOY (abono real
+                    -- que entró a caja este día) o si ya venía pago de días anteriores (el cierre de
+                    -- hoy no metió dinero nuevo) -- ver uso en reportes.js.
+                    COALESCE((
+                        SELECT SUM(ap.monto) FROM abonos_pedido ap
+                        WHERE ap.pedido_id = ped.id AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
+                    ), 0) as pedido_total_abonado,
+                    COALESCE((
+                        SELECT SUM(ap.monto) FROM abonos_pedido ap
+                        WHERE ap.pedido_id = ped.id AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
+                          AND strftime('%Y-%m-%d', ap.fecha, 'localtime') = strftime('%Y-%m-%d', v.fecha, 'localtime')
+                    ), 0) as pedido_abonado_mismo_dia
                  FROM ventas v
                  LEFT JOIN detalle_ventas dv ON v.id = dv.venta_id
                  LEFT JOIN productos p ON dv.producto_id = p.id
@@ -220,7 +279,39 @@ function registerVentasIpc() {
                 queryParamsProductos
             );
 
-            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, abonosPedido };
+            // Productos de la sucursal que NO tuvieron ninguna venta ese día ("Productos que no se
+            // vendieron"). Complementa el Reporte BiBI (que solo lista productos con ventas) sin
+            // tocar esa consulta -- se muestra en una sección aparte, colapsada por defecto, en el
+            // frontend. Usa la misma fórmula de stock congelado al cierre del día que productosResumen.
+            const queryParamsNoVendidos = [fecha, sucursalId, sucursalId, fecha, ...queryParamsResumen.slice(2)];
+            const productosNoVendidos = await allQuery(
+                `SELECT
+                    p.nombre as producto_nombre,
+                    COALESCE(c.nombre, 'Sin Categoría') as categoria_nombre,
+                    c.id as categoria_id,
+                    COALESCE(inv.stock, 0) - COALESCE((
+                        SELECT SUM(mi.cantidad) FROM movimientos_inventario mi
+                        WHERE mi.producto_id = p.id AND mi.sucursal_id = inv.sucursal_id
+                          AND strftime('%Y-%m-%d', mi.fecha, 'localtime') > ?
+                    ), 0) as stock_actual
+                 FROM inventario_sucursal inv
+                 JOIN productos p ON p.id = inv.producto_id
+                 LEFT JOIN categorias c ON p.categoria_id = c.id
+                 WHERE inv.sucursal_id = ?
+                   AND p.deleted_at IS NULL AND inv.deleted_at IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM ventas v
+                       JOIN detalle_ventas dv ON dv.venta_id = v.id
+                       WHERE dv.producto_id = p.id AND v.sucursal_id = ?
+                         AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ?
+                         AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                   )
+                   ${categoryFilterResumenSql}
+                 ORDER BY c.nombre ASC, p.nombre ASC`,
+                queryParamsNoVendidos
+            );
+
+            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, productosNoVendidos, abonosPedido };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -244,7 +335,7 @@ function registerVentasIpc() {
         if (auditoriaRol === 'Administrador') {
             const resultado = await insertarVentaTx({
                 sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id,
-                fecha: construirFechaISODeDia(fechaVenta),
+                fecha: await calcularFechaVentaAnterior(fechaVenta, sucursalId),
                 auditoriaUsuario, auditoriaRol,
                 accion: 'Registrar Venta (Fecha Anterior)'
             });
@@ -308,7 +399,7 @@ function registerVentasIpc() {
         if (auditoriaRol === 'Administrador') {
             const resultado = await editarVentaCompletaTx({
                 ventaId, sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id,
-                fecha: construirFechaISODeDia(fechaVenta),
+                fecha: await calcularFechaVentaAnterior(fechaVenta, sucursalId, ventaId),
                 auditoriaUsuario, auditoriaRol,
                 accion: 'Editar Venta (Fecha Anterior)'
             });
@@ -437,7 +528,11 @@ function registerVentasIpc() {
             }
 
             const datosParseados = JSON.parse(solicitud.datos || '{}');
-            const fecha = construirFechaISODeDia(solicitud.fecha_venta);
+            const fecha = await calcularFechaVentaAnterior(
+                solicitud.fecha_venta,
+                solicitud.sucursal_id,
+                solicitud.tipo === 'edicion' ? solicitud.venta_id : null
+            );
             let resultado;
 
             if (solicitud.tipo === 'nueva') {
@@ -531,14 +626,22 @@ function registerVentasIpc() {
         }
     });
 
-    // Contar solicitudes pendientes (para el badge del sidebar)
+    // Contar solicitudes pendientes (para el badge del sidebar) -- suma ventas y gastos de fecha
+    // anterior retroactivos, ambas colas de aprobación de Operador que un Administrador revisa
+    // desde la misma sección de Administración.
     ipcMain.handle('contar-solicitudes-pendientes', async () => {
         try {
             const row = await new Promise((resolve, reject) => {
-                db.get(`SELECT COUNT(*) as total FROM solicitudes_venta WHERE estado = 'pendiente'`, [], (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                });
+                db.get(
+                    `SELECT
+                        (SELECT COUNT(*) FROM solicitudes_venta WHERE estado = 'pendiente') +
+                        (SELECT COUNT(*) FROM solicitudes_gasto WHERE estado = 'pendiente') as total`,
+                    [],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row);
+                    }
+                );
             });
             return { success: true, count: row ? row.total : 0 };
         } catch (err) {

@@ -207,6 +207,34 @@ function initDB(db) {
             cursor INTEGER NOT NULL DEFAULT 0
         )`);
 
+        // 7c. Outbox local de líneas de venta eliminadas por edición (editarVentaCompletaTx,
+        // services/ventaService.js reemplaza detalle_ventas con DELETE físico + INSERT de ids
+        // nuevos). Ese DELETE físico local no deja rastro para avisarle a Supabase que esos ids
+        // deben marcarse deleted_at -- sin este outbox, otra terminal que ya había descargado esa
+        // línea nunca recibe la señal de borrado y la línea queda huérfana para siempre en su
+        // SQLite local. syncDetalleVentasEliminaciones (sync/syncService.js) drena esta tabla:
+        // hace soft delete remoto por id y limpia la fila de aquí.
+        db.run(`CREATE TABLE IF NOT EXISTS detalle_ventas_eliminaciones_pendientes (
+            id TEXT PRIMARY KEY,
+            venta_id TEXT NOT NULL
+        )`);
+
+        // 7d. Marcador de reparaciones locales de una sola vez (ver repararDetalleVentasHuerfanas
+        // en sync/syncService.js): a diferencia de repararDetalleVentasDuplicado (puramente local,
+        // barata de repetir en cada ciclo), una reparación que necesita comparar contra el set
+        // completo de ids vigentes en la nube sí tiene costo de red real -- este marcador evita
+        // pagarlo para siempre una vez que la limpieza histórica ya corrió en esta instalación.
+        db.run(`CREATE TABLE IF NOT EXISTS reparaciones_locales (
+            nombre TEXT PRIMARY KEY,
+            aplicada_en TEXT
+        )`, [], () => {
+            // intentos: cuenta reintentos cuando una reparación no logra completarse en un solo
+            // ciclo (ver repararDetalleVentasHuerfanas) -- sin este tope, un caso que nunca termina
+            // de resolverse reintentaría para siempre en cada ciclo, pagando el costo de red de
+            // traer el set completo de ids vigentes una y otra vez indefinidamente.
+            db.run(`ALTER TABLE reparaciones_locales ADD COLUMN intentos INTEGER DEFAULT 0`, [], () => { });
+        });
+
         // 8. Tabla de Transferencias de Inventario
         db.run(`CREATE TABLE IF NOT EXISTS transferencias (
             id TEXT PRIMARY KEY,
@@ -279,6 +307,12 @@ function initDB(db) {
         db.run(`ALTER TABLE ventas ADD COLUMN es_credito INTEGER DEFAULT 0`, [], () => {});
         db.run(`ALTER TABLE ventas ADD COLUMN cliente_id TEXT`, [], () => {});
 
+        // Monto recibido y vuelto entregados al cobrar en efectivo (o la porción en efectivo de un
+        // pago Mixto). NULL para ventas sin componente en efectivo (Transferencia, Crédito) o
+        // anteriores a esta migración. Ver sync/migrate_monto_recibido_venta.sql para Supabase.
+        db.run(`ALTER TABLE ventas ADD COLUMN monto_recibido REAL`, [], () => {});
+        db.run(`ALTER TABLE ventas ADD COLUMN vuelto REAL`, [], () => {});
+
         // 13. Tabla de Solicitudes de Venta Retroactiva (ingreso/edición/eliminación de ventas
         // de días anteriores, pendientes de aprobación cuando las crea un Operador)
         db.run(`CREATE TABLE IF NOT EXISTS solicitudes_venta (
@@ -301,6 +335,29 @@ function initDB(db) {
             agregarSoporteLWW(db, 'solicitudes_venta', ['id']);
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_solicitudes_venta_estado ON solicitudes_venta(estado)`);
+
+        // 13b. Tabla de Solicitudes de Gasto Retroactivo (registro de gastos de días anteriores,
+        // pendientes de aprobación cuando las crea un Operador). Solo cubre alta ("nueva"): editar
+        // o borrar un gasto ya existente, sea del día que sea, no pasa por aquí -- ver 'editar-gasto'
+        // / 'eliminar-gasto' en ipc/registerGastosIpc.js, que no tienen restricción de fecha ni rol.
+        db.run(`CREATE TABLE IF NOT EXISTS solicitudes_gasto (
+            id TEXT PRIMARY KEY,
+            sucursal_id TEXT NOT NULL,
+            fecha_gasto TEXT NOT NULL,
+            datos TEXT,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            usuario_solicitante TEXT NOT NULL,
+            fecha_solicitud TEXT NOT NULL,
+            usuario_revisor TEXT,
+            fecha_revision TEXT,
+            motivo_rechazo TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT
+        )`, [], () => {
+            agregarSoporteLWW(db, 'solicitudes_gasto', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_solicitudes_gasto_estado ON solicitudes_gasto(estado)`);
 
         // 14. Tabla de Movimientos de Inventario (Kardex): registro append-only de cada cambio de
         // stock, con el delta firmado ya aplicado y el motivo (`tipo`) que lo originó. Sin esta
@@ -471,7 +528,7 @@ function initDB(db) {
         db.run(`CREATE INDEX IF NOT EXISTS idx_abonos_pedido_pedido ON abonos_pedido(pedido_id)`);
 
         // 19. Tabla de Cierres de Caja: cuadre de caja por ventana de tiempo (cambios de turno,
-        // verificaciones puntuales o cierre de día), ver services/cierreCajaService.js. Cada
+        // cierres parciales o cierre de día), ver services/cierreCajaService.js. Cada
         // cierre retira físicamente el efectivo contado a caja fuerte, así que el turno siguiente
         // siempre arranca del fondo_base fijo -- no se encadena el conteo del cierre anterior --
         // y fecha_desde/fecha_hasta delimitan la ventana exacta que cada operador contó, para que
@@ -501,6 +558,47 @@ function initDB(db) {
         // Enlaza el gasto de reembolso generado al cancelar un pedido con el pedido que lo originó
         // (mismo propósito que gastos.venta_id para el gasto de "Domicilio", ver ventaService.js).
         db.run(`ALTER TABLE gastos ADD COLUMN pedido_id TEXT`, [], () => { });
+
+        // Valor del domicilio (envío) del pedido, sumado a `total` junto con los productos. A
+        // diferencia de `ventas` (donde el domicilio queda embebido como sufijo en metodo_pago
+        // porque la venta se cobra completa en el momento), el pedido se paga con abonos a lo largo
+        // del tiempo, así que necesita su propia columna para saber cuánto del total corresponde a
+        // domicilio sin depender de cómo se repartieron los abonos. El gasto "Domicilio (Descuento
+        // de Caja)" recién se genera al entregar el pedido (ver entregarPedidoTx en
+        // services/pedidoService.js), momento en que el mensajero realmente sale a hacer la entrega.
+        db.run(`ALTER TABLE pedidos ADD COLUMN valor_domicilio REAL DEFAULT 0`, [], () => { });
+
+        // 20. Tabla de Sugeridos Semanales de Pastelería: 3 cantidades sugeridas por producto+sucursal
+        // (una por día de entrega del proveedor: martes/jueves/sábado), editables solo por
+        // Administrador (ver ipc/registerPedidoSugeridoIpc.js). El proveedor completa el stock físico
+        // hasta este valor en cada entrega -- no es un delta, es la meta de stock para ese día.
+        // Usa un id sintético (no PK compuesta como inventario_sucursal) para poder sincronizarse con
+        // el mecanismo genérico de upsert LWW (ON CONFLICT(id)) igual que 14+ tablas más del proyecto,
+        // en vez de la maquinaria especial de delta-sync que inventario_sucursal necesita solo porque
+        // varias terminales incrementan/decrementan su stock de forma concurrente -- aquí un
+        // Administrador simplemente sobrescribe 3 números, así que una foto LWW plana es correcta y
+        // más simple. Riesgo aceptado: si dos terminales offline crean, cada una por su lado, el
+        // primer sugerido de un mismo producto+sucursal antes de sincronizar, cada una genera un id
+        // distinto y la subida posterior puede chocar contra la restricción UNIQUE en Supabase; caso
+        // extremo poco probable (solo afecta al primer guardado de un producto que nunca tuvo
+        // sugerido) y se resuelve reintentando el guardado tras sincronizar.
+        db.run(`CREATE TABLE IF NOT EXISTS sugeridos_pasteleria (
+            id TEXT PRIMARY KEY,
+            producto_id TEXT NOT NULL,
+            sucursal_id TEXT NOT NULL,
+            sugerido_martes INTEGER NOT NULL DEFAULT 0,
+            sugerido_jueves INTEGER NOT NULL DEFAULT 0,
+            sugerido_sabado INTEGER NOT NULL DEFAULT 0,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at TEXT,
+            UNIQUE(producto_id, sucursal_id),
+            FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+            FOREIGN KEY (sucursal_id) REFERENCES config_sucursal(id) ON DELETE CASCADE
+        )`, [], () => {
+            agregarSoporteLWW(db, 'sugeridos_pasteleria', ['id']);
+        });
+        db.run(`CREATE INDEX IF NOT EXISTS idx_sugeridos_pasteleria_sucursal ON sugeridos_pasteleria(sucursal_id)`);
 
         // 10. Crear índices de optimización para búsquedas rápidas locales
         db.run(`CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)`);

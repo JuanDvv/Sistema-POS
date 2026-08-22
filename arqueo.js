@@ -7,6 +7,14 @@ const SPLIT_STORAGE_KEY = 'arqueo-caja-split-width';
 const BASE_CAJA_SUCURSAL = 300000; // Fallback local si obtenerVentanaCajaActual falla.
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
 
+function obtenerFechaHoyStr() {
+    const hoy = new Date();
+    const y = hoy.getFullYear();
+    const m = String(hoy.getMonth() + 1).padStart(2, '0');
+    const d = String(hoy.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 function guardarValoresCuadre(inputs = document.querySelectorAll('.denom-input')) {
     const valores = {};
     inputs.forEach(input => {
@@ -41,10 +49,20 @@ function inicializarSplitter() {
 
     const MIN_WIDTH = 260;
 
-    const anchoGuardado = parseInt(localStorage.getItem(SPLIT_STORAGE_KEY), 10);
-    if (!isNaN(anchoGuardado)) {
-        leftPanel.style.flexBasis = `${anchoGuardado}px`;
-    }
+    // El ancho guardado se hizo con la ventana en otro tamaño (posiblemente mucho más ancha). Si
+    // se aplica tal cual en una ventana angosta, junto con flex-shrink:0 dejaba el panel derecho
+    // (Resultados del Cuadre, cierre, historial) empujado fuera del área visible y sin forma de
+    // hacer scroll horizontal para llegar a él. Se reajusta al tamaño actual en cada carga/resize.
+    const aplicarAnchoGuardado = () => {
+        const anchoGuardado = parseInt(localStorage.getItem(SPLIT_STORAGE_KEY), 10);
+        if (isNaN(anchoGuardado)) return;
+        const mainContent = leftPanel.parentElement;
+        const maxWidth = mainContent.getBoundingClientRect().width * 0.65;
+        if (maxWidth <= 0) return;
+        leftPanel.style.flexBasis = `${Math.min(Math.max(anchoGuardado, MIN_WIDTH), maxWidth)}px`;
+    };
+    aplicarAnchoGuardado();
+    window.addEventListener('resize', aplicarAnchoGuardado);
 
     let arrastrando = false;
     let startX = 0;
@@ -106,8 +124,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // día) y el efectivo esperado en esa ventana.
     await cargarVentanaCajaActual();
 
-    // 3. Cargar el historial de cierres de hoy para esta sucursal
-    await cargarHistorialHoy();
+    // 3. Cargar el historial de cierres para esta sucursal (por defecto, hoy; el selector de
+    // fecha permite llegar a cierres de días anteriores para recalcularlos/eliminarlos).
+    const inputFechaHistorial = document.getElementById('input-fecha-historial-cierres');
+    inputFechaHistorial.value = obtenerFechaHoyStr();
+    inputFechaHistorial.addEventListener('change', () => cargarHistorialCierres(inputFechaHistorial.value));
+    await cargarHistorialCierres(inputFechaHistorial.value);
 
     // 4. Configurar event listeners en los inputs de denominaciones
     const inputs = document.querySelectorAll('.denom-input');
@@ -155,12 +177,32 @@ async function cargarVentanaCajaActual() {
     calcularTotales();
 }
 
-async function cargarHistorialHoy() {
-    const response = await window.api.obtenerCierresCaja({ sucursalId });
+// Bloquea/desbloquea el formulario de cuadre cuando ya existe un "Cierre de Día" registrado hoy:
+// ese cierre es el corte final de la jornada, así que no debe quedar forma de registrar otro
+// cierre encima (de ningún tipo) hasta el día siguiente. El backend valida lo mismo en
+// registrarCierreCajaTx (defensa en profundidad); esto es solo la reflexión visual en la UI.
+function aplicarBloqueoCierreDia(bloqueado) {
+    document.querySelectorAll('.denom-input').forEach(input => { input.disabled = bloqueado; });
+    document.getElementById('select-tipo-cierre').disabled = bloqueado;
+    document.getElementById('input-nota-cierre').disabled = bloqueado;
+    document.getElementById('btn-confirmar-cierre').disabled = bloqueado;
+    document.getElementById('aviso-cierre-dia').style.display = bloqueado ? 'block' : 'none';
+}
+
+async function cargarHistorialCierres(fecha) {
+    const response = await window.api.obtenerCierresCaja({ sucursalId, fecha });
+
+    if (fecha === obtenerFechaHoyStr()) {
+        const cierreDiaHecho = response.success && response.data.some(c => c.tipo === 'Cierre de Día');
+        aplicarBloqueoCierreDia(cierreDiaHecho);
+    }
+
     const tbody = document.getElementById('body-historial-cierres');
+    const titulo = document.getElementById('titulo-historial-cierres');
+    titulo.innerText = fecha === obtenerFechaHoyStr() ? 'Cierres de Hoy' : `Cierres del ${fecha}`;
 
     if (!response.success || response.data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados ese día.</td></tr>';
         return;
     }
 
@@ -168,6 +210,14 @@ async function cargarHistorialHoy() {
 
     tbody.innerHTML = response.data.map(c => {
         const hora = new Date(c.fecha_hasta).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+        // Recalcular: reprocesa efectivo_esperado/diferencia contra ventas/abonos/gastos actuales
+        // de la MISMA ventana ya congelada del cierre (ver recalcularCierreCajaTx) -- pensado para
+        // cuando una venta con componente en efectivo se registra días después de haberse cerrado
+        // esa caja (ver 'Ventas de días anteriores').
+        const acciones = esAdministrador
+            ? `<button class="btn-edit" data-cierre-id="${c.id}" data-accion="recalcular">Recalcular</button>
+               <button class="btn-delete" data-cierre-id="${c.id}" data-accion="eliminar">Eliminar</button>`
+            : '';
         return `
             <tr>
                 <td>${hora}</td>
@@ -176,15 +226,29 @@ async function cargarHistorialHoy() {
                 <td class="num">${formatCOP(c.efectivo_esperado)}</td>
                 <td class="num">${formatCOP(c.efectivo_contado)}</td>
                 <td class="num">${formatCOP(c.diferencia)}</td>
-                <td>${esAdministrador ? `<button class="btn-delete" data-cierre-id="${c.id}">Eliminar</button>` : ''}</td>
+                <td>${acciones}</td>
             </tr>
         `;
     }).join('');
 
     if (esAdministrador) {
-        tbody.querySelectorAll('.btn-delete').forEach(btn => {
+        tbody.querySelectorAll('[data-accion="eliminar"]').forEach(btn => {
             btn.addEventListener('click', () => eliminarCierreCaja(btn.getAttribute('data-cierre-id')));
         });
+        tbody.querySelectorAll('[data-accion="recalcular"]').forEach(btn => {
+            btn.addEventListener('click', () => recalcularCierreCaja(btn.getAttribute('data-cierre-id')));
+        });
+    }
+}
+
+// Tras eliminar/recalcular un cierre, refresca el historial de la fecha que se esté viendo; la
+// ventana de caja vigente ("hoy") solo se refresca si esa es la fecha seleccionada, para no
+// recalcular el turno de hoy por una corrección hecha sobre un día anterior.
+async function refrescarHistorialTrasEdicion() {
+    const fechaSeleccionada = document.getElementById('input-fecha-historial-cierres').value;
+    await cargarHistorialCierres(fechaSeleccionada);
+    if (fechaSeleccionada === obtenerFechaHoyStr()) {
+        await cargarVentanaCajaActual();
     }
 }
 
@@ -196,11 +260,31 @@ async function eliminarCierreCaja(cierreId) {
 
     const response = await window.api.eliminarCierreCaja({ cierreId, auditoriaUsuario, auditoriaRol });
     if (response.success) {
-        await cargarVentanaCajaActual();
-        await cargarHistorialHoy();
+        await refrescarHistorialTrasEdicion();
     } else {
         alert(response.message || 'No se pudo eliminar el cierre de caja.');
     }
+}
+
+async function recalcularCierreCaja(cierreId) {
+    if (!confirm('¿Recalcular el efectivo esperado de este cierre contra las ventas, abonos y gastos actuales de su ventana? El efectivo contado (conteo físico) no cambia.')) return;
+
+    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+
+    const response = await window.api.recalcularCierreCaja({ cierreId, auditoriaUsuario, auditoriaRol });
+    if (!response.success) {
+        alert(response.message || 'No se pudo recalcular el cierre de caja.');
+        return;
+    }
+
+    if (response.sinCambios) {
+        alert(response.message);
+        return;
+    }
+
+    alert(`Cierre recalculado.\nEsperado: ${formatCOP(response.efectivoEsperadoAnterior)} → ${formatCOP(response.efectivoEsperado)}\nDiferencia: ${formatCOP(response.diferenciaAnterior)} → ${formatCOP(response.diferencia)}`);
+    await refrescarHistorialTrasEdicion();
 }
 
 async function confirmarCierreCaja() {
@@ -213,6 +297,29 @@ async function confirmarCierreCaja() {
     const nota = document.getElementById('input-nota-cierre').value.trim();
     const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
     const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+
+    const totalContado = denominaciones.reduce((sum, d) => sum + (d.valor * d.cantidad), 0);
+    const base = fondoBase || BASE_CAJA_SUCURSAL;
+    const diferencia = (totalContado - base) - efectivoEsperado;
+    const diferenciaTexto = diferencia === 0
+        ? 'Caja cuadrada (sin diferencia).'
+        : diferencia < 0
+            ? `Faltan ${formatCOP(Math.abs(diferencia))} en caja.`
+            : `Sobran ${formatCOP(diferencia)} en caja.`;
+
+    const advertenciaCierreDia = tipo === 'Cierre de Día'
+        ? '\n\n⚠️ Este es el Cierre de Día: después de confirmarlo NO se podrán registrar más cierres de caja hasta mañana.'
+        : '';
+
+    const confirmado = confirm(
+        `¿Confirmar el cierre de caja (${tipo})?\n\n` +
+        `Efectivo contado: ${formatCOP(totalContado)}\n` +
+        `Efectivo esperado: ${formatCOP(efectivoEsperado)}\n` +
+        `${diferenciaTexto}` +
+        advertenciaCierreDia +
+        `\n\nEsta acción no se puede deshacer.`
+    );
+    if (!confirmado) return;
 
     const btn = document.getElementById('btn-confirmar-cierre');
     btn.disabled = true;
@@ -227,13 +334,18 @@ async function confirmarCierreCaja() {
             limpiarValoresCuadre();
             document.getElementById('input-nota-cierre').value = '';
             await cargarVentanaCajaActual();
-            await cargarHistorialHoy();
+            const inputFechaHistorial = document.getElementById('input-fecha-historial-cierres');
+            inputFechaHistorial.value = obtenerFechaHoyStr();
+            await cargarHistorialCierres(inputFechaHistorial.value);
         } else {
             alert(response.message || 'No se pudo registrar el cierre de caja.');
+            // Resincroniza el bloqueo con el backend: si el rechazo fue porque otra sesión ya
+            // registró el Cierre de Día de hoy, esto refleja el candado en esta pantalla también.
+            await cargarHistorialCierres(obtenerFechaHoyStr());
         }
     } finally {
-        btn.disabled = false;
         btn.innerText = 'Confirmar Cierre de Caja';
+        btn.disabled = document.getElementById('aviso-cierre-dia').style.display === 'block';
     }
 }
 

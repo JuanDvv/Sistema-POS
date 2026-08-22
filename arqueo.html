@@ -14,9 +14,10 @@
         .main-content {
             flex-grow: 1;
             padding: 25px;
-            overflow-y: auto;
             box-sizing: border-box;
             display: flex;
+            height: 100vh;
+            overflow: hidden;
         }
 
         /* Paneles: cada uno con su propio scroll interno (min-height: 0 permite que un hijo flex
@@ -37,7 +38,7 @@
         }
 
         .cash-grid-section {
-            flex: 0 0 380px;
+            flex: 0 1 380px;
             min-width: 260px;
             max-width: 65%;
             display: flex;
@@ -95,9 +96,13 @@
             color: var(--text-primary);
         }
 
+        /* Grilla adaptable: entran 2 columnas de denominación cuando el panel tiene espacio y baja
+           a 1 sola cuando se achica, igual que .grid-products en ventas.html. 280px es el ancho
+           mínimo real que necesita una fila (etiqueta + input + total) sin recortarse -- con un
+           valor más chico (150px) el navegador metía 3 columnas y el total se salía de la fila. */
         .denom-group {
             display: grid;
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 8px;
         }
 
@@ -111,6 +116,7 @@
             background-color: #f9fafb;
             gap: 6px;
             min-width: 0;
+            overflow: hidden;
         }
 
         .denom-label {
@@ -121,6 +127,10 @@
             align-items: center;
             gap: 4px;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1 1 auto;
+            min-width: 0;
         }
 
         .denom-input {
@@ -132,6 +142,8 @@
             font-family: inherit;
             font-size: 0.9em;
             font-weight: bold;
+            flex: 0 0 auto;
+            box-sizing: content-box;
         }
 
         .denom-total {
@@ -140,6 +152,7 @@
             font-weight: bold;
             min-width: 60px;
             text-align: right;
+            flex: 0 0 auto;
         }
 
         /* Resumen derecho */
@@ -249,6 +262,28 @@
             padding-top: 5px;
         }
 
+        .historial-filtro-fecha {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .historial-filtro-fecha label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.8em;
+        }
+
+        .historial-filtro-fecha input[type="date"] {
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.85em;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
         .historial-cierres table {
             width: 100%;
             border-collapse: collapse;
@@ -273,21 +308,28 @@
             text-align: right;
         }
 
+        /* Igual que ventas.html: los dos paneles se quedan siempre lado a lado (nunca se apilan)
+           y cada uno scrollea por su cuenta -- al achicar la ventana solo se reduce el padding y
+           los anchos mínimos, así ambos paneles quedan visibles a la vez sin scroll de página. */
         @media (max-width: 1024px) {
             .main-content {
-                flex-direction: column;
-                padding-top: 70px;
+                padding: 15px !important;
             }
-            .menu-toggle-btn {
-                display: block;
-            }
-            /* En columna el splitter horizontal no aplica: se apila todo a ancho completo. */
-            .panel-splitter {
-                display: none;
+            .arqueo-panel {
+                padding: 14px !important;
             }
             .cash-grid-section {
-                flex: 0 0 auto !important;
-                max-width: 100%;
+                min-width: 220px !important;
+            }
+            .summary-section {
+                min-width: 240px !important;
+            }
+        }
+
+        @media (max-width: 500px) {
+            .main-content {
+                padding-top: 70px !important;
+                box-sizing: border-box !important;
             }
         }
     </style>
@@ -404,11 +446,15 @@
                 Calculando diferencia...
             </div>
 
+            <div id="aviso-cierre-dia" class="alert-card diferencia-menor" style="display: none;">
+                🔒 Ya se realizó el Cierre de Día de hoy. No se pueden registrar más cierres de caja hasta mañana.
+            </div>
+
             <div class="cierre-form">
                 <select id="select-tipo-cierre">
                     <option value="Cambio de Turno">🔄 Cambio de Turno</option>
                     <option value="Cierre de Día">🌙 Cierre de Día</option>
-                    <option value="Verificación Puntual">🔍 Verificación Puntual</option>
+                    <option value="Cierre Parcial">🕐 Cierre Parcial</option>
                 </select>
                 <input type="text" id="input-nota-cierre" placeholder="Nota (opcional)">
                 <button class="btn-reset btn-confirmar-cierre" id="btn-confirmar-cierre">Confirmar Cierre de Caja</button>
@@ -416,7 +462,13 @@
             </div>
 
             <div class="historial-cierres">
-                <h3>Cierres de Hoy</h3>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                    <h3 id="titulo-historial-cierres">Cierres de Hoy</h3>
+                    <div class="historial-filtro-fecha">
+                        <label for="input-fecha-historial-cierres">Fecha</label>
+                        <input type="date" id="input-fecha-historial-cierres">
+                    </div>
+                </div>
                 <div style="overflow-x: auto; width: 100%;">
                     <table id="table-historial-cierres">
                         <thead>
@@ -431,7 +483,7 @@
                             </tr>
                         </thead>
                         <tbody id="body-historial-cierres">
-                            <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados hoy.</td></tr>
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Sin cierres registrados ese día.</td></tr>
                         </tbody>
                     </table>
                 </div>

@@ -1,5 +1,5 @@
 const { ipcMain } = require('electron');
-const { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja, eliminarCierreCajaTx } = require('../services/cierreCajaService');
+const { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja, eliminarCierreCajaTx, recalcularCierreCajaTx } = require('../services/cierreCajaService');
 
 // SRP: expone como IPC el cuadre de caja por ventana de tiempo. La lógica de cálculo/persistencia
 // vive en services/cierreCajaService.js.
@@ -31,6 +31,13 @@ function registerCierresCajaIpc() {
             return { success: false, message: 'Solo un Administrador puede eliminar un cierre de caja.' };
         }
         return eliminarCierreCajaTx({ cierreId, auditoriaUsuario, auditoriaRol });
+    });
+
+    ipcMain.handle('recalcular-cierre-caja', async (event, { cierreId, auditoriaUsuario, auditoriaRol }) => {
+        if (auditoriaRol !== 'Administrador') {
+            return { success: false, message: 'Solo un Administrador puede recalcular un cierre de caja.' };
+        }
+        return recalcularCierreCajaTx({ cierreId, auditoriaUsuario, auditoriaRol });
     });
 }
 

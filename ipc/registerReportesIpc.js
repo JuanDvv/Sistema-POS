@@ -132,8 +132,12 @@ function registerReportesIpc() {
             if (categoriaId === 'sin-categoria') {
                 queryRanking += ` AND p.categoria_id IS NULL`;
             } else if (categoriaId) {
-                queryRanking += ` AND p.categoria_id = ?`;
-                paramsRanking.push(categoriaId);
+                // Si la categoría seleccionada es una categoría padre, se incluyen también
+                // sus subcategorías, ya que los productos se asignan a estas y no al padre.
+                const subcategorias = await allQuery('SELECT id FROM categorias WHERE categoria_padre_id = ?', [categoriaId]);
+                const categoriaIds = [categoriaId, ...subcategorias.map(s => s.id)];
+                queryRanking += ` AND p.categoria_id IN (${categoriaIds.map(() => '?').join(',')})`;
+                paramsRanking.push(...categoriaIds);
             }
             queryRanking += ` GROUP BY p.id, p.nombre, c.nombre ORDER BY total_cantidad DESC`;
 

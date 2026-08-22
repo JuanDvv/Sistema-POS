@@ -5,12 +5,6 @@ const { supabaseLogs } = require('../sync/supabaseClients');
 
 const PAGE_SIZE = 50;
 
-// Escapa un valor para usarlo dentro de un filtro `.or()` de PostgREST: lo envuelve en comillas
-// dobles (requerido si el valor trae comas, puntos o paréntesis) y escapa backslashes/comillas internas.
-function escaparValorOr(valor) {
-    return `"${String(valor).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
 // Trae los valores distintos (no vacíos, ordenados) de una columna de `auditoria`, para poblar
 // selectores de filtro (Usuario, Acción) con los valores que realmente existen en los datos.
 // Se pagina con .range() porque un .select() sin límite explícito se corta en el máximo de
@@ -49,54 +43,44 @@ function registerAuditoriaIpc() {
         try {
             const { usuario, sucursalId, accion, detalles, productoIds, fechaDesdeUTC, fechaHastaUTC, pagina = 1 } = filtros || {};
             const desde = (Math.max(1, pagina) - 1) * PAGE_SIZE;
-            const hasta = desde + PAGE_SIZE - 1;
 
-            let query = supabaseLogs
-                .from('auditoria')
-                .select('fecha, usuario, rol, sucursal_id, accion, detalles', { count: 'exact' });
+            // `detalles` es texto libre (input abierto): se separa en palabras para que la RPC
+            // `buscar_auditoria` (sync/migrate_auditoria_busqueda_insensible.sql) exija que cada una
+            // aparezca en el texto guardado, sin importar tildes ni el orden en que se escribieron
+            // (igual que la búsqueda del catálogo de productos). Como en pantalla se muestra el
+            // nombre del producto pero en la BD el texto sigue guardando "Producto ID: <id>",
+            // también se pasan los IDs de producto cuyo nombre coincidió (resueltos en el renderer
+            // vía `productoIds`) para que la RPC los busque como alternativa.
+            const detallesTerminos = typeof detalles === 'string' && detalles.trim() !== ''
+                ? detalles.trim().split(/\s+/).filter(Boolean)
+                : null;
+            const productoIdsValidos = Array.isArray(productoIds)
+                ? productoIds.filter(id => typeof id === 'string' && id.trim() !== '')
+                : null;
 
-            // Cada filtro solo se agrega al WHERE si trae un valor válido (string no vacío tras
-            // trim); así la carga inicial sin filtros no compara columnas contra "", null o
-            // undefined y siempre trae el historial completo paginado.
-            if (typeof usuario === 'string' && usuario.trim() !== '') {
-                query = query.eq('usuario', usuario.trim());
-            }
-            if (typeof sucursalId === 'string' && sucursalId.trim() !== '') {
-                query = query.eq('sucursal_id', sucursalId.trim());
-            }
-            if (typeof accion === 'string' && accion.trim() !== '') {
-                query = query.eq('accion', accion.trim());
-            }
-            // `detalles` es texto libre (input abierto): búsqueda parcial, no selector de valores exactos.
-            // Como en pantalla se muestra el nombre del producto pero en la BD el texto sigue
-            // guardando "Producto ID: <id>", además de buscar el texto tal cual se busca por cada
-            // ID de producto cuyo nombre coincidió (resuelto en el renderer vía `productoIds`).
-            if (typeof detalles === 'string' && detalles.trim() !== '') {
-                const patrones = [`detalles.ilike.${escaparValorOr(`%${detalles.trim()}%`)}`];
-                if (Array.isArray(productoIds)) {
-                    productoIds.forEach(id => {
-                        if (typeof id === 'string' && id.trim() !== '') {
-                            patrones.push(`detalles.ilike.${escaparValorOr(`%Producto ID: ${id.trim()}%`)}`);
-                        }
-                    });
-                }
-                query = query.or(patrones.join(','));
-            }
-            // fechaDesdeUTC/fechaHastaUTC ya vienen convertidos desde el renderer (límites del
-            // día en America/Bogota, expresados en UTC) para no depender de la zona horaria del proceso principal.
-            if (typeof fechaDesdeUTC === 'string' && fechaDesdeUTC.trim() !== '') {
-                query = query.gte('fecha', fechaDesdeUTC);
-            }
-            if (typeof fechaHastaUTC === 'string' && fechaHastaUTC.trim() !== '') {
-                query = query.lte('fecha', fechaHastaUTC);
-            }
-
-            query = query.order('fecha', { ascending: false }).range(desde, hasta);
-
-            const { data, error, count } = await query;
+            // Cada filtro solo viaja como valor no nulo si trae contenido válido tras trim(); así la
+            // carga inicial sin filtros no compara columnas contra "" y siempre trae el historial
+            // completo paginado. fechaDesdeUTC/fechaHastaUTC ya vienen convertidos desde el renderer
+            // (límites del día en America/Bogota, expresados en UTC).
+            const { data, error } = await supabaseLogs.rpc('buscar_auditoria', {
+                p_usuario: typeof usuario === 'string' && usuario.trim() !== '' ? usuario.trim() : null,
+                p_sucursal_id: typeof sucursalId === 'string' && sucursalId.trim() !== '' ? sucursalId.trim() : null,
+                p_accion: typeof accion === 'string' && accion.trim() !== '' ? accion.trim() : null,
+                p_detalles_terminos: detallesTerminos,
+                p_producto_ids: productoIdsValidos && productoIdsValidos.length > 0 ? productoIdsValidos : null,
+                p_fecha_desde: typeof fechaDesdeUTC === 'string' && fechaDesdeUTC.trim() !== '' ? fechaDesdeUTC : null,
+                p_fecha_hasta: typeof fechaHastaUTC === 'string' && fechaHastaUTC.trim() !== '' ? fechaHastaUTC : null,
+                p_limite: PAGE_SIZE,
+                p_offset: desde
+            });
             if (error) throw error;
 
-            return { success: true, data, total: count, pagina };
+            // El total viaja repetido en cada fila (count(*) OVER() en la RPC); se lee de la primera
+            // y se descarta la columna antes de devolver los registros al renderer.
+            const total = data && data.length > 0 ? Number(data[0].total) : 0;
+            const registros = (data || []).map(({ total: _total, ...resto }) => resto);
+
+            return { success: true, data: registros, total, pagina };
         } catch (err) {
             return { success: false, message: 'Error al obtener los logs de auditoría: ' + err.message };
         }

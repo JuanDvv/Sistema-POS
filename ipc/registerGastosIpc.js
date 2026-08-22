@@ -1,77 +1,26 @@
-const { ipcMain, BrowserWindow } = require('electron');
+const { ipcMain } = require('electron');
 const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('../services/auditService');
 const { registrarMovimientoInventario } = require('../services/inventarioMovimientoService');
+const { insertarGastoTx } = require('../services/gastoService');
+const { esFechaAnteriorValida, construirFechaISODeDia, obtenerFechaHoyYYYYMMDD } = require('../services/fechaService');
 const { solicitarSincronizacion } = require('../sync/syncService');
 const { TIPOS_GASTO, ESTADOS_DEVOLUCION, requiereAjusteInventario } = require('../utils/gastos');
 
-// SRP: registro, edición y eliminación de gastos/egresos de caja.
+// SRP: registro, edición y eliminación de gastos/egresos de caja. La lógica transaccional del
+// registro vive en services/gastoService (insertarGastoTx), compartida entre el flujo del día
+// actual, el de fecha anterior y la aprobación de solicitudes retroactivas.
 
 function registerGastosIpc() {
-    // Registrar Gasto
+    // Registrar Gasto (día actual)
     ipcMain.handle('registrar-gasto', async (event, datosGasto) => {
         const { sucursalId, tipo, descripcion, monto, metodoPago, auditoriaUsuario, auditoriaRol, productosVencidos = [] } = datosGasto;
-        const gastoId = uuidv4();
-        const fechaActual = new Date().toISOString();
-        const esDevolucion = tipo === TIPOS_GASTO.DEVOLUCION;
-        const estadoInicial = esDevolucion ? ESTADOS_DEVOLUCION.PENDIENTE : null;
-
-        try {
-            await runQuery('BEGIN TRANSACTION', []);
-            await runQuery(
-                `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, estado, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                [gastoId, sucursalId, tipo, descripcion, Number(monto) || 0, fechaActual, metodoPago || 'Efectivo', estadoInicial]
-            );
-
-            if (requiereAjusteInventario(tipo) && productosVencidos.length > 0) {
-                const tipoMovimiento = esDevolucion ? 'BAJA_DEVOLUCION' : 'BAJA_INVENTARIO';
-                for (const item of productosVencidos) {
-                    const cantidad = Number(item.cantidad || 0);
-                    if (!item.id || cantidad <= 0) continue;
-
-                    const stockActual = await new Promise((resolve, reject) => {
-                        db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [item.id, sucursalId], (err, row) => {
-                            if (err) reject(err);
-                            else resolve(row);
-                        });
-                    });
-
-                    if (!stockActual || stockActual.stock < cantidad) {
-                        throw new Error(`No hay suficiente stock de ${item.nombre || 'producto'} para descontar ${cantidad} unidades.`);
-                    }
-
-                    await runQuery(
-                        `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
-                         VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-                         ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
-                            stock = stock - excluded.stock,
-                            sync_status = 'pending'`,
-                        [item.id, sucursalId, cantidad]
-                    );
-                    await registrarMovimientoInventario({
-                        productoId: item.id, sucursalId, tipo: tipoMovimiento,
-                        cantidad: -cantidad, referenciaId: gastoId, usuario: auditoriaUsuario
-                    });
-                }
-            }
-
-            const accionAuditoria = esDevolucion ? 'Registrar Devolución de Producto' : 'Registrar Gasto';
-            await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, accionAuditoria, `Monto: $${Number(monto) || 0} - Clasificación: ${tipo} - Método: ${metodoPago || 'Efectivo'} - Desc: ${descripcion}`);
-            await runQuery('COMMIT', []);
-
-            BrowserWindow.getAllWindows().forEach(win => {
-                if (!win.isDestroyed()) {
-                    win.webContents.send('inventario-actualizado');
-                }
-            });
-            solicitarSincronizacion('gasto registrado');
-
-            return { success: true, message: 'Gasto registrado con éxito.' };
-        } catch (error) {
-            await runQuery('ROLLBACK', []).catch(() => { });
-            return { success: false, message: 'Error al guardar el gasto: ' + error.message };
-        }
+        return insertarGastoTx({
+            sucursalId, tipo, descripcion, monto, metodoPago, productosVencidos,
+            fecha: new Date().toISOString(),
+            auditoriaUsuario, auditoriaRol
+        });
     });
 
     // Descripciones más frecuentes de una clasificación (uso: sugerencias al registrar gastos
@@ -111,13 +60,18 @@ function registerGastosIpc() {
         try {
             // Obtener el gasto original antes de modificarlo, para auditoría y para bloquear el domicilio
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, tipo, descripcion, monto, metodo_pago FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, descripcion, monto, metodo_pago, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // "Domicilio (Descuento de Caja)" lo genera y reconcilia automáticamente
             // insertarVentaTx/editarVentaCompletaTx (ver services/ventaService.js); editarlo aquí lo
             // desincronizaría de su venta asociada, así que se bloquea aunque la UI ya no ofrezca el botón.
             if (gasto && gasto.descripcion === 'Domicilio (Descuento de Caja)') {
                 return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede editar aquí.' };
+            }
+            // Un gasto de un día anterior solo lo puede editar un Administrador; el día actual sigue
+            // abierto para cualquier rol. Reportes.js ya oculta el botón, esto es la defensa real.
+            if (gasto && auditoriaRol !== 'Administrador' && gasto.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
+                return { success: false, message: 'Solo un Administrador puede editar un gasto de un día anterior.' };
             }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
             const metodoPagoFinal = metodoPago || 'Efectivo';
@@ -148,12 +102,17 @@ function registerGastosIpc() {
         try {
             // Obtener datos del gasto antes de marcar como eliminado
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, tipo, monto, descripcion FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, monto, descripcion, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // Igual que en editar-gasto: este gasto se borra automáticamente al quitar el domicilio
             // de su venta (ver editarVentaCompletaTx en services/ventaService.js), no manualmente aquí.
             if (gasto && gasto.descripcion === 'Domicilio (Descuento de Caja)') {
                 return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede borrar aquí.' };
+            }
+            // Un gasto de un día anterior solo lo puede borrar un Administrador; el día actual sigue
+            // abierto para cualquier rol. Reportes.js ya oculta el botón, esto es la defensa real.
+            if (gasto && auditoriaRol !== 'Administrador' && gasto.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
+                return { success: false, message: 'Solo un Administrador puede borrar un gasto de un día anterior.' };
             }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
 
@@ -246,6 +205,157 @@ function registerGastosIpc() {
         } catch (err) {
             await runQuery('ROLLBACK', []).catch(() => { });
             return { success: false, message: 'Error al actualizar la devolución: ' + err.message };
+        }
+    });
+
+    // =================================================================
+    // GASTOS DE FECHA ANTERIOR (con cola de aprobación para Operadores)
+    // Solo cubre alta ("nueva"): editar/eliminar un gasto ya existente no tiene restricción de
+    // fecha ni rol (ver 'editar-gasto'/'eliminar-gasto' arriba), así que no necesita solicitud.
+    // =================================================================
+
+    // Registrar un gasto nuevo con fecha de un día anterior
+    ipcMain.handle('registrar-gasto-anterior', async (event, datos) => {
+        const { sucursalId, tipo, descripcion, monto, metodoPago, productosVencidos = [], fechaGasto, auditoriaUsuario, auditoriaRol } = datos;
+
+        if (!esFechaAnteriorValida(fechaGasto)) {
+            return { success: false, message: 'La fecha del gasto debe ser un día anterior a hoy.' };
+        }
+
+        const esAjusteInventario = requiereAjusteInventario(tipo);
+        if (esAjusteInventario) {
+            if (!Array.isArray(productosVencidos) || productosVencidos.length === 0) {
+                return { success: false, message: 'Selecciona al menos un producto con cantidad válida.' };
+            }
+        } else if (!(Number(monto) > 0) || !descripcion) {
+            return { success: false, message: 'Por favor, introduce un monto válido y una descripción.' };
+        }
+
+        if (auditoriaRol === 'Administrador') {
+            const resultado = await insertarGastoTx({
+                sucursalId, tipo, descripcion, monto: esAjusteInventario ? 0 : monto, metodoPago, productosVencidos,
+                fecha: construirFechaISODeDia(fechaGasto),
+                auditoriaUsuario, auditoriaRol,
+                accion: 'Registrar Gasto (Fecha Anterior)'
+            });
+            return { ...resultado, requiereAprobacion: false };
+        }
+
+        try {
+            const id = uuidv4();
+            const ahora = new Date().toISOString();
+            const propuesta = { sucursalId, tipo, descripcion, monto: esAjusteInventario ? 0 : monto, metodoPago, productosVencidos };
+            await runQuery(
+                `INSERT INTO solicitudes_gasto (id, sucursal_id, fecha_gasto, datos, estado, usuario_solicitante, fecha_solicitud, sync_status, updated_at)
+                 VALUES (?, ?, ?, ?, 'pendiente', ?, ?, 'pending', ?)`,
+                [id, sucursalId, fechaGasto, JSON.stringify({ propuesta }), auditoriaUsuario, ahora, ahora]
+            );
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Solicitud Gasto Retroactivo', `Fecha: ${fechaGasto} - Clasificación: ${tipo} - Monto: $${Number(monto) || 0} - Desc: ${descripcion}`);
+            solicitarSincronizacion('solicitud de gasto retroactivo creada');
+            return { success: true, message: 'Solicitud enviada. Un administrador debe confirmarla antes de que se refleje en caja e inventario.', requiereAprobacion: true };
+        } catch (err) {
+            return { success: false, message: 'Error al enviar la solicitud: ' + err.message };
+        }
+    });
+
+    // Listar solicitudes de gasto retroactivo
+    ipcMain.handle('obtener-solicitudes-gasto', async (event, filtros) => {
+        const { estado, usuario } = filtros || {};
+        try {
+            let query = `SELECT * FROM solicitudes_gasto WHERE 1=1`;
+            const params = [];
+            if (estado) {
+                query += ` AND estado = ?`;
+                params.push(estado);
+            }
+            if (usuario) {
+                query += ` AND usuario_solicitante = ?`;
+                params.push(usuario);
+            }
+            query += ` ORDER BY fecha_solicitud DESC`;
+            const rows = await allQuery(query, params);
+            return { success: true, data: rows };
+        } catch (err) {
+            return { success: false, message: 'Error al obtener solicitudes: ' + err.message };
+        }
+    });
+
+    // Aprobar una solicitud de gasto retroactivo (solo Administrador)
+    ipcMain.handle('aprobar-solicitud-gasto', async (event, datos) => {
+        const { id, auditoriaUsuario, auditoriaRol } = datos;
+        if (auditoriaRol !== 'Administrador') {
+            return { success: false, message: 'Solo un administrador puede aprobar solicitudes.' };
+        }
+
+        try {
+            const solicitud = await new Promise((resolve, reject) => {
+                db.get(`SELECT * FROM solicitudes_gasto WHERE id = ?`, [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+
+            if (!solicitud) {
+                return { success: false, message: 'No se encontró la solicitud especificada.' };
+            }
+            if (solicitud.estado !== 'pendiente') {
+                return { success: false, message: 'Esta solicitud ya fue revisada.' };
+            }
+
+            const datosParseados = JSON.parse(solicitud.datos || '{}');
+            const p = datosParseados.propuesta;
+            const resultado = await insertarGastoTx({
+                sucursalId: p.sucursalId, tipo: p.tipo, descripcion: p.descripcion, monto: p.monto,
+                metodoPago: p.metodoPago, productosVencidos: p.productosVencidos,
+                fecha: construirFechaISODeDia(solicitud.fecha_gasto),
+                auditoriaUsuario, auditoriaRol,
+                accion: 'Aprobar Solicitud Gasto Retroactivo'
+            });
+
+            if (!resultado.success) {
+                return resultado;
+            }
+
+            await runQuery(
+                `UPDATE solicitudes_gasto SET estado = 'aprobada', usuario_revisor = ?, fecha_revision = ?, sync_status = 'pending' WHERE id = ?`,
+                [auditoriaUsuario, new Date().toISOString(), id]
+            );
+            solicitarSincronizacion('solicitud de gasto aprobada');
+
+            return { success: true, message: 'Solicitud aprobada y aplicada exitosamente.' };
+        } catch (err) {
+            return { success: false, message: 'Error al aprobar la solicitud: ' + err.message };
+        }
+    });
+
+    // Rechazar una solicitud de gasto retroactivo (solo Administrador)
+    ipcMain.handle('rechazar-solicitud-gasto', async (event, datos) => {
+        const { id, motivo, auditoriaUsuario, auditoriaRol } = datos;
+        if (auditoriaRol !== 'Administrador') {
+            return { success: false, message: 'Solo un administrador puede rechazar solicitudes.' };
+        }
+        try {
+            const solicitud = await new Promise((resolve, reject) => {
+                db.get(`SELECT * FROM solicitudes_gasto WHERE id = ?`, [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+            if (!solicitud) {
+                return { success: false, message: 'No se encontró la solicitud especificada.' };
+            }
+            if (solicitud.estado !== 'pendiente') {
+                return { success: false, message: 'Esta solicitud ya fue revisada.' };
+            }
+            await runQuery(
+                `UPDATE solicitudes_gasto SET estado = 'rechazada', usuario_revisor = ?, fecha_revision = ?, motivo_rechazo = ?, sync_status = 'pending' WHERE id = ?`,
+                [auditoriaUsuario, new Date().toISOString(), motivo || null, id]
+            );
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, solicitud.sucursal_id, 'Rechazar Solicitud Gasto Retroactivo', `Solicitud ID: ${id}${motivo ? ' - Motivo: ' + motivo : ''}`);
+            solicitarSincronizacion('solicitud de gasto rechazada');
+            return { success: true, message: 'Solicitud rechazada.' };
+        } catch (err) {
+            return { success: false, message: 'Error al rechazar la solicitud: ' + err.message };
         }
     });
 }

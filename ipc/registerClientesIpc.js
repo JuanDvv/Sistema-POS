@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { formatearCOP, sanitizarNombreArchivo, construirHtmlCuentaCobro, extraerDomicilioDeMetodoPago } = require('../services/pdfHelpers');
 const { registrarAuditoria } = require('../services/auditService');
+const { obtenerFechaHoyYYYYMMDD } = require('../services/fechaService');
 
 // SRP: clientes, créditos, abonos y su cuenta de cobro en PDF.
 
@@ -84,9 +85,20 @@ function registerClientesIpc() {
         }
     });
 
-    ipcMain.handle('eliminar-abono', async (event, id) => {
+    ipcMain.handle('eliminar-abono', async (event, datos) => {
+        const { id, auditoriaUsuario, auditoriaRol } = datos;
         try {
+            const abono = await new Promise((resolve) => {
+                db.get(`SELECT cliente_id, monto, metodo_pago, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM abonos_credito WHERE id = ?`, [id], (err, row) => resolve(row));
+            });
+            // Un abono de un día anterior solo lo puede eliminar un Administrador (y queda
+            // recuperable desde Administración > Abonos Eliminados) -- mismo criterio que
+            // gastos/ventas de fecha anterior y que abonos de Pedidos (ver eliminarAbonoPedidoTx).
+            if (abono && auditoriaRol !== 'Administrador' && abono.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
+                return { success: false, message: 'Solo un Administrador puede eliminar un abono de un día anterior.' };
+            }
             await runQuery(`UPDATE abonos_credito SET sync_status = 'deleted' WHERE id = ?`, [id]);
+            await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Administración', 'Eliminar Abono', `Abono ID: ${id} - Cliente ID: ${abono ? abono.cliente_id : 'desconocido'} - Monto: $${abono ? abono.monto : '?'}`);
             return { success: true, message: 'Abono eliminado exitosamente.' };
         } catch (err) {
             return { success: false, message: 'Error al eliminar abono: ' + err.message };

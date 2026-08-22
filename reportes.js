@@ -8,6 +8,10 @@ let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
 let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], cierresCaja: [] };
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
+const normalizeStr = (value) => {
+    if (value == null) return '';
+    return String(value).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+};
 
 // Fila marcadora que separa, dentro de Detalle de Ventas, hasta dónde llegaron las ventas de cada
 // cierre de caja (cambio de turno). Solo se usa ahí -- las demás tablas del reporte no la necesitan.
@@ -56,7 +60,7 @@ const parseNumberUI = (str) => {
 };
 
 // Comprobante Informativo (no fiscal) para impresora térmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago }) {
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
@@ -86,6 +90,9 @@ function construirTicketHTML({ ventaId, fecha, items, total, metodoPago }) {
         </table>
         <div class="ticket-separador"></div>
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
+        ${montoRecibido != null ? `
+        <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
+        <div class="ticket-pago ticket-negrita">Cambio: $${formatCOP(vuelto)}</div>` : ''}
         <div class="ticket-separador"></div>
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
     `;
@@ -135,7 +142,9 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
         fecha: res.venta.fecha,
         items: res.detalle.map(d => ({ nombre: d.nombre || 'Producto', cantidad: d.cantidad, precio: d.precio_unitario })),
         total: res.venta.total,
-        metodoPago: res.venta.metodo_pago
+        metodoPago: res.venta.metodo_pago,
+        montoRecibido: res.venta.monto_recibido,
+        vuelto: res.venta.vuelto
     });
 };
 
@@ -143,6 +152,10 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
 async function cargarReporte(fecha) {
     if (!fecha) return;
     const userRole = localStorage.getItem('currentRole') || 'Sin Rol';
+    // Editar/borrar un gasto de un día anterior es exclusivo de Administrador; el día actual
+    // sigue abierto para cualquier rol (ver 'editar-gasto'/'eliminar-gasto' en
+    // ipc/registerGastosIpc.js, que aplican la misma restricción del lado del servidor).
+    const fechaReporteEsHoy = fecha === new Date().toLocaleDateString('sv-SE');
 
     // Obtener las categorías seleccionadas del filtro
     const selectedCats = [];
@@ -183,26 +196,66 @@ async function cargarReporte(fecha) {
         let totalGastos = 0;
         let totalGastosEfectivo = 0;
 
-        // 1. Renderizar Tabla Ventas y sumar KPIs
+        // Abonos de Pedidos recibidos hoy: dinero real cobrado que aún no aparece como venta (el
+        // pedido puede entregarse otro día), reconocido el día en que se recibió. Se calculan aquí
+        // (antes de renderizar Detalle de Ventas) porque se intercalan dentro de esa misma tabla,
+        // justo por su hora, para que no pasen desapercibidos al verificar el cierre del día.
+        const abonosPedidoVisibles = (datosReporteGlobal.abonosPedido || []).filter(a => {
+            if (metodoFiltroVentas === 'Efectivo') return a.metodo_pago === 'Efectivo';
+            if (metodoFiltroVentas === 'Transferencia') return a.metodo_pago !== 'Efectivo';
+            return true;
+        });
+        abonosPedidoVisibles.forEach(abono => {
+            if (abono.metodo_pago === 'Efectivo') {
+                totalEfectivo += Number(abono.monto);
+            } else {
+                totalTransferencia += Number(abono.monto);
+            }
+        });
+
+        // 1. Renderizar Tabla Ventas (+ abonos de pedidos intercalados) y sumar KPIs
         const tbodyVentas = document.querySelector('#table-ventas-dia tbody');
         const contadorVentasDia = document.getElementById('contador-ventas-dia');
         if (contadorVentasDia) {
-            const cantidad = ventasVisibles.length;
+            const cantidad = ventasVisibles.length + abonosPedidoVisibles.length;
             contadorVentasDia.textContent = `(${cantidad} ${cantidad === 1 ? 'movimiento' : 'movimientos'})`;
         }
         if (tbodyVentas) {
             tbodyVentas.innerHTML = '';
-            // ventasVisibles y datosReporteGlobal.cierresCaja llegan ambos ordenados DESC por
-            // fecha; se recorren en paralelo para intercalar el separador de cada cierre justo
-            // antes de la primera venta (más antigua) que ya quedó fuera de esa ventana.
+            // ventasVisibles, abonosPedidoVisibles y datosReporteGlobal.cierresCaja llegan
+            // ordenados/se combinan DESC por fecha, para intercalar el separador de cada cierre
+            // justo antes del primer movimiento (más antiguo) que ya quedó fuera de esa ventana.
             let idxCierre = 0;
             const cierresDelDia = datosReporteGlobal.cierresCaja || [];
 
-            ventasVisibles.forEach(venta => {
-                while (idxCierre < cierresDelDia.length && new Date(venta.fecha) <= new Date(cierresDelDia[idxCierre].fecha_hasta)) {
+            const movimientosVisibles = [
+                ...ventasVisibles.map(venta => ({ tipo: 'venta', fecha: venta.fecha, venta })),
+                ...abonosPedidoVisibles.map(abono => ({ tipo: 'abono', fecha: abono.fecha, abono }))
+            ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+            movimientosVisibles.forEach(movimiento => {
+                while (idxCierre < cierresDelDia.length && new Date(movimiento.fecha) <= new Date(cierresDelDia[idxCierre].fecha_hasta)) {
                     tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
                     idxCierre++;
                 }
+
+                if (movimiento.tipo === 'abono') {
+                    const abono = movimiento.abono;
+                    const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const tr = document.createElement('tr');
+                    tr.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
+                    tr.innerHTML = `
+                        <td>${hora}</td>
+                        <td>💳 Abono de Pedido — ${abono.cliente_nombre || '(Sin nombre)'}</td>
+                        <td>${abono.metodo_pago}</td>
+                        <td><strong>${formatCOP(abono.monto)}</strong></td>
+                        <td></td>
+                    `;
+                    tbodyVentas.appendChild(tr);
+                    return;
+                }
+
+                const venta = movimiento.venta;
 
                 // El dinero de un pedido/apartado entregado ya se contó día a día con sus abonos (ver
                 // más abajo), así que la venta que genera la entrega NO se vuelve a sumar aquí -- solo
@@ -259,8 +312,27 @@ async function cargarReporte(fecha) {
                 } else if (venta.metodo_pago === 'Crédito') {
                     metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
                 }
+                // Monto a mostrar para el cierre de un pedido: nunca el total del pedido (eso ya
+                // entró a caja día a día vía sus abonos, ver abonosPedidoVisibles arriba). Lo
+                // relevante para el cierre de HOY es si al momento de entregar quedó algo por
+                // abonar hoy mismo (dinero real que sí entró hoy) o si ya estaba pago desde antes
+                // (entregar no metió plata nueva a la caja de hoy).
+                let montoPedidoHtml = '';
                 if (venta.es_pedido) {
-                    metodoPagoText = `📦 Pedido Entregado (ya cobrado en abonos)`;
+                    const abonadoMismoDia = Number(venta.pedido_abonado_mismo_dia || 0);
+                    metodoPagoText = abonadoMismoDia > 0
+                        ? `📦 Pedido Entregado (cerrado con abono de hoy)`
+                        : `📦 Pedido Entregado (ya estaba pago, sin saldo hoy)`;
+                    const totalPedido = Number(venta.total || 0);
+                    const primario = abonadoMismoDia > 0
+                        ? `<strong style="color:#2563eb;">${formatCOP(abonadoMismoDia)}</strong>`
+                        : `<strong style="color:#6b7280;">Cerrado sin saldo</strong>`;
+                    montoPedidoHtml = `
+                        <td>
+                            ${primario}
+                            <div style="font-size:0.8em; color:#9ca3af; margin-top:2px;">Total pedido: ${formatCOP(totalPedido)}</div>
+                        </td>
+                    `;
                 }
 
                 let checkboxVerificada = '';
@@ -287,7 +359,7 @@ async function cargarReporte(fecha) {
                             `).join('')}
                     </td>
                     <td>${metodoPagoText}${checkboxVerificada}</td>
-                    <td><strong>${formatCOP(venta.total)}</strong></td>
+                    ${montoPedidoHtml || `<td><strong>${formatCOP(venta.total)}</strong></td>`}
                     ${tdVentaAcciones}
                 `;
                 tbodyVentas.appendChild(tr);
@@ -299,7 +371,7 @@ async function cargarReporte(fecha) {
                 tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
             }
 
-            if (ventasVisibles.length === 0 && cierresDelDia.length === 0) {
+            if (ventasVisibles.length === 0 && abonosPedidoVisibles.length === 0 && cierresDelDia.length === 0) {
                 const cols = 5;
                 const mensaje = metodoFiltroVentas === 'Todos'
                     ? 'No hay ventas hoy.'
@@ -342,42 +414,6 @@ async function cargarReporte(fecha) {
                 `;
 
                 tbodyCierresCaja.innerHTML = filas + filaTotal;
-            }
-        }
-
-        // 1.5. Abonos de Pedidos recibidos hoy: dinero real cobrado que aún no aparece como venta
-        // (el pedido puede entregarse otro día), reconocido el día en que se recibió.
-        const tbodyAbonosPedido = document.querySelector('#table-abonos-pedido-dia tbody');
-        const abonosPedidoVisibles = (datosReporteGlobal.abonosPedido || []).filter(a => {
-            if (metodoFiltroVentas === 'Efectivo') return a.metodo_pago === 'Efectivo';
-            if (metodoFiltroVentas === 'Transferencia') return a.metodo_pago !== 'Efectivo';
-            return true;
-        });
-        abonosPedidoVisibles.forEach(abono => {
-            if (abono.metodo_pago === 'Efectivo') {
-                totalEfectivo += Number(abono.monto);
-            } else {
-                totalTransferencia += Number(abono.monto);
-            }
-        });
-        if (tbodyAbonosPedido) {
-            tbodyAbonosPedido.innerHTML = '';
-            if (abonosPedidoVisibles.length > 0) {
-                [...abonosPedidoVisibles]
-                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-                    .forEach(abono => {
-                    const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${hora}</td>
-                        <td>${abono.cliente_nombre || '(Sin nombre)'}</td>
-                        <td>${abono.metodo_pago}</td>
-                        <td><strong>${formatCOP(abono.monto)}</strong></td>
-                    `;
-                    tbodyAbonosPedido.appendChild(tr);
-                });
-            } else {
-                tbodyAbonosPedido.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">No hay abonos de pedidos hoy.</td></tr>';
             }
         }
 
@@ -446,10 +482,13 @@ async function cargarReporte(fecha) {
                 // el domicilio de su venta asociada, así que modificarlo desde este listado lo desincronizaría
                 // de la venta (la próxima edición de esa venta lo pisaría o duplicaría).
                 const esGastoDomicilioAutomatico = gasto.descripcion === 'Domicilio (Descuento de Caja)';
-                const botonEditar = (esNoFinanciero || esGastoDomicilioAutomatico)
+                // Un Operador solo administra (edita/borra) gastos del día actual; días anteriores
+                // quedan exclusivos de Administrador (ver comentario de fechaReporteEsHoy arriba).
+                const puedeAdministrarGasto = userRole === 'Administrador' || fechaReporteEsHoy;
+                const botonEditar = (esNoFinanciero || esGastoDomicilioAutomatico || !puedeAdministrarGasto)
                     ? ''
                     : `<button class="btn-edit" onclick="iniciarEdicionGasto('${gasto.id}', '${gasto.tipo}', '${escDesc}', ${gasto.monto})">✏️ Editar</button>`;
-                const botonBorrar = esGastoDomicilioAutomatico
+                const botonBorrar = (esGastoDomicilioAutomatico || !puedeAdministrarGasto)
                     ? ''
                     : `<button class="btn-delete" onclick="eliminarGasto('${gasto.id}')">🗑️ Borrar</button>`;
                 const notaAutomatico = esGastoDomicilioAutomatico
@@ -601,6 +640,43 @@ async function cargarReporte(fecha) {
             }
         }
 
+        // 2.6b. Renderizar sección "Productos que NO se vendieron" (colapsada por defecto)
+        const tbodyNoVendidos = document.querySelector('#table-productos-no-vendidos tbody');
+        if (tbodyNoVendidos) {
+            tbodyNoVendidos.innerHTML = '';
+            if (response.productosNoVendidos && response.productosNoVendidos.length > 0) {
+                const agrupadosPorCategoriaNoVendidos = {};
+                response.productosNoVendidos.forEach(item => {
+                    const catName = item.categoria_nombre || 'Sin Categoría';
+                    if (!agrupadosPorCategoriaNoVendidos[catName]) {
+                        agrupadosPorCategoriaNoVendidos[catName] = [];
+                    }
+                    agrupadosPorCategoriaNoVendidos[catName].push(item);
+                });
+
+                Object.keys(agrupadosPorCategoriaNoVendidos).sort().forEach(catName => {
+                    const trCat = document.createElement('tr');
+                    trCat.innerHTML = `
+                        <td colspan="2" style="background-color: #f9fafb; font-weight: 700; color: #1f2937; padding: 10px 15px; border-bottom: 2px solid #e5e7eb;">
+                            📂 ${catName}
+                        </td>
+                    `;
+                    tbodyNoVendidos.appendChild(trCat);
+
+                    agrupadosPorCategoriaNoVendidos[catName].forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="padding-left: 30px;">${item.producto_nombre}</td>
+                            <td>${item.stock_actual} unidades</td>
+                        `;
+                        tbodyNoVendidos.appendChild(tr);
+                    });
+                });
+            } else {
+                tbodyNoVendidos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#9ca3af;">Todos los productos de la sucursal tuvieron al menos una venta hoy.</td></tr>';
+            }
+        }
+
         // 2.7. Renderizar Tabla Transferencias
         const tbodyTrans = document.querySelector('#table-transferencias-dia tbody');
         if (tbodyTrans) {
@@ -668,6 +744,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             sucursalDetalle = resSucursal.data;
         }
     }
+    const toggleNoVendidos = document.getElementById('toggle-no-vendidos');
+    if (toggleNoVendidos) {
+        toggleNoVendidos.addEventListener('click', () => {
+            const contenido = document.getElementById('contenido-no-vendidos');
+            const icono = document.getElementById('icono-no-vendidos');
+            const abierto = contenido.style.display !== 'none';
+            contenido.style.display = abierto ? 'none' : 'block';
+            if (icono) icono.style.transform = abierto ? 'rotate(0deg)' : 'rotate(90deg)';
+        });
+    }
+
+    // Botón flotante "Volver arriba": .main-content es el contenedor con scroll real (no la
+    // ventana), así que tanto el listener de scroll como el destino del scrollTo van sobre él.
+    const mainContent = document.querySelector('.main-content');
+    const btnVolverArriba = document.getElementById('btn-volver-arriba');
+    if (mainContent && btnVolverArriba) {
+        mainContent.addEventListener('scroll', () => {
+            btnVolverArriba.classList.toggle('visible', mainContent.scrollTop > 400);
+        });
+        btnVolverArriba.addEventListener('click', () => {
+            mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    }
+
     const user = localStorage.getItem('currentUser') || 'Invitado';
     const role = localStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
@@ -1006,15 +1106,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sincronizarCamposMixtos = () => {
         if (!editVentaMetodo || editVentaMetodo.value !== 'Mixto' || !editVentaEfectivo || !editVentaTransferencia) return;
         const total = calcularTotalEdicionVenta();
-        const efectivoActual = parseNumberUI(editVentaEfectivo.value);
-        const transferenciaActual = parseNumberUI(editVentaTransferencia.value);
 
         if (document.activeElement === editVentaEfectivo) {
-            const nuevoValorTransferencia = Math.max(0, total - efectivoActual);
-            editVentaTransferencia.value = formatNumberUI(nuevoValorTransferencia);
+            const efectivoActual = parseNumberUI(editVentaEfectivo.value);
+            editVentaEfectivo.value = formatNumberUI(editVentaEfectivo.value);
+            editVentaTransferencia.value = formatNumberUI(Math.max(0, total - efectivoActual));
         } else if (document.activeElement === editVentaTransferencia) {
-            const nuevoValorEfectivo = Math.max(0, total - transferenciaActual);
-            editVentaEfectivo.value = formatNumberUI(nuevoValorEfectivo);
+            const transferenciaActual = parseNumberUI(editVentaTransferencia.value);
+            editVentaTransferencia.value = formatNumberUI(editVentaTransferencia.value);
+            editVentaEfectivo.value = formatNumberUI(Math.max(0, total - transferenciaActual));
         }
     };
 
@@ -1194,6 +1294,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnLogout.addEventListener('click', () => {
             localStorage.clear();
             window.location.href = 'index.html';
+        });
+    }
+
+    // Sugerencias sin tildes y sin importar el orden de las palabras al agregar un producto en
+    // "Editar Venta" (ver productoBuscador.js). catalogoProductosEdicion se llena la primera vez
+    // que se abre el modal (cargarCatalogoEdicionVenta), pero el input ya existe desde el arranque.
+    const inputProductoEdicionVenta = document.getElementById('edit-venta-input-producto');
+    if (inputProductoEdicionVenta) {
+        crearBuscadorProducto({
+            input: inputProductoEdicionVenta,
+            obtenerProductos: () => catalogoProductosEdicion,
+            detalle: (p) => `$${formatCOP(p.precio)}`
         });
     }
 });
@@ -1385,8 +1497,8 @@ window.eliminarItemEdicionVenta = function (idx) {
 window.agregarProductoEdicionVenta = function () {
     const input = document.getElementById('edit-venta-input-producto');
     if (!input || !input.value.trim()) return;
-    const texto = input.value.trim().toLowerCase();
-    const prod = catalogoProductosEdicion.find(p => (p.nombre || '').trim().toLowerCase() === texto);
+    const texto = normalizeStr(input.value.trim());
+    const prod = catalogoProductosEdicion.find(p => normalizeStr(p.nombre) === texto);
     if (!prod) {
         alert('Selecciona un producto válido de la lista.');
         return;
@@ -1406,12 +1518,6 @@ async function cargarCatalogoEdicionVenta() {
     const res = await window.api.getInventory(sucursalId);
     if (res.success) {
         catalogoProductosEdicion = (res.data || []).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
-        const datalist = document.getElementById('datalist-edit-venta-productos');
-        if (datalist) {
-            datalist.innerHTML = catalogoProductosEdicion
-                .map(p => `<option value="${p.nombre}">${p.nombre} — $${formatCOP(p.precio)}</option>`)
-                .join('');
-        }
     }
 }
 

@@ -5,8 +5,8 @@ const { solicitarSincronizacion } = require('../sync/syncService');
 const { obtenerFechaHoyYYYYMMDD } = require('./fechaService');
 const { TIPOS_CIERRE_CAJA } = require('../utils/cierresCaja');
 
-// SRP: única fuente de verdad del cuadre de caja por ventana de tiempo (cierres parciales por
-// cambio de turno, verificaciones puntuales o cierre de día). Cada cierre retira físicamente el
+// SRP: única fuente de verdad del cuadre de caja por ventana de tiempo (cambios de turno,
+// cierres parciales o cierre de día). Cada cierre retira físicamente el
 // efectivo contado a caja fuerte, así que el turno siguiente siempre arranca del fondo base fijo
 // -- no se encadena el conteo del cierre anterior -- y cada operador responde solo por su propia
 // ventana (fecha_desde -> fecha_hasta), no por lo que pasó en el turno de otro operador el mismo día.
@@ -19,23 +19,13 @@ function inicioDeHoyISO() {
     return hoy.toISOString();
 }
 
-// fecha_desde = fecha_hasta del último cierre de HOY para esa sucursal, o inicio del día si
-// todavía no hay ninguno. Misma lógica de suma que get-reporte-diario (ipc/registerVentasIpc.js),
-// pero acotada a un rango de fecha-hora en vez de "todo el día" (comparación de string funciona
-// porque `fecha` se guarda como TEXT ISO8601 sorteable).
-async function calcularVentanaYEsperado(sucursalId, fechaHasta = new Date().toISOString()) {
-    const hoyStr = obtenerFechaHoyYYYYMMDD();
-    const ultimoCierre = await allQuery(
-        `SELECT fecha_hasta FROM cierres_caja
-         WHERE sucursal_id = ? AND (sync_status IS NULL OR sync_status <> 'deleted')
-           AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?
-         ORDER BY fecha_hasta DESC LIMIT 1`,
-        [sucursalId, hoyStr]
-    );
-    const fechaDesde = ultimoCierre.length > 0 ? ultimoCierre[0].fecha_hasta : inicioDeHoyISO();
-
-    // Ventas en efectivo (o porción efectivo de "Mixto") de la ventana, excluyendo ventas de
-    // entrega de pedido (ese dinero ya se contó como abono el día que se recibió, ver abonos abajo).
+// Ventas en efectivo (o porción efectivo de "Mixto") + abonos en efectivo - gastos operativos en
+// efectivo, dentro de una ventana [fechaDesde, fechaHasta] ya fija. Separado de
+// calcularVentanaYEsperado para poder reutilizarlo al recalcular un cierre YA registrado (que
+// tiene su propia ventana congelada en fecha_desde/fecha_hasta) sin duplicar la lógica de suma.
+async function calcularEfectivoVentana(sucursalId, fechaDesde, fechaHasta) {
+    // Excluye ventas de entrega de pedido (ese dinero ya se contó como abono el día que se
+    // recibió, ver abonos abajo).
     const ventas = await allQuery(
         `SELECT v.metodo_pago, v.total
          FROM ventas v
@@ -72,12 +62,26 @@ async function calcularVentanaYEsperado(sucursalId, fechaHasta = new Date().toIS
     );
     const gastosEfectivo = gastos.reduce((s, g) => s + Number(g.monto), 0);
 
-    return {
-        fechaDesde,
-        fechaHasta,
-        fondoBase: FONDO_BASE_SUCURSAL,
-        efectivoEsperado: ventasEfectivo + abonosEfectivo - gastosEfectivo
-    };
+    return ventasEfectivo + abonosEfectivo - gastosEfectivo;
+}
+
+// fecha_desde = fecha_hasta del último cierre de HOY para esa sucursal, o inicio del día si
+// todavía no hay ninguno. Misma lógica de suma que get-reporte-diario (ipc/registerVentasIpc.js),
+// pero acotada a un rango de fecha-hora en vez de "todo el día" (comparación de string funciona
+// porque `fecha` se guarda como TEXT ISO8601 sorteable).
+async function calcularVentanaYEsperado(sucursalId, fechaHasta = new Date().toISOString()) {
+    const hoyStr = obtenerFechaHoyYYYYMMDD();
+    const ultimoCierre = await allQuery(
+        `SELECT fecha_hasta FROM cierres_caja
+         WHERE sucursal_id = ? AND (sync_status IS NULL OR sync_status <> 'deleted')
+           AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?
+         ORDER BY fecha_hasta DESC LIMIT 1`,
+        [sucursalId, hoyStr]
+    );
+    const fechaDesde = ultimoCierre.length > 0 ? ultimoCierre[0].fecha_hasta : inicioDeHoyISO();
+    const efectivoEsperado = await calcularEfectivoVentana(sucursalId, fechaDesde, fechaHasta);
+
+    return { fechaDesde, fechaHasta, fondoBase: FONDO_BASE_SUCURSAL, efectivoEsperado };
 }
 
 async function registrarCierreCajaTx({ sucursalId, tipo, nota, denominaciones, auditoriaUsuario, auditoriaRol }) {
@@ -86,6 +90,19 @@ async function registrarCierreCajaTx({ sucursalId, tipo, nota, denominaciones, a
     }
     if (!Array.isArray(denominaciones) || denominaciones.length === 0) {
         return { success: false, message: 'Debe registrar el conteo físico de caja.' };
+    }
+
+    // El Cierre de Día es el corte final de la jornada: una vez registrado, no se admite ningún
+    // otro cierre (de ningún tipo) el mismo día para esa sucursal. Validado aquí, no solo en la UI,
+    // porque el renderer puede tener el formulario ya abierto/desactualizado.
+    const cierreDiaHoy = await allQuery(
+        `SELECT id FROM cierres_caja
+         WHERE sucursal_id = ? AND tipo = ? AND (sync_status IS NULL OR sync_status <> 'deleted')
+           AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?`,
+        [sucursalId, TIPOS_CIERRE_CAJA.CIERRE_DIA, obtenerFechaHoyYYYYMMDD()]
+    );
+    if (cierreDiaHoy.length > 0) {
+        return { success: false, message: 'Ya se realizó el Cierre de Día de hoy. No se pueden registrar más cierres de caja hasta mañana.' };
     }
 
     // Defensa en profundidad: no se confía en el total ya sumado por el renderer.
@@ -162,4 +179,55 @@ async function eliminarCierreCajaTx({ cierreId, auditoriaUsuario, auditoriaRol }
     }
 }
 
-module.exports = { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja, eliminarCierreCajaTx };
+// Corrige efectivo_esperado/diferencia de un cierre YA registrado, sin tocar su ventana
+// (fecha_desde/fecha_hasta, que queda congelada tal como se cerró) ni el efectivo_contado (el
+// conteo físico no se re-hace retroactivamente). Pensado para cuando aparece una venta con
+// componente en efectivo que se registra días después de haberse cerrado esa caja (ver
+// 'registrar-venta-anterior' en registerVentasIpc.js): el cierre ya guardado no se entera solo de
+// ventas insertadas después, así que hay que recalcularlo explícitamente contra su misma ventana.
+async function recalcularCierreCajaTx({ cierreId, auditoriaUsuario, auditoriaRol }) {
+    const filas = await allQuery(
+        `SELECT * FROM cierres_caja WHERE id = ? AND (sync_status IS NULL OR sync_status <> 'deleted')`,
+        [cierreId]
+    );
+    if (filas.length === 0) {
+        return { success: false, message: 'No se encontró el cierre de caja especificado.' };
+    }
+    const cierre = filas[0];
+
+    const nuevoEfectivoEsperado = await calcularEfectivoVentana(cierre.sucursal_id, cierre.fecha_desde, cierre.fecha_hasta);
+    const nuevaDiferencia = cierre.efectivo_contado - cierre.fondo_base - nuevoEfectivoEsperado;
+
+    if (nuevoEfectivoEsperado === cierre.efectivo_esperado && nuevaDiferencia === cierre.diferencia) {
+        return {
+            success: true, sinCambios: true,
+            message: 'El cierre ya estaba al día: no hay ventas, abonos o gastos nuevos en su ventana.',
+            efectivoEsperado: cierre.efectivo_esperado, diferencia: cierre.diferencia
+        };
+    }
+
+    try {
+        await runQuery('BEGIN TRANSACTION', []);
+        await runQuery(
+            `UPDATE cierres_caja SET efectivo_esperado = ?, diferencia = ?, sync_status = 'pending', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+            [nuevoEfectivoEsperado, nuevaDiferencia, cierreId]
+        );
+        await registrarAuditoria(
+            auditoriaUsuario, auditoriaRol, cierre.sucursal_id, 'Recalcular Cierre de Caja',
+            `Cierre ID: ${cierreId} - Esperado: $${cierre.efectivo_esperado} → $${nuevoEfectivoEsperado} - Diferencia: $${cierre.diferencia} → $${nuevaDiferencia}`
+        );
+        await runQuery('COMMIT', []);
+
+        solicitarSincronizacion('cierre de caja recalculado');
+        return {
+            success: true, sinCambios: false, message: 'Cierre de caja recalculado con éxito.',
+            efectivoEsperadoAnterior: cierre.efectivo_esperado, efectivoEsperado: nuevoEfectivoEsperado,
+            diferenciaAnterior: cierre.diferencia, diferencia: nuevaDiferencia
+        };
+    } catch (err) {
+        await runQuery('ROLLBACK', []).catch(() => { });
+        return { success: false, message: 'Error al recalcular el cierre de caja: ' + err.message };
+    }
+}
+
+module.exports = { calcularVentanaYEsperado, registrarCierreCajaTx, obtenerCierresCaja, eliminarCierreCajaTx, recalcularCierreCajaTx };

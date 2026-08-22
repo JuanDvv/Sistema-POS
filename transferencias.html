@@ -174,8 +174,11 @@
                     <select id="select-sucursal-origen"
                         style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-weight: bold; background-color: #f9fafb;"></select>
                 </div>
-                <input type="text" id="search-productos" placeholder="🔍 Buscar producto..."
-                    style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 200px; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <div id="filter-categoria"></div>
+                    <input type="text" id="search-productos" placeholder="🔍 Buscar producto..."
+                        style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 200px; font-family: inherit; font-size: 0.9em; box-sizing: border-box;">
+                </div>
             </div>
             <div class="grid-products" id="grid-products"></div>
         </div>
@@ -202,6 +205,7 @@
     </main>
 
     <script src="./sidebar.js"></script>
+    <script src="./categoriaFiltro.js"></script>
     <script src="./transferencias.js"></script>
 </body>
 

@@ -72,7 +72,7 @@ async function buscarGastoDomicilioDeVenta({ ventaId, sucursalId, fecha }) {
     return gasto;
 }
 
-async function insertarVentaTx({ sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id, fecha, auditoriaUsuario, auditoriaRol, accion, permitirStockNegativo }) {
+async function insertarVentaTx({ sucursalId, metodoPago, total, carrito, valorDomicilio, es_credito, cliente_id, montoRecibido, vuelto, fecha, auditoriaUsuario, auditoriaRol, accion, permitirStockNegativo }) {
     // Defensa en profundidad: los formularios de venta (día actual y fecha anterior) ya bloquean
     // el envío sin cliente, pero esta función es el único punto de escritura real (también la
     // usa la aprobación de solicitudes retroactivas), así que la validación vive aquí también.
@@ -89,8 +89,8 @@ async function insertarVentaTx({ sucursalId, metodoPago, total, carrito, valorDo
         // db/schema.js) y solo se rellena una vez por arranque de la app, dejando NULL cualquier
         // fila creada a mitad de sesión -- lo que Supabase rechaza por su constraint NOT NULL.
         await runQuery(
-            `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-            [ventaId, sucursalId, total, metodoPago, fecha, es_credito || 0, cliente_id || null]
+            `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, monto_recibido, vuelto, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+            [ventaId, sucursalId, total, metodoPago, fecha, es_credito || 0, cliente_id || null, montoRecibido ?? null, vuelto ?? null]
         );
 
         if (valorDomicilio && Number(valorDomicilio) > 0) {
@@ -248,7 +248,7 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
 
         // 1. Revertir el stock descontado por las líneas originales
         const detallesOriginales = await allQuery(
-            `SELECT dv.producto_id, dv.cantidad, p.nombre FROM detalle_ventas dv LEFT JOIN productos p ON dv.producto_id = p.id WHERE dv.venta_id = ?`,
+            `SELECT dv.id, dv.producto_id, dv.cantidad, p.nombre FROM detalle_ventas dv LEFT JOIN productos p ON dv.producto_id = p.id WHERE dv.venta_id = ?`,
             [ventaId]
         );
         for (const det of detallesOriginales) {
@@ -282,6 +282,19 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
 
         // 3. Reemplazar las líneas de detalle por las del carrito editado
         await runQuery(`DELETE FROM detalle_ventas WHERE venta_id = ?`, [ventaId]);
+
+        // Encolar los ids que se acaban de borrar para que syncDetalleVentasEliminaciones
+        // (sync/syncService.js) les marque deleted_at en Supabase. Sin esto, el DELETE físico
+        // de arriba no deja ningún rastro para que otra terminal que ya había descargado esa
+        // línea se entere de que fue quitada -- le queda huérfana para siempre.
+        if (detallesOriginales.length > 0) {
+            const outboxValues = detallesOriginales.flatMap(det => [det.id, ventaId]);
+            const outboxPlaceholders = detallesOriginales.map(() => '(?, ?)').join(', ');
+            await runQuery(
+                `INSERT OR IGNORE INTO detalle_ventas_eliminaciones_pendientes (id, venta_id) VALUES ${outboxPlaceholders}`,
+                outboxValues
+            );
+        }
 
         if (carrito.length > 0) {
             const detalleValues = carrito.flatMap(item => [uuidv4(), ventaId, item.id, item.cantidad, item.precio]);

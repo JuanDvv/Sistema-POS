@@ -171,6 +171,37 @@ body {
     background-color: #dc2626;
 }
 
+/* Botones de acceso rápido para agregar bolsas al carrito sin buscarlas en la grilla (ver
+   ventas.html junto al filtro de categorías y ventas.js -> BOLSAS_ACCESO_RAPIDO). El selector de
+   categorías tiene ancho fijo (ver .cat-multiselect-trigger), así que esta fila crece para
+   ocupar el espacio libre que queda a su lado en vez de bajar a su propia fila. */
+.quick-bolsas-row {
+    display: flex;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.btn-quick-bolsa {
+    padding: 6px 12px;
+    border: 1px solid #059669;
+    border-radius: 6px;
+    background-color: #ecfdf5;
+    color: #059669;
+    font-family: inherit;
+    font-size: 0.9em;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    box-sizing: border-box;
+    flex: 1;
+}
+
+.btn-quick-bolsa:hover {
+    background-color: #059669;
+    color: white;
+}
+
 /* Catálogo de productos en grilla (ventas, ventas-anteriores, transferencias) */
 .grid-products {
     display: grid;
@@ -186,7 +217,7 @@ body {
 .product-card {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    padding: 8px;
+    padding: 6px 8px;
     cursor: pointer;
     transition: all 0.2s ease-in-out;
     background-color: white !important;
@@ -197,7 +228,7 @@ body {
     text-align: center;
     box-sizing: border-box;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    min-height: 190px;
+    min-height: 200px;
 }
 
 .product-card.disabled {
@@ -218,7 +249,7 @@ body {
     object-fit: cover !important;
     border-radius: 6px !important;
     border: 1px solid #f3f4f6 !important;
-    margin-bottom: 6px !important;
+    margin-bottom: 4px !important;
     box-sizing: border-box !important;
     display: block !important;
 }
@@ -254,6 +285,22 @@ body {
     font-size: 0.75em;
     color: #6b7280;
     margin: 0;
+}
+
+/* Variante/presentación de un producto (ej. "1 Libra", "1/2 Libra", "Mediano"), extraída del
+   nombre cuando usa el separador " | " o " - " (ver separarNombreVariante en ventas.js). Se
+   muestra aparte del nombre base para que el tamaño/sabor salte a la vista y no se confunda con
+   una variante distinta del mismo producto. */
+.product-variant-badge {
+    display: inline-block;
+    margin-top: 1px;
+    padding: 1px 5px;
+    background-color: #eef2ff;
+    color: #4338ca;
+    font-size: 0.65em;
+    font-weight: 700;
+    border-radius: 8px;
+    line-height: 1.2;
 }
 
 @media (max-width: 1200px) {
@@ -299,6 +346,7 @@ body {
 .ticket-tabla .col-cant { width: 22px; }
 .ticket-tabla .col-sub { text-align: right; white-space: nowrap; }
 .ticket-total { font-weight: 600; font-size: 13px; text-align: right; margin-top: 4px; }
+.ticket-pago { font-size: 11px; text-align: right; margin-top: 2px; }
 
 /* Vista previa en pantalla, dentro del modal de impresión */
 .ticket-preview {
@@ -419,6 +467,26 @@ body {
     border-radius: 999px;
 }
 
+/* Scroll delgado y siempre visible (no la barra clásica de Windows con flechas que Chromium
+   solo despliega al pasar el mouse) para .table-container / .table-container-scroll, usadas
+   en todas las páginas para las tablas. Mismo criterio que .cat-multiselect-panel arriba. */
+.table-container::-webkit-scrollbar,
+.table-container-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.table-container::-webkit-scrollbar-track,
+.table-container-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.table-container::-webkit-scrollbar-thumb,
+.table-container-scroll::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    border-radius: 999px;
+}
+
 .cat-multiselect-item {
     display: flex;
     align-items: flex-start;
@@ -501,6 +569,42 @@ body {
 }
 
 .sugerencia-item .sugerencia-usos {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    color: #9ca3af;
+}
+
+/* Dropdown del buscador de productos sin tildes / sin orden de palabras (ver productoBuscador.js).
+   position: fixed calculado en JS, mismo motivo que .cat-multiselect-panel: no queda recortado por
+   el overflow:hidden de un ancestro ni por el propio modal donde vive el input. */
+.producto-buscador-dropdown {
+    position: fixed;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    overflow-y: auto;
+    z-index: 1100;
+    padding: 4px 0;
+}
+
+.producto-buscador-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 0.9em;
+    color: #374151;
+    cursor: pointer;
+}
+
+.producto-buscador-item:hover,
+.producto-buscador-item.activo {
+    background-color: #f3f4f6;
+}
+
+.producto-buscador-item .producto-buscador-detalle {
     flex-shrink: 0;
     font-size: 0.8em;
     color: #9ca3af;

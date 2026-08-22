@@ -6,6 +6,11 @@ window.confirm = (msg) => { const r = originalConfirm(msg); window.api.forceRefo
 
 let productosLocales = []; // Guarda los productos cargados del inventario
 let carrito = []; // Guarda los items agregados temporalmente para la venta
+let procesandoVenta = false; // true mientras se espera la respuesta de registrar-venta
+let ultimoAgregado = null; // { id, cantidad, nombre } del último producto agregado (para "Deshacer")
+let productosFiltradosActuales = []; // Resultado vigente de filtrarYRenderizarCatalogo, para que Enter en el buscador sepa si hay una única coincidencia
+let toastTimeoutId = null;
+let audioCtxBeep = null;
 let sucursalId = 'sucursal-norte'; // ID de la sucursal actual
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
 let ultimoTicket = null; // Snapshot de la última venta registrada, para reimprimir
@@ -31,6 +36,10 @@ async function cargarClientesFiscales() {
 let metodoPagoSelected = 'Efectivo';
 let categoriasCargadas = [];
 let filtroCategorias = null; // Instancia del selector múltiple de categorías (ver categoriaFiltro.js)
+// Bolsas de empaque: son lo que más se agrega al carrito, así que tienen botones de acceso
+// rápido junto al filtro de categorías (ver HTML) y se ocultan de la grilla normal para no
+// duplicar su acceso.
+const BOLSAS_ACCESO_RAPIDO = ['Bolsas $100', 'Bolsas $500'];
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 const formatNumberUI = (val) => {
     const clean = String(val).replace(/\D/g, "");
@@ -108,8 +117,81 @@ const normalizeStr = (value) => {
     return String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 };
 
+// Separa el nombre de un producto en "base" + "variante" cuando usa alguno de los separadores
+// que ya existen en el catalogo real para distinguir tamano/presentacion/sabor (ej. "Napoleon |
+// 1/2 Libra", "Chunk Cake - Moka"). La variante se resalta aparte en la tarjeta para que no pase
+// desapercibida entre productos casi identicos (ver renderizarCatalogo).
+function separarNombreVariante(nombreCompleto) {
+    const nombre = String(nombreCompleto || '');
+    for (const sep of [' | ', ' - ']) {
+        const idx = nombre.indexOf(sep);
+        if (idx > -1) {
+            return { base: nombre.slice(0, idx).trim(), variante: nombre.slice(idx + sep.length).trim() };
+        }
+    }
+    return { base: nombre, variante: null };
+}
+
+// Confirmacion visual breve al agregar/deshacer un producto (ademas del sonido, ver
+// reproducirBeep) -- el carrito esta al otro lado de la pantalla y con la grilla llena un clic
+// puede pasar inadvertido.
+function mostrarToast(mensaje) {
+    const toast = document.getElementById('toast-confirmacion');
+    if (!toast) return;
+    toast.textContent = mensaje;
+    toast.classList.add('visible');
+    clearTimeout(toastTimeoutId);
+    toastTimeoutId = setTimeout(() => toast.classList.remove('visible'), 1100);
+}
+
+// Beep corto generado con Web Audio API (sin archivos de audio externos) como confirmacion
+// sonora de que el producto si entro al carrito.
+function reproducirBeep() {
+    try {
+        audioCtxBeep = audioCtxBeep || new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtxBeep.createOscillator();
+        const gain = audioCtxBeep.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.15, audioCtxBeep.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtxBeep.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(audioCtxBeep.destination);
+        osc.start();
+        osc.stop(audioCtxBeep.currentTime + 0.12);
+    } catch (e) {
+        // Web Audio no disponible en este entorno: el toast visual sigue siendo suficiente.
+    }
+}
+
+function actualizarEstadoBotonDeshacer() {
+    const btn = document.getElementById('btn-deshacer-ultimo');
+    if (!btn) return;
+    btn.style.display = ultimoAgregado ? 'inline-flex' : 'none';
+}
+
+// Deshace unicamente la ultima accion de "agregar" (clic en tarjeta, bolsa rapida o busqueda +
+// Enter), no ediciones manuales de cantidad en el carrito (ver cambiarCantidad, que limpia
+// ultimoAgregado para que un deshacer posterior no reste algo que el cajero ya ajusto a mano).
+function deshacerUltimoAgregado() {
+    if (!ultimoAgregado) return;
+    const item = carrito.find(i => i.id === ultimoAgregado.id);
+    if (item) {
+        item.cantidad -= ultimoAgregado.cantidad;
+        if (item.cantidad <= 0) {
+            carrito = carrito.filter(i => i.id !== ultimoAgregado.id);
+        }
+    }
+    mostrarToast(`\u21a9\ufe0f Se deshizo: ${ultimoAgregado.nombre}`);
+    ultimoAgregado = null;
+    actualizarEstadoBotonDeshacer();
+    actualizarEstadoDescuentoUI();
+    renderizarCarrito();
+    guardarCarritoTemporal();
+}
+
 // Comprobante Informativo (no fiscal) para impresora t\u00e9rmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago }) {
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
@@ -139,6 +221,9 @@ function construirTicketHTML({ ventaId, fecha, items, total, metodoPago }) {
         </table>
         <div class="ticket-separador"></div>
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
+        ${montoRecibido != null ? `
+        <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
+        <div class="ticket-pago ticket-negrita">Cambio: $${formatCOP(vuelto)}</div>` : ''}
         <div class="ticket-separador"></div>
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
     `;
@@ -214,6 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Error al cargar carrito temporal:", e);
         }
     }
+    actualizarEstadoBotonCobrar();
 
     if (role === 'Administrador') {
         const btnAdmin = document.getElementById('btn-nav-admin');
@@ -242,6 +328,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             imagePreviewModal.style.display = 'none';
         });
     }
+
+    // Botón y atajo de teclado para deshacer el último producto agregado al carrito
+    const btnDeshacerUltimo = document.getElementById('btn-deshacer-ultimo');
+    if (btnDeshacerUltimo) {
+        btnDeshacerUltimo.addEventListener('click', deshacerUltimoAgregado);
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const activo = document.activeElement;
+        const enOtroCampo = activo && ['INPUT', 'SELECT', 'TEXTAREA'].includes(activo.tagName) && activo.id !== 'search-productos';
+        if (enOtroCampo) return; // no interferir con Escape dentro de otros formularios/modales
+        deshacerUltimoAgregado();
+    });
 
     // (normalizeStr is now global)
 
@@ -293,6 +392,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Botones de acceso rápido para agregar bolsas al carrito sin buscarlas en la grilla (ver
+    // BOLSAS_ACCESO_RAPIDO, que además las oculta de la grilla normal).
+    const btnQuickBolsa100 = document.getElementById('btn-quick-bolsa-100');
+    const btnQuickBolsa500 = document.getElementById('btn-quick-bolsa-500');
+    const agregarBolsaRapida = (nombreBolsa) => {
+        const prod = productosLocales.find(p => p.nombre === nombreBolsa);
+        if (!prod) {
+            alert(`No se encontró el producto "${nombreBolsa}" en el inventario de esta sucursal.`);
+            return;
+        }
+        agregarAlCarrito(prod);
+    };
+    if (btnQuickBolsa100) {
+        btnQuickBolsa100.addEventListener('click', () => agregarBolsaRapida('Bolsas $100'));
+    }
+    if (btnQuickBolsa500) {
+        btnQuickBolsa500.addEventListener('click', () => agregarBolsaRapida('Bolsas $500'));
+    }
+
     if (searchInput) {
         searchInput.addEventListener('input', () => {
             filtrarYRenderizarCatalogo();
@@ -303,6 +421,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     searchInput.focus();
                 }
             }, 10);
+        });
+        // Enter agrega directo al carrito cuando el texto deja una única coincidencia visible: evita
+        // tener que soltar el teclado para hacer clic, sin arriesgar agregar el producto equivocado
+        // cuando el texto todavía es ambiguo (0 o varias coincidencias).
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (productosFiltradosActuales.length !== 1) return;
+            agregarAlCarrito(productosFiltradosActuales[0]);
+            searchInput.value = '';
+            filtrarYRenderizarCatalogo();
+            searchInput.focus();
         });
     }
 
@@ -719,6 +849,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('pos-sincronizacion-completa', () => {
         cargarCatalogo();
     });
+
+    // Foco inicial en el buscador para poder escribir/escanear sin tener que hacer clic primero.
+    if (searchInput) searchInput.focus();
 });
 
 function filtrarYRenderizarCatalogo() {
@@ -747,6 +880,8 @@ function filtrarYRenderizarCatalogo() {
     });
 
     const productosFiltrados = productosLocales.filter(prod => {
+        // Las bolsas tienen su propio botón de acceso rápido: se ocultan de la grilla.
+        if (BOLSAS_ACCESO_RAPIDO.includes(prod.nombre)) return false;
         // Filtro de estado de stock: si hay alguna opción marcada, el producto debe cumplir al
         // menos una (disponible con stock>0, o negativo con stock<0).
         if (filtrarDisponibles || filtrarNegativos) {
@@ -769,6 +904,7 @@ function filtrarYRenderizarCatalogo() {
         return true;
     });
 
+    productosFiltradosActuales = productosFiltrados;
     renderizarCatalogo(productosFiltrados);
 }
 
@@ -776,8 +912,15 @@ async function cargarCatalogo() {
     const response = await window.api.getInventory(sucursalId);
     if (response.success) {
         productosLocales = response.data || [];
-        // Ordenar alfabéticamente por nombre
-        productosLocales.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
+        // Ordenar por más vendido primero (ventas_historicas, calculado en get-inventory) y, dentro
+        // del mismo nivel de ventas (típicamente empatados en 0), alfabéticamente. Así los productos
+        // de alta rotación quedan arriba sin scroll, sin perder el orden predecible para el resto.
+        productosLocales.sort((a, b) => {
+            const ventasA = Number(a.ventas_historicas || 0);
+            const ventasB = Number(b.ventas_historicas || 0);
+            if (ventasB !== ventasA) return ventasB - ventasA;
+            return (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
+        });
         // La opción "Con Unidades Negativas" del filtro solo se ofrece mientras exista al menos un
         // producto con stock negativo en esta sucursal (ver punto 3 de negativos al cerrar sesión).
         if (filtroCategorias) {
@@ -818,6 +961,8 @@ function renderizarCatalogo(productos) {
                 badgeHtml = `<span style="background-color: #fef3c7; color: #d97706; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; flex-shrink: 0;">Pocas Uds.</span>`;
             }
 
+            const { base: nombreBase, variante } = separarNombreVariante(productoNombre);
+
             card.innerHTML = `
                 <div style="position: relative; width: 100% !important; height: 90px !important;">
                     <img src="${imgUrl}" alt="${productoNombre}" style="width: 100% !important; height: 90px !important; object-fit: cover !important; border-radius: 6px !important; display: block !important;">
@@ -829,8 +974,9 @@ function renderizarCatalogo(productos) {
                     </button>
                 </div>
                 <div class="product-card-body" style="width: 100% !important; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; padding-top: 4px;">
-                    <div style="margin-bottom: 6px;">
-                        <div style="font-size: 0.8em; font-weight: 600; color: #111827; line-height: 1.25; min-height: 2.5em; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${productoNombre}</div>
+                    <div style="margin-bottom: 4px;">
+                        <div style="font-size: 0.8em; font-weight: 600; color: #111827; line-height: 1.25; min-height: 2em; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${nombreBase}</div>
+                        ${variante ? `<div class="product-variant-badge">${variante}</div>` : ''}
                     </div>
                     <div>
                         <div class="product-price" style="color: #059669; font-weight: 700; font-size: 0.95em; text-align: center;">${formatCOP(productoPrecio)}</div>
@@ -892,6 +1038,11 @@ function agregarAlCarrito(producto) {
         });
     }
 
+    ultimoAgregado = { id: producto.id, cantidad: 1, nombre: producto.nombre };
+    actualizarEstadoBotonDeshacer();
+    mostrarToast(`✓ ${producto.nombre} agregado`);
+    reproducirBeep();
+
     renderizarCarrito();
     guardarCarritoTemporal();
 }
@@ -899,6 +1050,14 @@ function agregarAlCarrito(producto) {
 function cambiarCantidad(productoId, delta) {
     const item = carrito.find(item => item.id === productoId);
     if (!item) return;
+
+    // Una edición manual de cantidad invalida el "Deshacer" del último agregado (ver
+    // deshacerUltimoAgregado): sin esto, deshacer podría restar unidades que el cajero ya ajustó
+    // a mano, dejando el carrito en un estado que no corresponde a ninguna de las dos acciones.
+    if (ultimoAgregado && ultimoAgregado.id === productoId) {
+        ultimoAgregado = null;
+        actualizarEstadoBotonDeshacer();
+    }
 
     item.cantidad += delta;
 
@@ -926,6 +1085,7 @@ function renderizarCarrito() {
     if (carrito.length === 0) {
         cartList.innerHTML = '<p style="color: #6b7280; text-align: center; margin-top: 40px;">El carrito está vacío.</p>';
         cartTotal.innerText = '$0.00';
+        actualizarEstadoBotonCobrar();
         return;
     }
 
@@ -976,19 +1136,35 @@ function renderizarCarrito() {
     if (window.triggerCalcularCambio) {
         window.triggerCalcularCambio();
     }
+
+    actualizarEstadoBotonCobrar();
+}
+
+// Único punto que decide si "Cobrar" debe estar habilitado: evita registrar una venta sin
+// productos (ver 'registrar-venta' en registerVentasIpc.js, que ahora también valida esto
+// del lado del servidor como segunda barrera).
+function actualizarEstadoBotonCobrar() {
+    const cobrarBtn = document.getElementById('btn-cobrar');
+    if (!cobrarBtn) return;
+    const deshabilitado = procesandoVenta || carrito.length === 0;
+    cobrarBtn.disabled = deshabilitado;
+    cobrarBtn.style.opacity = deshabilitado ? '0.5' : '1';
+    cobrarBtn.style.cursor = procesandoVenta ? 'wait' : (deshabilitado ? 'not-allowed' : 'pointer');
 }
 
 function setProcessingState(isProcessing) {
+    procesandoVenta = isProcessing;
     const cobrarBtn = document.getElementById('btn-cobrar');
-    if (!cobrarBtn) return;
-    cobrarBtn.disabled = isProcessing;
-    cobrarBtn.innerText = isProcessing ? 'Procesando...' : 'Registrar y Cobrar';
-    cobrarBtn.style.opacity = isProcessing ? '0.75' : '1';
-    cobrarBtn.style.cursor = isProcessing ? 'wait' : 'pointer';
+    if (cobrarBtn) {
+        cobrarBtn.innerText = isProcessing ? 'Procesando...' : 'Registrar y Cobrar';
+    }
+    actualizarEstadoBotonCobrar();
 }
 
 function limpiarEstadoVenta() {
     carrito = [];
+    ultimoAgregado = null;
+    actualizarEstadoBotonDeshacer();
 
     try {
         sessionStorage.setItem('carrito_temporal', JSON.stringify(carrito));
@@ -1138,6 +1314,22 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             metodoPago = `Mixto (Efectivo: ${efVal}, Transferencia: ${trVal})`;
         }
 
+        // Monto recibido y vuelto solo aplican cuando hay un componente en efectivo (Efectivo o
+        // Mixto): es lo que el cajero anotó en "Cliente Paga con" para calcular el cambio a devolver.
+        let montoRecibido = null;
+        let vuelto = 0;
+        if (!esCredito && (metodoPagoSelected === 'Efectivo' || metodoPagoSelected === 'Mixto')) {
+            const targetCashToPay = metodoPagoSelected === 'Efectivo'
+                ? total
+                : parseNumberUI(document.getElementById('input-mixto-efectivo').value);
+            const inputPagaConEl = document.getElementById('input-paga-con');
+            const rawPagaCon = inputPagaConEl ? parseNumberUI(inputPagaConEl.value) : 0;
+            if (rawPagaCon > 0) {
+                montoRecibido = rawPagaCon;
+                vuelto = Math.max(0, rawPagaCon - targetCashToPay);
+            }
+        }
+
         if (esDomicilio) {
             metodoPago += ` (Domicilio: ${formatCOP(valorDomicilio)})`;
         }
@@ -1158,7 +1350,9 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             auditoriaRol: auditoriaRol,
             es_credito: esCredito ? 1 : 0,
             cliente_id: clienteId,
-            descuento_porcentaje: descuentoAplicado
+            descuento_porcentaje: descuentoAplicado,
+            montoRecibido,
+            vuelto
         };
 
         // Llamamos a la base de datos a través de Electron (IPC)
@@ -1171,7 +1365,9 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
                 fecha: new Date().toISOString(),
                 items: carritoProcesado.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
                 total,
-                metodoPago
+                metodoPago,
+                montoRecibido,
+                vuelto
             };
 
             ventaFiscalPendiente = esFiscal ? { ventaId: response.ventaId, clienteId: clienteFiscalId } : null;

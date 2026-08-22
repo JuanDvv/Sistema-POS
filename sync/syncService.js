@@ -246,6 +246,8 @@ async function syncVentasSubir() {
                 fecha: venta.fecha,
                 es_credito: venta.es_credito || 0,
                 cliente_id: venta.cliente_id || null,
+                monto_recibido: venta.monto_recibido ?? null,
+                vuelto: venta.vuelto ?? null,
                 updated_at: venta.updated_at
             });
 
@@ -258,29 +260,36 @@ async function syncVentasSubir() {
 
             const detalles = await allQuery(`SELECT * FROM detalle_ventas WHERE venta_id = ?`, [venta.id]);
 
-            // Borrar las líneas remotas previas antes de reinsertar: si la venta fue editada,
-            // detalle_ventas se reemplaza localmente (DELETE + INSERT con nuevos ids), y sin este
-            // paso las líneas viejas quedan huérfanas en Supabase y se vuelven a descargar,
-            // duplicando los productos y el total al reabrir la venta para editar.
-            const { error: errorLimpiezaDetalle } = await supabase
-                .from('detalle_ventas')
-                .delete()
-                .eq('venta_id', venta.id);
-            if (errorLimpiezaDetalle) throw errorLimpiezaDetalle;
-
-            // Subir el detalle de los productos vendidos
+            // Las líneas que la edición quitó ya NO están aquí (se reemplazan localmente con
+            // DELETE + INSERT de ids nuevos, ver editarVentaCompletaTx en services/ventaService.js)
+            // -- su soft delete remoto lo maneja syncDetalleVentasEliminaciones a partir del outbox
+            // detalle_ventas_eliminaciones_pendientes, no un borrado físico aquí. Antes este paso
+            // borraba TODAS las líneas remotas de la venta antes de reinsertar; al ser un DELETE
+            // físico (sin deleted_at ni sync_seq) esa señal era invisible para el pull incremental
+            // de otra terminal que ya había descargado la línea vieja, dejándosela huérfana para
+            // siempre en su SQLite local.
+            // Subir el detalle de los productos vendidos. Usa upsertConLWW (igual que ventas/
+            // gastos/productos) en vez de un upsert "a ciegas" que solo revisa `error`: sin
+            // encadenar .select(), PostgREST responde con `Prefer: return=minimal` y no hay forma
+            // de confirmar que la fila realmente quedó escrita -- un upsert puede devolver sin
+            // error y aun así no persistir (mismo patrón de falso positivo que ya se documentó y
+            // corrigió para el guard LWW viejo, ver sync/migrate_stock_delta_sync.sql). Confirmado
+            // en producción el 2026-08-02: 13 líneas de detalle en 8 ventas nunca llegaron a
+            // Supabase pese a que sus ventas quedaron marcadas 'synced'. Si upsertConLWW devuelve
+            // false aquí, se lanza para que la venta completa quede 'pending' y se reintente en el
+            // próximo ciclo en vez de darla por sincronizada con un hueco silencioso.
             for (const det of detalles) {
-                const { error: errorDetalle } = await supabase
-                    .from('detalle_ventas')
-                    .upsert({
-                        id: det.id,
-                        venta_id: det.venta_id,
-                        producto_id: det.producto_id,
-                        cantidad: det.cantidad,
-                        precio_unitario: det.precio_unitario,
-                        updated_at: nowISO()
-                    });
-                if (errorDetalle) throw errorDetalle;
+                const detalleSubido = await upsertConLWW('detalle_ventas', {
+                    id: det.id,
+                    venta_id: det.venta_id,
+                    producto_id: det.producto_id,
+                    cantidad: det.cantidad,
+                    precio_unitario: det.precio_unitario,
+                    updated_at: nowISO()
+                });
+                if (!detalleSubido) {
+                    throw new Error(`Línea de detalle ${det.id} (venta ${venta.id}) no se pudo confirmar en la nube.`);
+                }
             }
 
             // Cambiar estado a sincronizado
@@ -325,8 +334,8 @@ async function syncVentasEliminaciones() {
                     // Hay una versión más reciente y viva en la nube: la adoptamos localmente en
                     // lugar de insistir en el borrado, y queda 'synced' para no reintentar.
                     await runQuery(
-                        `UPDATE ventas SET sucursal_id = ?, total = ?, metodo_pago = ?, fecha = ?, es_credito = ?, cliente_id = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
-                        [filaNube.sucursal_id, filaNube.total, filaNube.metodo_pago, filaNube.fecha, filaNube.es_credito, filaNube.cliente_id, filaNube.updated_at, venta.id]
+                        `UPDATE ventas SET sucursal_id = ?, total = ?, metodo_pago = ?, fecha = ?, es_credito = ?, cliente_id = ?, monto_recibido = ?, vuelto = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
+                        [filaNube.sucursal_id, filaNube.total, filaNube.metodo_pago, filaNube.fecha, filaNube.es_credito, filaNube.cliente_id, filaNube.monto_recibido, filaNube.vuelto, filaNube.updated_at, venta.id]
                     );
                     console.log(`[Sincronizador] Eliminación de venta ${venta.id} pospuesta: se adoptó la versión más reciente de la nube en vez de reintentar indefinidamente.`);
                 }
@@ -339,6 +348,30 @@ async function syncVentasEliminaciones() {
         }
     } catch (err) {
         console.log("[Sincronizador] Eliminaciones de ventas no sincronizadas (Modo Offline o error de red):", err.message);
+    }
+}
+
+// --- 1.6. SINCRONIZAR ELIMINACIONES DE LÍNEAS DE VENTA (Local -> Supabase, soft delete individual) ---
+// Drena el outbox detalle_ventas_eliminaciones_pendientes (ver db/schema.js y editarVentaCompletaTx
+// en services/ventaService.js): cada fila es el id de una línea que una edición quitó localmente
+// con DELETE físico. Se le marca deleted_at en Supabase por id -- a diferencia de syncVentasSubir
+// (que solo sube el detalle VIGENTE), esto es lo único que le avisa a otra terminal que ya había
+// descargado esa línea que debe borrarla también.
+// No se distingue "soft delete aplicado" de "el id nunca llegó a subirse": en ambos casos el estado
+// remoto deseado (ausente/deleted) ya se cumple, así que la fila del outbox se limpia siempre que
+// la llamada a Supabase no lance error de red -- un error sí la deja pendiente para el próximo ciclo.
+async function syncDetalleVentasEliminaciones() {
+    try {
+        const pendientes = await allQuery(`SELECT * FROM detalle_ventas_eliminaciones_pendientes`, []);
+        for (const item of pendientes) {
+            await softDeleteConLWW('detalle_ventas', { id: item.id });
+            await runQuery(`DELETE FROM detalle_ventas_eliminaciones_pendientes WHERE id = ?`, [item.id]);
+        }
+        if (pendientes.length > 0) {
+            console.log(`[Sincronizador] ${pendientes.length} línea(s) de venta eliminada(s) por edición sincronizada(s) con la nube.`);
+        }
+    } catch (err) {
+        console.log("[Sincronizador] Eliminaciones de líneas de venta no sincronizadas (Modo Offline o error de red):", err.message);
     }
 }
 
@@ -355,8 +388,8 @@ async function syncVentasDescargar() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, monto_recibido, vuelto, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         sucursal_id = excluded.sucursal_id,
                         total = excluded.total,
@@ -364,10 +397,12 @@ async function syncVentasDescargar() {
                         fecha = excluded.fecha,
                         es_credito = excluded.es_credito,
                         cliente_id = excluded.cliente_id,
+                        monto_recibido = excluded.monto_recibido,
+                        vuelto = excluded.vuelto,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [venta.id, venta.sucursal_id, venta.total, venta.metodo_pago, venta.fecha, venta.es_credito, venta.cliente_id, venta.updated_at]
+                    [venta.id, venta.sucursal_id, venta.total, venta.metodo_pago, venta.fecha, venta.es_credito, venta.cliente_id, venta.monto_recibido, venta.vuelto, venta.updated_at]
                 );
             }
         }
@@ -409,9 +444,21 @@ async function syncVentasDescargar() {
 // --- 1.8. REPARAR LÍNEAS DE detalle_ventas DUPLICADAS ---
 // Limpieza de datos ya corrompidos por el bug histórico previo al soft delete/LWW.
 // Idempotente: no hace nada si no hay duplicados.
+//
+// Por qué ORDER BY updated_at DESC y no id ASC (como tenía antes): un id ASC (orden alfabético de
+// UUID) es arbitrario respecto a cuál copia es la vigente. Confirmado en producción el 2026-08-03:
+// una terminal que todavía no había recibido la señal de borrado de una línea vieja (bug histórico
+// de detalle_ventas, ver syncDetalleVentasEliminaciones) terminaba con DOS filas locales para el
+// mismo venta_id+producto_id -- la vieja (pre-edición) y la nueva (post-edición, bajada por pull
+// normal). Con id ASC, esta función podía "conservar" por azar la fila VIEJA y borrar la NUEVA
+// -- tanto local como remotamente -- resucitando datos obsoletos y borrando la línea real y
+// vigente de la venta en Supabase para TODAS las terminales. updated_at DESC en cambio siempre
+// conserva la versión más reciente (una edición real genera updated_at fresco en sus filas nuevas;
+// las filas viejas que sobran conservan su timestamp original, más antiguo), así que el criterio
+// deja de ser una moneda al aire y pasa a ser "gana la edición más reciente", que es lo correcto.
 async function repararDetalleVentasDuplicado() {
     try {
-        const detalles = await allQuery(`SELECT id, venta_id, producto_id FROM detalle_ventas ORDER BY id ASC`, []);
+        const detalles = await allQuery(`SELECT id, venta_id, producto_id FROM detalle_ventas ORDER BY updated_at DESC`, []);
         const conservados = new Set();
         const duplicados = [];
 
@@ -434,6 +481,148 @@ async function repararDetalleVentasDuplicado() {
         console.log(`[Sincronizador] Se repararon ${duplicados.length} línea(s) de detalle_ventas duplicadas.`);
     } catch (err) {
         console.log("[Sincronizador] No se pudo reparar detalle_ventas duplicado (Modo Offline o error de red):", err.message);
+    }
+}
+
+// --- 1.9. REPARAR LÍNEAS DE detalle_ventas DESINCRONIZADAS (bugs históricos, ya corregidos) ---
+// Limpieza de datos ya corrompidos por DOS bugs históricos distintos, ambos con el mismo síntoma
+// (línea local de una venta 'synced' que no existe vigente en Supabase) pero causas y arreglos
+// opuestos:
+//   1. Huérfana real -- editar una venta para quitar un producto se replicaba con DELETE físico
+//      local Y remoto (ver el DELETE físico legacy que tenía syncVentasSubir), sin dejar ningún
+//      rastro (deleted_at/sync_seq) para que otra terminal que ya la había descargado se enterara
+//      del borrado. Ya corregido: syncDetalleVentasEliminaciones sube ahora un soft delete real.
+//      Sacar esta línea local hace que la suma del detalle cuadre con ventas.total (nunca formó
+//      parte del total vigente) -- se borra localmente.
+//   2. Hueco de subida -- la línea es real y vigente, pero su upsert individual en el
+//      syncVentasSubir viejo no confirmaba que Supabase hubiera devuelto la fila (solo revisaba
+//      `error`, sin .select()) y aun así la venta quedaba marcada 'synced'. Confirmado en
+//      producción el 2026-08-02: 13 líneas en 8 ventas. Ya corregido: syncVentasSubir ahora usa
+//      upsertConLWW, que sí confirma la fila devuelta. Con esta línea puesta, la suma del detalle
+//      local YA cuadra con ventas.total (sin ella no) -- se re-sube a Supabase para cerrar el
+//      hueco, nunca se borra localmente.
+//
+// Corre UNA sola vez por instalación (marcador en reparaciones_locales, ver db/schema.js): a
+// diferencia de repararDetalleVentasDuplicado, esta sí necesita traer de la nube el set completo
+// de ids vigentes de detalle_ventas para comparar, y ese costo de red no vale la pena pagarlo en
+// cada ciclo para siempre -- ambos bugs de origen ya están corregidos, así que después de esta
+// limpieza inicial no deberían producirse casos nuevos.
+const MAX_INTENTOS_REPARACION_DETALLE = 5;
+async function repararDetalleVentasHuerfanas() {
+    const NOMBRE_MARCADOR = 'detalle_ventas_huerfanas_v2';
+    try {
+        const marcador = await allQuery(`SELECT aplicada_en, intentos FROM reparaciones_locales WHERE nombre = ?`, [NOMBRE_MARCADOR]);
+        const fila = marcador[0];
+        if (fila && fila.aplicada_en) return; // ya se completó sin pendientes
+        const intentosPrevios = fila ? Number(fila.intentos || 0) : 0;
+        if (intentosPrevios >= MAX_INTENTOS_REPARACION_DETALLE) return; // se dejó de reintentar, ver log ya emitido
+
+        const idsVigentesEnNube = new Set();
+        let desde = 0;
+        while (true) {
+            const { data, error } = await supabase
+                .from('detalle_ventas')
+                .select('id')
+                .is('deleted_at', null)
+                .range(desde, desde + TAMANO_PAGINA_DESCARGA - 1);
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+            for (const fila of data) idsVigentesEnNube.add(fila.id);
+            if (data.length < TAMANO_PAGINA_DESCARGA) break;
+            desde += TAMANO_PAGINA_DESCARGA;
+        }
+
+        const ventas = await allQuery(`SELECT id, total FROM ventas WHERE sync_status = 'synced'`, []);
+        const totalPorVenta = new Map(ventas.map(v => [v.id, v.total]));
+
+        const detallesLocales = await allQuery(
+            `SELECT dv.id, dv.venta_id, dv.producto_id, dv.cantidad, dv.precio_unitario
+             FROM detalle_ventas dv
+             JOIN ventas v ON v.id = dv.venta_id
+             WHERE v.sync_status = 'synced'`,
+            []
+        );
+
+        const porVenta = new Map();
+        for (const d of detallesLocales) {
+            if (!porVenta.has(d.venta_id)) porVenta.set(d.venta_id, []);
+            porVenta.get(d.venta_id).push(d);
+        }
+
+        const TOLERANCIA = 1; // margen para redondeos de punto flotante en total/precio_unitario
+        const idsABorrar = [];
+        const filasAResubir = [];
+        for (const [ventaId, filas] of porVenta) {
+            const sospechosas = filas.filter(f => !idsVigentesEnNube.has(f.id));
+            if (sospechosas.length === 0) continue;
+
+            const sumaLocal = filas.reduce((s, f) => s + f.cantidad * f.precio_unitario, 0);
+            const sumaSospechosas = sospechosas.reduce((s, f) => s + f.cantidad * f.precio_unitario, 0);
+            const total = totalPorVenta.get(ventaId);
+            const sumaSinSospechosas = sumaLocal - sumaSospechosas;
+            const esHuerfanaReal = Math.abs(sumaSinSospechosas - total) < TOLERANCIA && Math.abs(sumaLocal - total) >= TOLERANCIA;
+
+            if (esHuerfanaReal) {
+                for (const f of sospechosas) idsABorrar.push(f.id);
+            } else {
+                // Hueco de subida: el total local ya depende de esta línea -- se re-sube en vez
+                // de borrarla.
+                filasAResubir.push(...sospechosas);
+            }
+        }
+
+        for (const id of idsABorrar) {
+            await runQuery(`DELETE FROM detalle_ventas WHERE id = ?`, [id]);
+        }
+
+        let resubidas = 0;
+        let resubidasFallidas = 0;
+        for (const f of filasAResubir) {
+            const subida = await upsertConLWW('detalle_ventas', {
+                id: f.id,
+                venta_id: f.venta_id,
+                producto_id: f.producto_id,
+                cantidad: f.cantidad,
+                precio_unitario: f.precio_unitario,
+                updated_at: nowISO()
+            });
+            if (subida) resubidas++; else resubidasFallidas++;
+        }
+
+        if (idsABorrar.length > 0) {
+            console.log(`[Sincronizador] ${idsABorrar.length} línea(s) huérfana(s) de detalle_ventas reparada(s) localmente (bug histórico del DELETE físico legacy).`);
+        }
+        if (resubidas > 0) {
+            console.log(`[Sincronizador] ${resubidas} línea(s) de detalle_ventas con hueco de subida re-sincronizada(s) con la nube.`);
+        }
+
+        // Solo se marca "aplicada" (aplicada_en NOT NULL) si NINGUNA re-subida quedó pendiente: si
+        // alguna volvió a fallar (gano=false sin error -- el mismo síntoma que causó el hueco
+        // original), se cuenta el intento y se reintenta en el próximo ciclo, hasta el tope de
+        // MAX_INTENTOS_REPARACION_DETALLE -- pasado ese tope se deja de reintentar (evita pagar el
+        // costo de red de esta comparación para siempre si el caso nunca termina de resolverse) y
+        // se deja un log explícito para revisión manual.
+        const intentosNuevos = intentosPrevios + 1;
+        if (resubidasFallidas > 0) {
+            if (intentosNuevos >= MAX_INTENTOS_REPARACION_DETALLE) {
+                console.log(`[Sincronizador] ATENCIÓN: ${resubidasFallidas} línea(s) de detalle_ventas con hueco de subida siguen sin poder re-sincronizarse tras ${intentosNuevos} intentos -- se deja de reintentar. Requiere revisión manual.`);
+            } else {
+                console.log(`[Sincronizador] ${resubidasFallidas} línea(s) con hueco de subida NO se pudieron re-sincronizar en este ciclo (intento ${intentosNuevos}/${MAX_INTENTOS_REPARACION_DETALLE}) -- se reintentará en el próximo.`);
+            }
+            await runQuery(
+                `INSERT INTO reparaciones_locales (nombre, aplicada_en, intentos) VALUES (?, NULL, ?)
+                 ON CONFLICT(nombre) DO UPDATE SET intentos = excluded.intentos`,
+                [NOMBRE_MARCADOR, intentosNuevos]
+            );
+        } else {
+            await runQuery(
+                `INSERT INTO reparaciones_locales (nombre, aplicada_en, intentos) VALUES (?, ?, ?)
+                 ON CONFLICT(nombre) DO UPDATE SET aplicada_en = excluded.aplicada_en, intentos = excluded.intentos`,
+                [NOMBRE_MARCADOR, nowISO(), intentosNuevos]
+            );
+        }
+    } catch (err) {
+        console.log("[Sincronizador] No se pudo ejecutar la reparación de detalle_ventas huérfano (Modo Offline o error de red):", err.message);
     }
 }
 
@@ -1319,6 +1508,16 @@ async function syncTransferenciasDescargar() {
     try {
         const { filas: transNube, cursorNuevo: cursorTrans } = await descargarDesdeCursor('transferencias');
 
+        // Traslados recién llegados para ESTA sucursal (no creados aquí, sino recibidos de otra
+        // terminal vía la nube): se recolectan para notificar a las ventanas abiertas una vez
+        // tengamos también sus detalles descargados (ver más abajo).
+        const entrantesNuevos = [];
+        let sucursalLocalId = null;
+        if (transNube && transNube.length > 0) {
+            const filaSucursal = await allQuery(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, []);
+            sucursalLocalId = filaSucursal.length > 0 ? filaSucursal[0].id : null;
+        }
+
         if (transNube) {
             for (const trans of transNube) {
                 if (trans.deleted_at) {
@@ -1326,6 +1525,9 @@ async function syncTransferenciasDescargar() {
                     await runQuery(`DELETE FROM transferencias WHERE id = ? AND sync_status <> 'pending'`, [trans.id]);
                     continue;
                 }
+
+                const yaExistiaLocal = (await allQuery(`SELECT id FROM transferencias WHERE id = ?`, [trans.id])).length > 0;
+
                 await runQuery(
                     `INSERT INTO transferencias (id, sucursal_origen_id, sucursal_destino_id, fecha, usuario, sync_status, updated_at)
                      VALUES (?, ?, ?, ?, ?, 'synced', ?)
@@ -1339,6 +1541,10 @@ async function syncTransferenciasDescargar() {
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
                     [trans.id, trans.sucursal_origen_id, trans.sucursal_destino_id, trans.fecha, trans.usuario, trans.updated_at]
                 );
+
+                if (!yaExistiaLocal && sucursalLocalId && trans.sucursal_destino_id === sucursalLocalId) {
+                    entrantesNuevos.push(trans);
+                }
             }
         }
         if (cursorTrans !== null) await actualizarCursor('transferencias', cursorTrans);
@@ -1367,6 +1573,24 @@ async function syncTransferenciasDescargar() {
         if (cursorDetTrans !== null) await actualizarCursor('detalle_transferencias', cursorDetTrans);
         if (transNube.length > 0 || detNube.length > 0) {
             console.log("[Sincronizador] Transferencias y detalles descargados desde la nube.");
+        }
+
+        // Notificar a las ventanas abiertas de esta sucursal, ahora que el detalle recién
+        // descargado (bloque de arriba) ya está disponible localmente para armar el resumen.
+        for (const trans of entrantesNuevos) {
+            const items = await allQuery(
+                `SELECT p.nombre as nombre, dt.cantidad as cantidad
+                 FROM detalle_transferencias dt
+                 JOIN productos p ON p.id = dt.producto_id
+                 WHERE dt.transferencia_id = ?`,
+                [trans.id]
+            );
+            notificarTransferenciaEntrante({
+                id: trans.id,
+                sucursalOrigenId: trans.sucursal_origen_id,
+                fecha: trans.fecha,
+                productos: items
+            });
         }
     } catch (err) {
         console.log("[Sincronizador] No se pudieron descargar transferencias (Modo Offline o error de red):", err.message);
@@ -1432,6 +1656,60 @@ async function syncClientes() {
         if (cursorClientes !== null) await actualizarCursor('clientes', cursorClientes);
     } catch (errCli) {
         console.log("[Sincronizador] Clientes no sincronizados:", obtenerMensajeSync(errCli, 'clientes'));
+    }
+}
+
+// --- SINCRONIZAR SUGERIDOS SEMANALES DE PASTELERÍA (Bidireccional, con LWW) ---
+async function syncSugeridosPasteleria() {
+    try {
+        // A. Subir sugeridos locales creados/editados
+        const sugeridosPendientes = await allQuery(`SELECT * FROM sugeridos_pasteleria WHERE sync_status = 'pending'`, []);
+        for (const s of sugeridosPendientes) {
+            const gano = await upsertConLWW('sugeridos_pasteleria', {
+                id: s.id,
+                producto_id: s.producto_id,
+                sucursal_id: s.sucursal_id,
+                sugerido_martes: s.sugerido_martes,
+                sugerido_jueves: s.sugerido_jueves,
+                sugerido_sabado: s.sugerido_sabado,
+                updated_at: s.updated_at
+            });
+            if (!gano) {
+                console.log(`[Sincronizador] Sugerido ${s.id} no subido: hay una versión más reciente en la nube.`);
+                continue;
+            }
+            await runQuery(`UPDATE sugeridos_pasteleria SET sync_status = 'synced' WHERE id = ?`, [s.id]);
+        }
+
+        // B. Descargar sugeridos (sin eliminaciones: esta tabla no se borra desde la UI, solo se
+        // sobrescribe con nuevos valores -- ver upsertSugeridoPasteleriaTx en
+        // services/pedidoSugeridoPasteleriaService.js)
+        const { filas: sugeridosNube, cursorNuevo: cursorSugeridos } = await descargarDesdeCursor('sugeridos_pasteleria');
+        if (sugeridosNube) {
+            for (const s of sugeridosNube) {
+                if (s.deleted_at) {
+                    await runQuery(`DELETE FROM sugeridos_pasteleria WHERE id = ? AND sync_status <> 'pending'`, [s.id]);
+                    continue;
+                }
+                await runQuery(
+                    `INSERT INTO sugeridos_pasteleria (id, producto_id, sucursal_id, sugerido_martes, sugerido_jueves, sugerido_sabado, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        producto_id = excluded.producto_id,
+                        sucursal_id = excluded.sucursal_id,
+                        sugerido_martes = excluded.sugerido_martes,
+                        sugerido_jueves = excluded.sugerido_jueves,
+                        sugerido_sabado = excluded.sugerido_sabado,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [s.id, s.producto_id, s.sucursal_id, s.sugerido_martes, s.sugerido_jueves, s.sugerido_sabado, s.updated_at]
+                );
+            }
+        }
+        if (cursorSugeridos !== null) await actualizarCursor('sugeridos_pasteleria', cursorSugeridos);
+    } catch (errSug) {
+        console.log("[Sincronizador] Sugeridos de pastelería no sincronizados:", obtenerMensajeSync(errSug, 'sugeridos_pasteleria'));
     }
 }
 
@@ -1516,6 +1794,7 @@ async function syncPedidosSubir() {
                 cliente_nombre_registro: ped.cliente_nombre_registro,
                 cliente_identificacion_registro: ped.cliente_identificacion_registro,
                 cliente_telefono_registro: ped.cliente_telefono_registro,
+                valor_domicilio: ped.valor_domicilio,
                 updated_at: ped.updated_at
             });
 
@@ -1580,8 +1859,8 @@ async function syncPedidosDescargar() {
         if (pedidosNube) {
             for (const ped of pedidosNube) {
                 await runQuery(
-                    `INSERT INTO pedidos (id, sucursal_id, cliente_id, fecha_pedido, fecha_entrega_estimada, fecha_entrega_real, estado, total, notas, venta_id, usuario_creo, cliente_nombre_registro, cliente_identificacion_registro, cliente_telefono_registro, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO pedidos (id, sucursal_id, cliente_id, fecha_pedido, fecha_entrega_estimada, fecha_entrega_real, estado, total, notas, venta_id, usuario_creo, cliente_nombre_registro, cliente_identificacion_registro, cliente_telefono_registro, valor_domicilio, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         sucursal_id = excluded.sucursal_id,
                         cliente_id = excluded.cliente_id,
@@ -1596,10 +1875,11 @@ async function syncPedidosDescargar() {
                         cliente_nombre_registro = excluded.cliente_nombre_registro,
                         cliente_identificacion_registro = excluded.cliente_identificacion_registro,
                         cliente_telefono_registro = excluded.cliente_telefono_registro,
+                        valor_domicilio = excluded.valor_domicilio,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [ped.id, ped.sucursal_id, ped.cliente_id, ped.fecha_pedido, ped.fecha_entrega_estimada, ped.fecha_entrega_real, ped.estado, ped.total, ped.notas, ped.venta_id, ped.usuario_creo, ped.cliente_nombre_registro, ped.cliente_identificacion_registro, ped.cliente_telefono_registro, ped.updated_at]
+                    [ped.id, ped.sucursal_id, ped.cliente_id, ped.fecha_pedido, ped.fecha_entrega_estimada, ped.fecha_entrega_real, ped.estado, ped.total, ped.notas, ped.venta_id, ped.usuario_creo, ped.cliente_nombre_registro, ped.cliente_identificacion_registro, ped.cliente_telefono_registro, ped.valor_domicilio, ped.updated_at]
                 );
             }
         }
@@ -1842,10 +2122,83 @@ async function syncSolicitudesVenta() {
     }
 }
 
+// --- 11b. SINCRONIZAR SOLICITUDES DE GASTO RETROACTIVO (Bidireccional, con LWW) ---
+// Mismo mecanismo que syncSolicitudesVenta (mismo comentario aplica sobre por qué el LWW es
+// crítico aquí: evita que una edición vieja y sin subir de un Operador revierta en silencio la
+// aprobación/rechazo que un Administrador ya subió para la misma solicitud).
+async function syncSolicitudesGasto() {
+    try {
+        // A. Subir solicitudes nuevas o con cambio de estado (aprobada/rechazada)
+        const solicitudesPendientes = await allQuery(`SELECT * FROM solicitudes_gasto WHERE sync_status = 'pending'`, []);
+        for (const sol of solicitudesPendientes) {
+            const gano = await upsertConLWW('solicitudes_gasto', {
+                id: sol.id,
+                sucursal_id: sol.sucursal_id,
+                fecha_gasto: sol.fecha_gasto,
+                datos: sol.datos,
+                estado: sol.estado,
+                usuario_solicitante: sol.usuario_solicitante,
+                fecha_solicitud: sol.fecha_solicitud,
+                usuario_revisor: sol.usuario_revisor,
+                fecha_revision: sol.fecha_revision,
+                motivo_rechazo: sol.motivo_rechazo,
+                updated_at: sol.updated_at
+            });
+            if (!gano) {
+                console.log(`[Sincronizador] Solicitud de gasto ${sol.id} no subida: hay una versión más reciente en la nube.`);
+                continue;
+            }
+            await runQuery(`UPDATE solicitudes_gasto SET sync_status = 'synced' WHERE id = ?`, [sol.id]);
+        }
+
+        // B. Descargar solicitudes creadas/revisadas desde otras terminales
+        const { filas: solicitudesNube, cursorNuevo: cursorSolicitudes } = await descargarDesdeCursor('solicitudes_gasto');
+        if (solicitudesNube) {
+            for (const sol of solicitudesNube) {
+                if (sol.deleted_at) {
+                    await runQuery(`DELETE FROM solicitudes_gasto WHERE id = ? AND sync_status <> 'pending'`, [sol.id]);
+                    continue;
+                }
+                await runQuery(
+                    `INSERT INTO solicitudes_gasto (id, sucursal_id, fecha_gasto, datos, estado, usuario_solicitante, fecha_solicitud, usuario_revisor, fecha_revision, motivo_rechazo, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        sucursal_id = excluded.sucursal_id,
+                        fecha_gasto = excluded.fecha_gasto,
+                        datos = excluded.datos,
+                        estado = excluded.estado,
+                        usuario_solicitante = excluded.usuario_solicitante,
+                        fecha_solicitud = excluded.fecha_solicitud,
+                        usuario_revisor = excluded.usuario_revisor,
+                        fecha_revision = excluded.fecha_revision,
+                        motivo_rechazo = excluded.motivo_rechazo,
+                        sync_status = 'synced',
+                        updated_at = excluded.updated_at
+                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
+                    [sol.id, sol.sucursal_id, sol.fecha_gasto, sol.datos, sol.estado, sol.usuario_solicitante, sol.fecha_solicitud, sol.usuario_revisor, sol.fecha_revision, sol.motivo_rechazo, sol.updated_at]
+                );
+            }
+            if (solicitudesNube.length > 0) console.log("[Sincronizador] Solicitudes de gasto retroactivo sincronizadas con la nube.");
+        }
+        if (cursorSolicitudes !== null) await actualizarCursor('solicitudes_gasto', cursorSolicitudes);
+    } catch (errSol) {
+        console.log("[Sincronizador] Solicitudes de gasto no sincronizadas:", obtenerMensajeSync(errSol, 'solicitudes_gasto'));
+    }
+}
+
 function notificarEstadoSincronizacion(enCurso) {
     BrowserWindow.getAllWindows().forEach(win => {
         if (win && !win.isDestroyed()) {
             win.webContents.send('sincronizacion-estado', enCurso);
+        }
+    });
+}
+
+function notificarTransferenciaEntrante(traslado) {
+    console.log(`[Sincronizador] Traslado ${traslado.id} recibido desde ${traslado.sucursalOrigenId}. Notificando a las ventanas.`);
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('transferencia-entrante', traslado);
         }
     });
 }
@@ -1856,6 +2209,49 @@ function notificarVentanasReportes() {
         if (win && !win.isDestroyed() && win.webContents.getURL().includes('reportes.html')) {
             console.log('[Sincronizador] Enviando evento "sincronizacion-completa" a ventana de reportes.');
             win.webContents.send('sincronizacion-completa');
+        }
+    });
+}
+
+// --- Detección de conectividad ---
+// Comprobación liviana ANTES de lanzar los ~20 pasos de sincronización (cada uno con su propio
+// try/catch que solo deja rastro en consola, ver obtenerMensajeSync). Sin esto, estar sin
+// internet significaba esperar el timeout de red de cada paso, uno por uno, y el usuario nunca se
+// enteraba de que sus datos no se estaban subiendo. Un GET simple a la URL del proyecto alcanza:
+// fetch() solo lanza por fallas de red/DNS/TLS (que es justo lo que nos interesa detectar), no por
+// el código de estado HTTP de la respuesta -- no hace falta autenticarse ni pegarle a un endpoint
+// específico de Supabase para saber si hay ruta hasta el proyecto.
+const TIMEOUT_CHEQUEO_CONEXION_MS = 6000;
+async function hayConexionConSupabase() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_CHEQUEO_CONEXION_MS);
+    try {
+        await fetch(supabaseUrl, { signal: controller.signal });
+        return true;
+    } catch (err) {
+        return false;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+// Último estado de conexión conocido, para que:
+// 1) Solo se notifique a las ventanas cuando el estado CAMBIA (offline->online u online->offline)
+//    y no en cada ciclo (cada 15s) -- una alerta amigable una sola vez al perder/recuperar la
+//    conexión, no un parpadeo constante ni ruido que el usuario termine ignorando.
+// 2) Una ventana que se abre a mitad de un período sin conexión (ej. segunda ventana de ventas)
+//    pueda preguntar el estado actual al montar en vez de esperar el próximo cambio (ver
+//    'obtener-estado-conexion' en ipc/registerSistemaIpc.js).
+let ultimoEstadoConexionConocido = true; // se asume conectado hasta que se demuestre lo contrario
+function hayConexionConocida() {
+    return ultimoEstadoConexionConocido;
+}
+function notificarEstadoConexion(conectado) {
+    if (conectado === ultimoEstadoConexionConocido) return;
+    ultimoEstadoConexionConocido = conectado;
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('sincronizacion-conexion', conectado);
         }
     });
 }
@@ -1880,6 +2276,24 @@ async function procesarSincronizacion() {
     estaSincronizando = true;
     notificarEstadoSincronizacion(true);
 
+    // Preflight de conectividad: si no hay ruta hasta Supabase, se omite el ciclo completo en vez
+    // de dejar que cada uno de los ~20 pasos falle por su cuenta (mismo resultado, pero mucho más
+    // lento y sin nada visible para el usuario más allá de líneas sueltas en consola). El error
+    // lanzado se marca con `sinConexion` para que el llamador (ver forzar-sincronizacion en
+    // ipc/registerSistemaIpc.js y ejecutarSincronizacion en sidebar.js) lo distinga de un fallo real
+    // y no lo muestre como alert() bloqueante -- el aviso amigable lo da el banner persistente,
+    // alimentado por notificarEstadoConexion() más abajo, que solo cambia cuando el estado cambia.
+    const conectado = await hayConexionConSupabase();
+    notificarEstadoConexion(conectado);
+    if (!conectado) {
+        console.log("[Sincronizador] Sin conexión a internet o Supabase inalcanzable. Ciclo omitido; los datos pendientes se sincronizarán solos al recuperar la conexión.");
+        estaSincronizando = false;
+        notificarEstadoSincronizacion(false);
+        const err = new Error('Sin conexión a internet. Tus datos se guardaron localmente y se sincronizarán automáticamente al recuperar la conexión.');
+        err.sinConexion = true;
+        throw err;
+    }
+
     // Fallos al subir/descargar ventas y gastos (de los que depende el Reporte Diario) se
     // registran aquí para NO reportar "éxito" al botón de sincronizar cuando en realidad la
     // venta/gasto nunca llegó a Supabase o no se trajo nada nuevo de la nube -- sin esto, un
@@ -1892,9 +2306,11 @@ async function procesarSincronizacion() {
         const resVentasSubir = await syncVentasSubir();
         if (!resVentasSubir.ok) falloSyncReportes = `subida de ventas: ${resVentasSubir.message}`;
         await syncVentasEliminaciones();
+        await syncDetalleVentasEliminaciones();
         const resVentasDescargar = await syncVentasDescargar();
         if (!resVentasDescargar.ok) falloSyncReportes = falloSyncReportes || `descarga de ventas: ${resVentasDescargar.message}`;
         await repararDetalleVentasDuplicado();
+        await repararDetalleVentasHuerfanas();
         const resGastosSubir = await syncGastosSubir();
         if (!resGastosSubir.ok) falloSyncReportes = falloSyncReportes || `subida de gastos: ${resGastosSubir.message}`;
         await syncGastosEliminaciones();
@@ -1926,6 +2342,8 @@ async function procesarSincronizacion() {
         await syncAbonosPedido();
         await syncCierresCaja();
         await syncSolicitudesVenta();
+        await syncSolicitudesGasto();
+        await syncSugeridosPasteleria();
     } finally {
         estaSincronizando = false;
         notificarEstadoSincronizacion(false);
@@ -1941,4 +2359,4 @@ async function procesarSincronizacion() {
     }
 }
 
-module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion };
+module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion, hayConexionConocida };

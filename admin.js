@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const seccionPassword = document.getElementById('section-cambiar-password');
         if (seccionPassword) seccionPassword.style.display = 'none';
     } else {
-        ['section-solicitudes', 'section-sucursales', 'section-usuarios', 'section-categorias'].forEach(id => {
+        ['section-solicitudes', 'section-solicitudes-gasto', 'section-abonos-eliminados', 'section-sucursales', 'section-usuarios', 'section-categorias', 'section-sugeridos-pasteleria'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -379,6 +379,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (filtroSolicitudes) {
         filtroSolicitudes.addEventListener('change', () => cargarSolicitudes());
     }
+
+    // --- 6b. Cargar e Iniciar Solicitudes de Gastos de Fecha Anterior ---
+    await cargarSolicitudesGasto();
+
+    const filtroSolicitudesGasto = document.getElementById('filtro-solicitudes-gasto');
+    if (filtroSolicitudesGasto) {
+        filtroSolicitudesGasto.addEventListener('change', () => cargarSolicitudesGasto());
+    }
+
+    // --- 6c. Cargar e Iniciar Abonos Eliminados (recuperación). A diferencia de las solicitudes
+    // (consulta local), esto lee directo de Supabase -- se omite para Operador, que igual no ve
+    // la sección, para no gastar una consulta de red ni mostrarle un error si está sin internet.
+    if (esAdministrador) {
+        await cargarAbonosEliminados();
+        const btnRefrescarAbonosEliminados = document.getElementById('btn-refrescar-abonos-eliminados');
+        if (btnRefrescarAbonosEliminados) {
+            btnRefrescarAbonosEliminados.addEventListener('click', () => cargarAbonosEliminados());
+        }
+
+        // --- 6d. Sugeridos Semanales de Pastelería (solo Administrador) ---
+        await inicializarSugeridosPasteleria();
+    }
+
+    // --- 6e. Calculadora de Pedido Extra de Pastelería (Administrador y Operador) ---
+    await inicializarCalculadoraPedidoExtra();
 
     // Al terminar un ciclo de sincronización (automático cada 15s o manual), refrescar las
     // tablas que dependen de datos que otra terminal pudo haber cambiado. Sin esto, un cambio
@@ -1000,6 +1025,199 @@ window.addEventListener('click', (e) => {
     }
 });
 
+// Genera un resumen legible del contenido de una solicitud de gasto de fecha anterior
+function resumenSolicitudGasto(sol) {
+    try {
+        const datos = JSON.parse(sol.datos || '{}');
+        const p = datos.propuesta;
+        if (!p) return '-';
+        if (Array.isArray(p.productosVencidos) && p.productosVencidos.length > 0) {
+            const prods = p.productosVencidos.length > 3
+                ? `${p.productosVencidos.slice(0, 3).map(i => `${i.nombre} (x${i.cantidad})`).join(', ')}... (+${p.productosVencidos.length - 3} más)`
+                : p.productosVencidos.map(i => `${i.nombre} (x${i.cantidad})`).join(', ');
+            return `${p.tipo} — ${prods || 'Sin productos'}`;
+        }
+        return `${p.tipo} — $${Math.round(p.monto || 0).toLocaleString('es-CO')} — ${p.descripcion || ''}`;
+    } catch (e) {
+        return '-';
+    }
+}
+
+// Cargar Solicitudes de Gastos de Fecha Anterior en la tabla
+let ultimasSolicitudesGastoCargadas = {}; // id -> solicitud, para abrir el modal de detalle sin re-consultar
+
+async function cargarSolicitudesGasto() {
+    const filtro = document.getElementById('filtro-solicitudes-gasto');
+    const estado = filtro ? filtro.value : 'pendiente';
+    const res = await window.api.obtenerSolicitudesGasto(estado ? { estado } : {});
+    const tbody = document.querySelector('#table-solicitudes-gasto tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    ultimasSolicitudesGastoCargadas = {};
+
+    if (!res.success) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error al cargar solicitudes.</td></tr>`;
+        return;
+    }
+
+    if (!res.data || res.data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #6b7280;">No hay solicitudes ${estado === 'pendiente' ? 'pendientes' : 'registradas'}.</td></tr>`;
+        return;
+    }
+
+    const coloresEstado = {
+        pendiente: { bg: '#fef3c7', color: '#b45309' },
+        aprobada: { bg: '#dcfce7', color: '#15803d' },
+        rechazada: { bg: '#fee2e2', color: '#b91c1c' }
+    };
+
+    res.data.forEach(sol => {
+        ultimasSolicitudesGastoCargadas[sol.id] = sol;
+        const tr = document.createElement('tr');
+        const colorEstado = coloresEstado[sol.estado] || { bg: '#e5e7eb', color: '#374151' };
+
+        let acciones = `<div class="actions-cell"><button class="btn-edit" onclick="verDetalleSolicitudGasto('${sol.id}')">👁️ Ver Detalle</button>`;
+        if (sol.estado === 'pendiente') {
+            acciones += `
+                    <button class="btn-activate" onclick="aprobarSolicitudGasto('${sol.id}')">✅ Aprobar</button>
+                    <button class="btn-delete" onclick="rechazarSolicitudGasto('${sol.id}')">❌ Rechazar</button>
+            `;
+        }
+        acciones += `</div>`;
+
+        tr.innerHTML = `
+            <td>${new Date(sol.fecha_solicitud).toLocaleString('es-CO')}</td>
+            <td>${sol.fecha_gasto}</td>
+            <td>${sol.usuario_solicitante}</td>
+            <td style="max-width: 320px;">${resumenSolicitudGasto(sol)}</td>
+            <td>
+                <span style="background: ${colorEstado.bg}; color: ${colorEstado.color}; padding: 3px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600;">${sol.estado}</span>
+                ${sol.motivo_rechazo ? `<div style="font-size:0.75em; color:#6b7280; margin-top:4px;">${sol.motivo_rechazo}</div>` : ''}
+            </td>
+            <td>${acciones}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+window.aprobarSolicitudGasto = async (id) => {
+    if (!confirm('¿Aprobar esta solicitud? Se aplicará de inmediato a caja e inventario.')) return;
+    const res = await window.api.aprobarSolicitudGasto({ id, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
+    alert(res.message);
+    await cargarSolicitudesGasto();
+};
+
+window.rechazarSolicitudGasto = async (id) => {
+    const motivo = prompt('Motivo del rechazo (opcional):') || '';
+    const res = await window.api.rechazarSolicitudGasto({ id, motivo, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
+    alert(res.message);
+    await cargarSolicitudesGasto();
+};
+
+window.verDetalleSolicitudGasto = (id) => {
+    const sol = ultimasSolicitudesGastoCargadas[id];
+    if (!sol) return;
+    let datos = {};
+    try { datos = JSON.parse(sol.datos || '{}'); } catch (e) { /* datos corruptos, se ignora */ }
+    const p = datos.propuesta || {};
+
+    const filasProductos = Array.isArray(p.productosVencidos) && p.productosVencidos.length > 0
+        ? `
+            <table style="width:100%; border-collapse: collapse; font-size: 0.85em; margin-top:8px;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; border-bottom:1px solid var(--bg-accent);">Producto</th>
+                        <th style="text-align:center; border-bottom:1px solid var(--bg-accent);">Cant.</th>
+                        <th style="text-align:right; border-bottom:1px solid var(--bg-accent);">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${p.productosVencidos.map(item => `
+                        <tr>
+                            <td>${item.nombre || 'Producto'}</td>
+                            <td style="text-align:center;">${item.cantidad}</td>
+                            <td style="text-align:right;">${Number(item.valor || 0).toLocaleString('es-CO')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `
+        : '';
+
+    document.getElementById('modal-detalle-solicitud-gasto-body').innerHTML = `
+        <div style="margin-bottom: 16px; font-size: 0.9em; color: var(--text-secondary);">
+            <div><strong>Solicitante:</strong> ${sol.usuario_solicitante}</div>
+            <div><strong>Fecha del gasto:</strong> ${sol.fecha_gasto}</div>
+            <div><strong>Estado:</strong> ${sol.estado}${sol.motivo_rechazo ? ' — ' + sol.motivo_rechazo : ''}</div>
+            ${sol.usuario_revisor ? `<div><strong>${sol.estado === 'rechazada' ? 'Rechazado' : 'Aprobado'} por:</strong> ${sol.usuario_revisor}${sol.fecha_revision ? ' el ' + new Date(sol.fecha_revision).toLocaleString('es-CO') : ''}</div>` : ''}
+        </div>
+        <h4 style="margin-bottom:6px;">Gasto a registrar</h4>
+        <div style="font-size:0.9em;"><strong>Clasificación:</strong> ${p.tipo || ''}</div>
+        <div style="font-size:0.9em;"><strong>Monto:</strong> $${Number(p.monto || 0).toLocaleString('es-CO')}</div>
+        <div style="font-size:0.9em;"><strong>Concepto:</strong> ${p.descripcion || ''}</div>
+        ${filasProductos}
+    `;
+    document.getElementById('modal-detalle-solicitud-gasto').style.display = 'flex';
+};
+
+const btnCloseDetalleSolicitudGasto = document.getElementById('btn-close-detalle-solicitud-gasto-modal');
+if (btnCloseDetalleSolicitudGasto) {
+    btnCloseDetalleSolicitudGasto.addEventListener('click', () => {
+        document.getElementById('modal-detalle-solicitud-gasto').style.display = 'none';
+    });
+}
+window.addEventListener('click', (e) => {
+    const modalDetalleSolicitudGasto = document.getElementById('modal-detalle-solicitud-gasto');
+    if (e.target === modalDetalleSolicitudGasto) {
+        modalDetalleSolicitudGasto.style.display = 'none';
+    }
+});
+
+// --- Abonos Eliminados (recuperación, solo Administrador) ---
+// A diferencia de las demás listas de esta pantalla, lee directo de Supabase (ver
+// services/abonoRecoveryService.js): el ciclo de sincronización purga la copia local de un abono
+// eliminado en cuanto confirma el borrado en la nube, así que solo la nube conserva de dónde
+// recuperarlo.
+async function cargarAbonosEliminados() {
+    const tbody = document.querySelector('#table-abonos-eliminados tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Cargando...</td></tr>';
+
+    const res = await window.api.listarAbonosEliminados();
+    if (!res.success) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444;">${res.message || 'Error al cargar abonos eliminados.'}</td></tr>`;
+        return;
+    }
+    if (!res.data || res.data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No hay abonos eliminados recientes.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    res.data.forEach(ab => {
+        const tr = document.createElement('tr');
+        const escId = ab.id.replace(/'/g, "\\'");
+        const esCredito = ab.tipo === 'credito';
+        tr.innerHTML = `
+            <td><span style="background: ${esCredito ? '#dbeafe' : '#fef3c7'}; color: ${esCredito ? '#1d4ed8' : '#b45309'}; padding: 3px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600;">${esCredito ? 'Crédito' : 'Pedido'}</span></td>
+            <td>${ab.referencia}</td>
+            <td>$${Math.round(ab.monto).toLocaleString('es-CO')}</td>
+            <td>${ab.metodoPago || '-'}</td>
+            <td>${new Date(ab.fecha).toLocaleString('es-CO')}</td>
+            <td>${new Date(ab.deletedAt).toLocaleString('es-CO')}</td>
+            <td><button class="btn-activate" onclick="recuperarAbonoEliminado('${ab.tipo}', '${escId}')">♻️ Recuperar</button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+window.recuperarAbonoEliminado = async (tipo, id) => {
+    if (!confirm('¿Recuperar este abono? Volverá a contar en el saldo del cliente/pedido y en los reportes.')) return;
+    const res = await window.api.recuperarAbono({ tipo, id, auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador' });
+    alert(res.message);
+    if (res.success) await cargarAbonosEliminados();
+};
+
 // --- Impresora de Tickets (configuración local por equipo) ---
 // Se guarda en un archivo en userData (vía IPC), NO en localStorage: el botón de cerrar
 // sesión hace localStorage.clear() en todas las pantallas, y eso borraría la selección en
@@ -1073,4 +1291,231 @@ async function cargarSeccionImpresora() {
     } else {
         await refrescarListaImpresoras();
     }
+}
+
+// --- Sugeridos Semanales de Pastelería + Calculadora de Pedido Extra (proveedor) ---
+// SRP: cantidad acordada con el proveedor por producto/sucursal/día de entrega (persistida, solo
+// Administrador) y una calculadora de pedido extra puramente informativa (Administrador y
+// Operador) -- ver services/pedidoSugeridoPasteleriaService.js. No confundir con "Pedidos /
+// Apartados" (pedidos.js): esto es reabastecimiento del proveedor, no pedidos de clientes.
+
+let categoriasCargadasPasteleria = [];
+const normalizeStrPasteleria = (value) => {
+    if (value == null) return '';
+    return String(value).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+};
+// Adaptado de ventas.js/ventas-anteriores.js: camina categoria_padre_id hasta la raíz y compara
+// el nombre normalizado contra "pasteleria"/"pastel" (duplicado a propósito, mismo patrón ya usado
+// en esos archivos para el mismo problema). También incluye "heladeria"/"helado": los sugeridos
+// semanales y la calculadora de pedido extra aplican al mismo ciclo de entregas del proveedor
+// para ambas categorías, no solo pastelería.
+const esCategoriaPasteleriaAdmin = (producto) => {
+    if (!producto) return false;
+    const nombres = [];
+    if (producto.categoria_nombre) nombres.push(producto.categoria_nombre);
+    if (producto.categoria_id) {
+        let actual = categoriasCargadasPasteleria.find(c => c.id === producto.categoria_id);
+        while (actual) {
+            nombres.push(actual.nombre);
+            actual = categoriasCargadasPasteleria.find(c => c.id === actual.categoria_padre_id) || null;
+        }
+    }
+    return nombres.some(n => {
+        const norm = normalizeStrPasteleria(n);
+        return norm.includes('pasteleria') || norm.includes('pastel') || norm.includes('heladeria') || norm.includes('helado');
+    });
+};
+
+async function asegurarCategoriasPasteleriaCargadas() {
+    if (categoriasCargadasPasteleria.length === 0) {
+        const res = await window.api.obtenerCategorias();
+        categoriasCargadasPasteleria = res.data || [];
+    }
+}
+
+// Puebla un <select> de sucursales con el mismo comportamiento que "Ver Inventario"
+// (dashboard.js): arranca en la sucursal local del equipo, cambiable manualmente entre las
+// sucursales a las que el usuario tiene acceso.
+async function poblarSelectorSucursal(selectEl, sucursalLocalId) {
+    const resSucs = await window.api.obtenerSucursalesDisponibles();
+    selectEl.innerHTML = '';
+    (resSucs.data || []).forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.innerText = `🏢 ${id === sucursalLocalId ? 'Sucursal Local: ' : ''}${id}`;
+        selectEl.appendChild(opt);
+    });
+    selectEl.value = sucursalLocalId;
+}
+
+// --- Sugeridos Semanales (solo Administrador) ---
+// Se cachea la última lista cargada (producto + sugerido) para que el buscador filtre en el
+// cliente sin volver a consultar la BD en cada tecla.
+let sugeridosPasteleriaCache = [];
+
+async function inicializarSugeridosPasteleria() {
+    const select = document.getElementById('sugeridos-sucursal-select');
+    const busqueda = document.getElementById('sugeridos-busqueda');
+    const btnExcel = document.getElementById('btn-descargar-excel-sugeridos');
+    if (!select) return;
+    await asegurarCategoriasPasteleriaCargadas();
+    const resId = await window.api.obtenerSucursalId();
+    await poblarSelectorSucursal(select, resId.success ? resId.id : '');
+    select.addEventListener('change', cargarSugeridosPasteleria);
+    if (busqueda) {
+        busqueda.addEventListener('input', () => renderTablaSugeridosPasteleria(busqueda.value));
+        // Selecciona todo el texto al enfocar, para poder escribir una nueva búsqueda de una vez
+        // sin tener que borrar manualmente lo que quedó escrito antes.
+        busqueda.addEventListener('focus', () => busqueda.select());
+    }
+    if (btnExcel) btnExcel.addEventListener('click', descargarExcelSugeridosPasteleria);
+    await cargarSugeridosPasteleria();
+}
+
+async function cargarSugeridosPasteleria() {
+    const sucursalId = document.getElementById('sugeridos-sucursal-select').value;
+    if (!sucursalId) return;
+
+    const [resInv, resSug] = await Promise.all([
+        window.api.getInventory(sucursalId),
+        window.api.obtenerSugeridosPasteleria(sucursalId)
+    ]);
+    const productosPasteleria = (resInv.data || []).filter(esCategoriaPasteleriaAdmin);
+    const sugeridosPorProducto = {};
+    (resSug.data || []).forEach(s => { sugeridosPorProducto[s.producto_id] = s; });
+
+    sugeridosPasteleriaCache = productosPasteleria.map(p => ({
+        id: p.id,
+        nombre: p.nombre,
+        sugerido: sugeridosPorProducto[p.id] || { sugerido_martes: 0, sugerido_jueves: 0, sugerido_sabado: 0 }
+    }));
+
+    const busqueda = document.getElementById('sugeridos-busqueda');
+    renderTablaSugeridosPasteleria(busqueda ? busqueda.value : '');
+}
+
+function renderTablaSugeridosPasteleria(filtro) {
+    const tbody = document.querySelector('#table-sugeridos-pasteleria tbody');
+    if (!tbody) return;
+
+    const filtroNormalizado = normalizeStrPasteleria(filtro || '');
+    const filas = sugeridosPasteleriaCache.filter(p => normalizeStrPasteleria(p.nombre).includes(filtroNormalizado));
+
+    tbody.innerHTML = '';
+    if (sugeridosPasteleriaCache.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No hay productos de categoría Pastelería o Heladería.</td></tr>`;
+        return;
+    }
+    if (filas.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">Ningún producto coincide con la búsqueda.</td></tr>`;
+        return;
+    }
+    filas.forEach(p => {
+        const s = p.sugerido;
+        const tr = document.createElement('tr');
+        const escId = (p.id || '').replace(/'/g, "\\'");
+        tr.innerHTML = `
+            <td>${p.nombre}</td>
+            <td><input type="number" min="0" step="1" value="${s.sugerido_martes}" data-dia="martes" style="width:80px;"></td>
+            <td><input type="number" min="0" step="1" value="${s.sugerido_jueves}" data-dia="jueves" style="width:80px;"></td>
+            <td><input type="number" min="0" step="1" value="${s.sugerido_sabado}" data-dia="sabado" style="width:80px;"></td>
+            <td><button class="btn-edit" onclick="guardarSugeridoPasteleria('${escId}', this)">💾 Guardar</button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function descargarExcelSugeridosPasteleria() {
+    const sucursalId = document.getElementById('sugeridos-sucursal-select').value;
+    if (!sucursalId) return;
+    const res = await window.api.exportarExcelSugeridosPasteleria(sucursalId);
+    if (res.cancelado) return;
+    alert(res.message || (res.success ? 'Excel generado exitosamente.' : 'No se pudo generar el Excel.'));
+}
+
+window.guardarSugeridoPasteleria = async (productoId, btn) => {
+    const sucursalId = document.getElementById('sugeridos-sucursal-select').value;
+    const fila = btn.closest('tr');
+    const val = (dia) => Number(fila.querySelector(`input[data-dia="${dia}"]`).value) || 0;
+    const sugeridoMartes = val('martes'), sugeridoJueves = val('jueves'), sugeridoSabado = val('sabado');
+    const res = await window.api.guardarSugeridoPasteleria({
+        productoId, sucursalId, sugeridoMartes, sugeridoJueves, sugeridoSabado,
+        auditoriaUsuario: activeUserSession, auditoriaRol: 'Administrador'
+    });
+    // Actualizar la caché con el valor recién guardado -- si no se hace esto, el próximo
+    // renderTablaSugeridosPasteleria() (disparado por el buscador, que NO vuelve a consultar la
+    // BD) repinta esta fila con el valor viejo que traía la caché, dando la impresión de que el
+    // guardado no funcionó aunque sí haya quedado en base de datos.
+    if (res.success) {
+        const cacheado = sugeridosPasteleriaCache.find(p => p.id === productoId);
+        if (cacheado) cacheado.sugerido = { sugerido_martes: sugeridoMartes, sugerido_jueves: sugeridoJueves, sugerido_sabado: sugeridoSabado };
+    }
+    alert(res.message);
+};
+
+// --- Calculadora de Pedido Extra (Administrador y Operador) ---
+// Tabla general (no un producto a la vez): todos los productos de pastelería que ya tienen algún
+// sugerido configurado en la sucursal elegida, con su recomendación de pedido extra -- ver
+// calcularRecomendacionesPasteleriaSucursal en services/pedidoSugeridoPasteleriaService.js
+// (única fuente del cálculo, reutilizada también por el Excel).
+async function inicializarCalculadoraPedidoExtra() {
+    const selectSuc = document.getElementById('pedido-extra-sucursal-select');
+    const btnCalcular = document.getElementById('btn-calcular-pedido-extra');
+    const btnExcel = document.getElementById('btn-descargar-excel-pedido-extra');
+    if (!selectSuc) return;
+    const resId = await window.api.obtenerSucursalId();
+    await poblarSelectorSucursal(selectSuc, resId.success ? resId.id : '');
+
+    // A demanda: no se calcula solo, ni al entrar a la sección ni al cambiar de sucursal (esta
+    // recomendación recorre ventas/inventario/sugeridos de todo el catálogo de pastelería y
+    // heladería, así que solo se dispara cuando el usuario presiona "Calcular"). Cambiar de
+    // sucursal sí limpia la tabla, para no dejar en pantalla números que ya no corresponden a la
+    // sucursal seleccionada.
+    if (btnCalcular) btnCalcular.addEventListener('click', cargarTablaPedidoExtra);
+    selectSuc.addEventListener('change', limpiarTablaPedidoExtra);
+    if (btnExcel) btnExcel.addEventListener('click', descargarExcelPedidoExtra);
+}
+
+function limpiarTablaPedidoExtra() {
+    const tbody = document.querySelector('#table-pedido-extra tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">Presiona "Calcular" para ver las recomendaciones.</td></tr>`;
+}
+
+async function cargarTablaPedidoExtra() {
+    const sucursalId = document.getElementById('pedido-extra-sucursal-select').value;
+    const tbody = document.querySelector('#table-pedido-extra tbody');
+    if (!sucursalId || !tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">Calculando...</td></tr>`;
+    const res = await window.api.obtenerRecomendacionesPedidoExtra(sucursalId);
+    if (!res.success) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">${res.message || 'No se pudo calcular la recomendación.'}</td></tr>`;
+        return;
+    }
+    if (res.data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">Ningún producto de pastelería tiene sugerido configurado en esta sucursal todavía.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = '';
+    res.data.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${r.productoNombre}</td>
+            <td>${r.stockActual}</td>
+            <td>${(Math.round(r.promedioDiario * 100) / 100).toLocaleString('es-CO')}</td>
+            <td>${r.proximaFechaEntrega} (${r.diasHastaProximaEntrega} día${r.diasHastaProximaEntrega === 1 ? '' : 's'})</td>
+            <td>${r.sugeridoDelDia}</td>
+            <td style="font-weight: bold; color: ${r.cantidadRecomendada > 0 ? '#d97706' : 'inherit'};">${r.cantidadRecomendada}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function descargarExcelPedidoExtra() {
+    const sucursalId = document.getElementById('pedido-extra-sucursal-select').value;
+    if (!sucursalId) return;
+    const res = await window.api.exportarExcelPedidoExtra(sucursalId);
+    if (res.cancelado) return;
+    alert(res.message || (res.success ? 'Excel generado exitosamente.' : 'No se pudo generar el Excel.'));
 }

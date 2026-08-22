@@ -19,13 +19,22 @@ const parseNumberUI = (str) => {
     return Number.isFinite(numeric) ? numeric : 0;
 };
 
+function obtenerFechaHoyYYYYMMDD() {
+    const hoy = new Date();
+    const y = hoy.getFullYear();
+    const m = String(hoy.getMonth() + 1).padStart(2, '0');
+    const d = String(hoy.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 function construirDescripcionVencidos(items = []) {
     return items
         .map((item) => `${item.nombre} x${item.cantidad} - valor ${formatNumberUI(item.valor)}`)
         .join(' | ');
 }
 
-let mapaProductosPorClave = new Map();
+let mapaProductosPorClave = new Map(); // clave -> producto (match exacto al validar lo escrito)
+let mapaClavePorProductoId = new Map(); // id -> clave (para mostrar la etiqueta correcta al elegir)
 
 function obtenerClaveUnicaProducto(producto, conteoNombres) {
     const nombre = producto.nombre || 'Producto';
@@ -33,10 +42,10 @@ function obtenerClaveUnicaProducto(producto, conteoNombres) {
     return esDuplicado ? `${nombre} (ID ${String(producto.id).slice(0, 8)})` : nombre;
 }
 
-function poblarDatalistProductos() {
-    const datalist = document.getElementById('productos-vencidos-datalist');
-    if (!datalist) return;
-
+// Construye las claves unicas de producto (nombre, o "nombre (ID xxxxxxxx)" si hay nombres
+// duplicados) que usan tanto la validacion de texto exacto (mapaProductosPorClave) como las
+// sugerencias del buscador desplegable (ver crearBuscadorProducto en productoBuscador.js).
+function poblarMapaProductos() {
     const conteoNombres = new Map();
     productosDisponibles.forEach((producto) => {
         const nombre = producto.nombre || 'Producto';
@@ -44,15 +53,11 @@ function poblarDatalistProductos() {
     });
 
     mapaProductosPorClave = new Map();
-    datalist.innerHTML = '';
+    mapaClavePorProductoId = new Map();
     productosDisponibles.forEach((producto) => {
         const clave = obtenerClaveUnicaProducto(producto, conteoNombres);
         mapaProductosPorClave.set(clave, producto);
-
-        const option = document.createElement('option');
-        option.value = clave;
-        option.textContent = `${clave} (stock: ${producto.stock || 0})`;
-        datalist.appendChild(option);
+        mapaClavePorProductoId.set(producto.id, clave);
     });
 }
 
@@ -89,7 +94,7 @@ function crearFilaProductoVencido(productoSeleccionado = null) {
     const row = document.createElement('div');
     row.className = 'producto-vencido-row';
     row.innerHTML = `
-        <input type="text" list="productos-vencidos-datalist" class="producto-vencido-input" placeholder="Buscar producto" autocomplete="off">
+        <input type="text" class="producto-vencido-input" placeholder="Buscar producto" autocomplete="off">
         <input type="text" inputmode="numeric" class="producto-vencido-cantidad" placeholder="Cant.">
         <input type="text" inputmode="numeric" class="producto-vencido-valor" placeholder="Valor" readonly>
         <button type="button" class="btn-remove-producto">✕</button>
@@ -103,12 +108,26 @@ function crearFilaProductoVencido(productoSeleccionado = null) {
     if (productoSeleccionado) {
         const producto = productosDisponibles.find((item) => item.id === productoSeleccionado);
         if (producto) {
-            inputProducto.value = [...mapaProductosPorClave.entries()]
-                .find(([, p]) => p.id === producto.id)?.[0] || producto.nombre;
+            inputProducto.value = mapaClavePorProductoId.get(producto.id) || producto.nombre;
             row.dataset.productId = producto.id;
             row.dataset.precioUnitario = String(producto.precio || 0);
         }
     }
+
+    // Sugerencias sin tildes y sin importar el orden de las palabras (ver productoBuscador.js).
+    // Elegir una opcion deja en el input la clave exacta, asi que actualizarValorFila (que valida
+    // por coincidencia exacta contra mapaProductosPorClave) la resuelve igual que si se hubiera
+    // tecleado a mano.
+    const buscador = crearBuscadorProducto({
+        input: inputProducto,
+        obtenerProductos: () => productosDisponibles,
+        etiqueta: (p) => mapaClavePorProductoId.get(p.id) || p.nombre,
+        detalle: (p) => `stock: ${p.stock || 0}`,
+        onSeleccionar: () => {
+            actualizarValorFila(row);
+            actualizarMontoGeneral();
+        }
+    });
 
     inputProducto.addEventListener('input', () => {
         actualizarValorFila(row);
@@ -121,6 +140,7 @@ function crearFilaProductoVencido(productoSeleccionado = null) {
     });
 
     btnRemove.addEventListener('click', () => {
+        buscador.destruir();
         row.remove();
         actualizarMontoGeneral();
     });
@@ -228,7 +248,7 @@ async function cargarDatosDeSucursal() {
     if (resInventory.success) {
         productosDisponibles = resInventory.data || [];
     }
-    poblarDatalistProductos();
+    poblarMapaProductos();
     await cargarDescripcionesFrecuentesOperativo();
 }
 
@@ -259,6 +279,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (role === 'Administrador') {
         const btnAdmin = document.getElementById('btn-nav-admin');
         if (btnAdmin) btnAdmin.style.display = 'block';
+    }
+
+    // Fecha del gasto: hoy por defecto, sin tope máximo hacia atrás. Un Operador que elige un día
+    // anterior a hoy envía una solicitud pendiente de aprobación (ver btn-guardar-gasto más abajo);
+    // un Administrador la aplica de inmediato, igual que en Ventas de Fecha Anterior.
+    const inputFechaGasto = document.getElementById('gasto-fecha');
+    const helperFechaGasto = document.getElementById('gasto-fecha-helper');
+    const hoyYYYYMMDD = obtenerFechaHoyYYYYMMDD();
+    if (inputFechaGasto) {
+        inputFechaGasto.max = hoyYYYYMMDD;
+        inputFechaGasto.value = hoyYYYYMMDD;
+        inputFechaGasto.addEventListener('change', () => {
+            if (!inputFechaGasto.value || inputFechaGasto.value > hoyYYYYMMDD) {
+                inputFechaGasto.value = hoyYYYYMMDD;
+            }
+            if (helperFechaGasto) {
+                helperFechaGasto.style.display = (role !== 'Administrador' && inputFechaGasto.value < hoyYYYYMMDD) ? 'block' : 'none';
+            }
+        });
     }
 
     if (role === 'Operador') {
@@ -421,6 +460,9 @@ document.getElementById('btn-guardar-gasto').addEventListener('click', async () 
         return;
     }
 
+    const fechaGasto = document.getElementById('gasto-fecha').value || obtenerFechaHoyYYYYMMDD();
+    const esFechaAnterior = fechaGasto < obtenerFechaHoyYYYYMMDD();
+
     const datosGasto = {
         sucursalId: sucursalId,
         tipo: tipo,
@@ -432,23 +474,33 @@ document.getElementById('btn-guardar-gasto').addEventListener('click', async () 
         auditoriaRol: localStorage.getItem('currentRole') || 'Sin Rol'
     };
 
-    const response = await window.api.registrarGasto(datosGasto);
+    const response = esFechaAnterior
+        ? await window.api.registrarGastoAnterior({ ...datosGasto, fechaGasto })
+        : await window.api.registrarGasto(datosGasto);
 
-    if (response.success) {
+    if (response.requiereAprobacion) {
         alert(response.message);
-        document.getElementById('gasto-monto').value = '';
-        document.getElementById('gasto-descripcion').value = '';
-        if (tipo === 'Operativo') {
-            // Refresca las sugerencias por si este concepto es nuevo o subió de frecuencia.
-            cargarDescripcionesFrecuentesOperativo();
-        }
-        if (esAjusteInventario) {
-            limpiarFilasProductosVencidos();
-            crearFilaProductoVencido();
-            actualizarMontoGeneral();
-        }
+    } else if (response.success) {
+        alert(response.message);
     } else {
         alert('Error: ' + response.message);
+        return;
+    }
+
+    document.getElementById('gasto-monto').value = '';
+    document.getElementById('gasto-descripcion').value = '';
+    const inputFechaGasto = document.getElementById('gasto-fecha');
+    const helperFechaGasto = document.getElementById('gasto-fecha-helper');
+    if (inputFechaGasto) inputFechaGasto.value = obtenerFechaHoyYYYYMMDD();
+    if (helperFechaGasto) helperFechaGasto.style.display = 'none';
+    if (tipo === 'Operativo') {
+        // Refresca las sugerencias por si este concepto es nuevo o subió de frecuencia.
+        cargarDescripcionesFrecuentesOperativo();
+    }
+    if (esAjusteInventario) {
+        limpiarFilasProductosVencidos();
+        crearFilaProductoVencido();
+        actualizarMontoGeneral();
     }
 });
 

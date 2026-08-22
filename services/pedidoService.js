@@ -4,6 +4,7 @@ const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('./auditService');
 const { registrarMovimientoInventario, registrarMovimientoReserva } = require('./inventarioMovimientoService');
 const { solicitarSincronizacion } = require('../sync/syncService');
+const { obtenerFechaHoyYYYYMMDD } = require('./fechaService');
 
 // SRP: única fuente de verdad de las transacciones del módulo de Pedidos/Apartados (hold de
 // inventario + abonos + entrega/cancelación). El "hold" vive en inventario_sucursal.stock_reservado,
@@ -28,7 +29,7 @@ function resumenCarrito(carrito) {
 // que llegan del formulario de edición, y arma un texto legible "campo: antes -> después" solo con
 // lo que realmente cambió. Sin esto, el log de auditoría de "Editar Pedido" mostraba únicamente el
 // estado final, sin forma de saber qué se modificó.
-function describirCambiosPedido({ pedidoAnterior, detalleAnterior, fechaEntregaEstimada, notas, carrito, total }) {
+function describirCambiosPedido({ pedidoAnterior, detalleAnterior, fechaEntregaEstimada, notas, carrito, total, valorDomicilio }) {
     const cambios = [];
 
     if (pedidoAnterior.fecha_entrega_estimada !== fechaEntregaEstimada) {
@@ -39,6 +40,9 @@ function describirCambiosPedido({ pedidoAnterior, detalleAnterior, fechaEntregaE
     }
     if (Number(pedidoAnterior.total) !== total) {
         cambios.push(`Total: $${pedidoAnterior.total} -> $${total}`);
+    }
+    if (Number(pedidoAnterior.valor_domicilio || 0) !== Number(valorDomicilio || 0)) {
+        cambios.push(`Domicilio: $${Number(pedidoAnterior.valor_domicilio || 0)} -> $${Number(valorDomicilio || 0)}`);
     }
     const prodsAntes = resumenCarrito(detalleAnterior);
     const prodsDespues = resumenCarrito(carrito);
@@ -143,7 +147,7 @@ async function obtenerSaldoPedido(pedidoId) {
     return { total: Number(pedido.total), abonado, saldoPendiente: Number(pedido.total) - abonado };
 }
 
-async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono, fechaEntregaEstimada, carrito, notas, abonoInicial, auditoriaUsuario, auditoriaRol }) {
+async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIdentificacion, clienteTelefono, fechaEntregaEstimada, carrito, notas, abonoInicial, valorDomicilio, auditoriaUsuario, auditoriaRol }) {
     if (!Array.isArray(carrito) || carrito.length === 0) {
         return { success: false, message: 'El pedido debe tener al menos un producto.' };
     }
@@ -155,7 +159,8 @@ async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIden
     }
 
     const pedidoId = 'ped-' + uuidv4().substring(0, 8);
-    const total = carrito.reduce((sum, item) => sum + (Number(item.precio) * Number(item.cantidad)), 0);
+    const valorDomicilioFinal = Number(valorDomicilio || 0);
+    const total = carrito.reduce((sum, item) => sum + (Number(item.precio) * Number(item.cantidad)), 0) + valorDomicilioFinal;
 
     try {
         const clienteIdFinal = await resolverOCrearClienteId({
@@ -165,9 +170,9 @@ async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIden
         await runQuery("BEGIN TRANSACTION", []);
 
         await runQuery(
-            `INSERT INTO pedidos (id, sucursal_id, cliente_id, fecha_pedido, fecha_entrega_estimada, estado, total, notas, usuario_creo, cliente_nombre_registro, cliente_identificacion_registro, cliente_telefono_registro, sync_status, updated_at)
-             VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, 'pendiente', ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-            [pedidoId, sucursalId, clienteIdFinal, fechaEntregaEstimada, total, notas || null, auditoriaUsuario || null, clienteNombre, clienteIdentificacion || null, clienteTelefono]
+            `INSERT INTO pedidos (id, sucursal_id, cliente_id, fecha_pedido, fecha_entrega_estimada, estado, total, notas, usuario_creo, cliente_nombre_registro, cliente_identificacion_registro, cliente_telefono_registro, valor_domicilio, sync_status, updated_at)
+             VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+            [pedidoId, sucursalId, clienteIdFinal, fechaEntregaEstimada, total, notas || null, auditoriaUsuario || null, clienteNombre, clienteIdentificacion || null, clienteTelefono, valorDomicilioFinal]
         );
 
         const detalleValues = carrito.flatMap(item => [uuidv4(), pedidoId, item.id, item.cantidad, item.precio]);
@@ -188,7 +193,8 @@ async function crearPedidoTx({ sucursalId, clienteId, clienteNombre, clienteIden
             );
         }
 
-        await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Crear Pedido/Apartado', `Pedido ID: ${pedidoId} - Cliente: ${clienteNombre} - Total: $${total} - Entrega estimada: ${fechaEntregaEstimada} - Prods: [${resumenCarrito(carrito)}]`);
+        const detalleDomicilio = valorDomicilioFinal > 0 ? ` - Domicilio: $${valorDomicilioFinal}` : '';
+        await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucursalId, 'Crear Pedido/Apartado', `Pedido ID: ${pedidoId} - Cliente: ${clienteNombre} - Total: $${total}${detalleDomicilio} - Entrega estimada: ${fechaEntregaEstimada} - Prods: [${resumenCarrito(carrito)}]`);
 
         await runQuery("COMMIT", []);
         notificarInventarioActualizado();
@@ -234,7 +240,8 @@ async function eliminarAbonoPedidoTx({ id, auditoriaUsuario, auditoriaRol }) {
     try {
         const abono = await new Promise((resolve, reject) => {
             db.get(
-                `SELECT ap.monto, ap.pedido_id, p.sucursal_id, p.estado FROM abonos_pedido ap JOIN pedidos p ON ap.pedido_id = p.id WHERE ap.id = ?`,
+                `SELECT ap.monto, ap.pedido_id, p.sucursal_id, p.estado, strftime('%Y-%m-%d', ap.fecha, 'localtime') as fecha_dia
+                 FROM abonos_pedido ap JOIN pedidos p ON ap.pedido_id = p.id WHERE ap.id = ?`,
                 [id],
                 (err, row) => { if (err) reject(err); else resolve(row); }
             );
@@ -244,6 +251,13 @@ async function eliminarAbonoPedidoTx({ id, auditoriaUsuario, auditoriaRol }) {
         }
         if (abono.estado !== 'pendiente') {
             return { success: false, message: 'No se pueden eliminar abonos de un pedido que ya fue entregado o cancelado.' };
+        }
+        // Un abono de un día anterior solo lo puede eliminar un Administrador (y queda recuperable
+        // desde Administración > Abonos Eliminados) -- mismo criterio que gastos/ventas de fecha
+        // anterior, para que un abono ya reflejado en el cierre de caja de un día pasado no
+        // desaparezca por error o descuido de un Operador.
+        if (auditoriaRol !== 'Administrador' && abono.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
+            return { success: false, message: 'Solo un Administrador puede eliminar un abono de un día anterior.' };
         }
         await runQuery(`UPDATE abonos_pedido SET sync_status = 'deleted' WHERE id = ?`, [id]);
         await registrarAuditoria(auditoriaUsuario, auditoriaRol, abono.sucursal_id, 'Eliminar Abono Pedido', `Pedido ID: ${abono.pedido_id} - Monto: $${abono.monto}`);
@@ -257,14 +271,14 @@ async function eliminarAbonoPedidoTx({ id, auditoriaUsuario, auditoriaRol }) {
 // Reemplaza productos/cantidades de un pedido `pendiente`, ajustando el hold de inventario por
 // la diferencia (revierte lo reservado por las líneas viejas, aplica lo de las líneas nuevas). El
 // cliente NUNCA se toca aquí: si se equivocaron de cliente, se cancela el pedido y se crea uno nuevo.
-async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, auditoriaUsuario, auditoriaRol }) {
+async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, valorDomicilio, auditoriaUsuario, auditoriaRol }) {
     if (!Array.isArray(carrito) || carrito.length === 0) {
         return { success: false, message: 'El pedido debe tener al menos un producto.' };
     }
 
     try {
         const pedido = await new Promise((resolve, reject) => {
-            db.get(`SELECT sucursal_id, estado, total, fecha_entrega_estimada, notas FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
+            db.get(`SELECT sucursal_id, estado, total, fecha_entrega_estimada, notas, valor_domicilio FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
                 if (err) reject(err);
                 else resolve(row);
             });
@@ -276,7 +290,8 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
             return { success: false, message: 'Solo se puede editar un pedido que aún esté pendiente.' };
         }
 
-        const total = carrito.reduce((sum, item) => sum + (Number(item.precio) * Number(item.cantidad)), 0);
+        const valorDomicilioFinal = Number(valorDomicilio || 0);
+        const total = carrito.reduce((sum, item) => sum + (Number(item.precio) * Number(item.cantidad)), 0) + valorDomicilioFinal;
 
         await runQuery("BEGIN TRANSACTION", []);
 
@@ -306,11 +321,11 @@ async function editarPedidoTx({ pedidoId, fechaEntregaEstimada, notas, carrito, 
         });
 
         await runQuery(
-            `UPDATE pedidos SET total = ?, fecha_entrega_estimada = ?, notas = ?, sync_status = 'pending' WHERE id = ?`,
-            [total, fechaEntregaEstimada, notas || null, pedidoId]
+            `UPDATE pedidos SET total = ?, fecha_entrega_estimada = ?, notas = ?, valor_domicilio = ?, sync_status = 'pending' WHERE id = ?`,
+            [total, fechaEntregaEstimada, notas || null, valorDomicilioFinal, pedidoId]
         );
 
-        const cambios = describirCambiosPedido({ pedidoAnterior: pedido, detalleAnterior: detalleOriginal, fechaEntregaEstimada, notas, carrito, total });
+        const cambios = describirCambiosPedido({ pedidoAnterior: pedido, detalleAnterior: detalleOriginal, fechaEntregaEstimada, notas, carrito, total, valorDomicilio: valorDomicilioFinal });
         await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Editar Pedido', `Pedido ID: ${pedidoId} - Cambios: ${cambios}`);
 
         await runQuery("COMMIT", []);
@@ -388,7 +403,7 @@ async function cancelarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
 async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
     try {
         const pedido = await new Promise((resolve, reject) => {
-            db.get(`SELECT sucursal_id, estado, total FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
+            db.get(`SELECT sucursal_id, estado, total, valor_domicilio FROM pedidos WHERE id = ?`, [pedidoId], (err, row) => {
                 if (err) reject(err);
                 else resolve(row);
             });
@@ -429,10 +444,29 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
             metodoPago = 'Transferencia';
         }
 
+        // El valor del domicilio queda como sufijo "(Domicilio: $X)" en metodo_pago, igual que hace
+        // ventas.js al cobrar directamente -- así reportes.js/gestion.js/pdfHelpers.js (que ya saben
+        // extraerlo de ahí, ver extraerDomicilioDeMetodoPago) lo reconocen sin distinguir si la venta
+        // vino de un pedido entregado o de una venta directa.
+        const valorDomicilio = Number(pedido.valor_domicilio || 0);
+        if (valorDomicilio > 0) {
+            metodoPago += ` (Domicilio: ${Math.round(valorDomicilio).toLocaleString('es-CO')})`;
+        }
+
         await runQuery(
             `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, sync_status, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 0, NULL, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
             [ventaId, pedido.sucursal_id, pedido.total, metodoPago]
         );
+
+        // Genera la salida de caja para el mensajero justo ahora (momento real de la entrega),
+        // enlazada a la venta recién creada -- mismo shape que insertarVentaTx en ventaService.js,
+        // para que editar-gasto/eliminar-gasto la bloqueen igual (ver descripcion en registerGastosIpc.js).
+        if (valorDomicilio > 0) {
+            await runQuery(
+                `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, venta_id, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                [uuidv4(), pedido.sucursal_id, 'Operativo', 'Domicilio (Descuento de Caja)', valorDomicilio, 'Efectivo', ventaId]
+            );
+        }
 
         if (detalle.length > 0) {
             const detalleValues = detalle.flatMap(item => [uuidv4(), ventaId, item.producto_id, item.cantidad, item.precio_unitario]);

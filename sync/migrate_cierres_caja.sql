@@ -1,5 +1,5 @@
--- Migración: tabla `cierres_caja` para el módulo de Cuadre de Caja (cierres parciales por
--- ventana de tiempo -- cambios de turno, verificaciones puntuales y cierre de día).
+-- Migración: tabla `cierres_caja` para el módulo de Cuadre de Caja: cuadre por ventana de
+-- tiempo -- cambios de turno, cierres parciales y cierre de día.
 --
 -- Motivo: arqueo.html/arqueo.js era solo una calculadora en vivo sin persistencia, que comparaba
 -- el conteo físico contra el Reporte Diario COMPLETO (get-reporte-diario, día entero). Con el

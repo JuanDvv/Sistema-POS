@@ -252,6 +252,67 @@
             </div>
         </div>
 
+        <!-- 0b. Sección de Solicitudes de Gastos de Fecha Anterior -->
+        <div class="section-card" id="section-solicitudes-gasto">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🗓️ Solicitudes de Gastos de Fecha Anterior</h3>
+                <select id="filtro-solicitudes-gasto"
+                    style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
+                    <option value="pendiente">Pendientes</option>
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div class="table-container">
+                <table id="table-solicitudes-gasto">
+                    <thead>
+                        <tr>
+                            <th>Fecha Solicitud</th>
+                            <th>Fecha del Gasto</th>
+                            <th>Solicitante</th>
+                            <th>Resumen</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 0c. Sección de Abonos Eliminados (recuperación, solo Administrador) -->
+        <div class="section-card" id="section-abonos-eliminados">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🗑️ Abonos Eliminados</h3>
+                <button id="btn-refrescar-abonos-eliminados" class="btn-primary">🔄 Actualizar</button>
+            </div>
+            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
+                Abonos de Crédito y de Pedidos eliminados por un Administrador (los de un día anterior solo un
+                Administrador puede borrarlos). Se pueden recuperar en cualquier momento.
+            </p>
+            <div class="table-container-scroll">
+                <table id="table-abonos-eliminados">
+                    <thead>
+                        <tr>
+                            <th>Tipo</th>
+                            <th>Cliente / Pedido</th>
+                            <th>Monto</th>
+                            <th>Método</th>
+                            <th>Fecha del Abono</th>
+                            <th>Eliminado el</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Sección de Impresora de Tickets (configuración local de este equipo, no se sincroniza) -->
         <div class="section-card">
             <div
@@ -310,7 +371,7 @@
                 <h3 style="margin: 0; border: none; padding: 0;">👥 Cuentas de Usuario</h3>
                 <button id="btn-nuevo-usuario" class="btn-primary">➕ Nuevo Usuario</button>
             </div>
-            <div class="table-container">
+            <div class="table-container-scroll">
                 <table id="table-users">
                     <thead>
                         <tr>
@@ -334,7 +395,7 @@
                 <h3 style="margin: 0; border: none; padding: 0;">🏷️ Categorías y Subcategorías</h3>
                 <button id="btn-nueva-categoria" class="btn-primary">➕ Nueva Categoría/Subcategoría</button>
             </div>
-            <div class="table-container">
+            <div class="table-container-scroll">
                 <table id="table-categorias">
                     <thead>
                         <tr>
@@ -345,6 +406,84 @@
                     </thead>
                     <tbody>
                         <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 3b. Sección de Sugeridos Semanales de Pastelería y Heladería (solo Administrador). El
+        proveedor completa el stock físico hasta este valor en cada entrega (martes/jueves/sábado),
+        así que hay 3 cantidades distintas por producto y por sucursal -- ver
+        services/pedidoSugeridoPasteleriaService.js. -->
+        <div class="section-card" id="section-sugeridos-pasteleria">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🥐 Sugeridos Semanales de Pastelería y Heladería</h3>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <input type="text" id="sugeridos-busqueda" placeholder="🔍 Buscar producto..."
+                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; width: 220px; font-family: inherit; font-size: 0.9em;">
+                    <select id="sugeridos-sucursal-select"
+                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.9em; background-color: white; color: #374151; font-weight: bold;"></select>
+                    <button id="btn-descargar-excel-sugeridos" class="btn-primary">📥 Descargar Excel</button>
+                </div>
+            </div>
+            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
+                Cantidad acordada con el proveedor por producto y día de entrega. El proveedor completa el
+                stock físico hasta este valor en cada visita (martes/jueves/sábado).
+            </p>
+            <div class="table-container-scroll">
+                <table id="table-sugeridos-pasteleria">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Sugerido Martes</th>
+                            <th>Sugerido Jueves</th>
+                            <th>Sugerido Sábado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 3c. Calculadora de Pedido Extra de Pastelería y Heladería (visible a Operador y
+        Administrador): cuando el stock físico se agota antes de la próxima entrega del proveedor,
+        muestra cuánto conviene pedir de extra según el promedio de ventas -- puramente informativo,
+        no guarda nada. -->
+        <div class="section-card" id="section-calculadora-pedido-extra">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">🧁 Calculadora de Pedido Extra (Pastelería y Heladería)</h3>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <select id="pedido-extra-sucursal-select"
+                        style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.9em; background-color: white; color: #374151; font-weight: bold;"></select>
+                    <button id="btn-calcular-pedido-extra" class="btn-primary">🧮 Calcular</button>
+                    <button id="btn-descargar-excel-pedido-extra" class="btn-primary">📥 Descargar Excel</button>
+                </div>
+            </div>
+            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9em;">
+                Cuánto conviene pedir de extra al proveedor por producto, teniendo en cuenta el sugerido ya
+                configurado para el día de la próxima entrega (solo se listan productos con algún sugerido mayor
+                a 0 en esta sucursal). Solo es informativo: no se guarda ni se envía ninguna solicitud. El cálculo
+                se hace a demanda: elige la sucursal y presiona "Calcular".
+            </p>
+            <div class="table-container-scroll">
+                <table id="table-pedido-extra">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Stock Actual</th>
+                            <th>Promedio Diario</th>
+                            <th>Próxima Entrega</th>
+                            <th>Sugerido de ese Día</th>
+                            <th>Cantidad Recomendada</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">Presiona "Calcular" para ver las recomendaciones.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -528,6 +667,17 @@
                 <button class="close-btn" id="btn-close-detalle-solicitud-modal">&times;</button>
             </div>
             <div id="modal-detalle-solicitud-body"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Detalle de Solicitud de Gasto de Fecha Anterior -->
+    <div id="modal-detalle-solicitud-gasto" class="modal">
+        <div class="modal-content" style="width: 560px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Detalle de la Solicitud de Gasto</h3>
+                <button class="close-btn" id="btn-close-detalle-solicitud-gasto-modal">&times;</button>
+            </div>
+            <div id="modal-detalle-solicitud-gasto-body"></div>
         </div>
     </div>
 
