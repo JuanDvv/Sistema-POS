@@ -41,13 +41,17 @@ function registerSucursalesIpc() {
             });
             if (row) return { success: true, id: row.id };
 
-            // Fallback a cualquier sucursal si ninguna está activa
+            // Fallback a cualquier sucursal si ninguna está activa y auto-activarla
             const fallback = await new Promise((resolve) => {
                 db.get(`SELECT id FROM config_sucursal WHERE ${FILTRO_NO_ELIMINADA} LIMIT 1`, [], (err, row) => {
                     resolve(row);
                 });
             });
-            return { success: true, id: fallback ? fallback.id : 'sucursal-norte' };
+            if (fallback && fallback.id) {
+                await runQuery(`UPDATE config_sucursal SET activa = 1 WHERE id = ?`, [fallback.id]).catch(() => {});
+                return { success: true, id: fallback.id };
+            }
+            return { success: true, id: 'sucursal-norte' };
         } catch (err) {
             return { success: true, id: 'sucursal-norte' };
         }

@@ -289,8 +289,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         sucursalLocalId = sucursalParam;
         sucursalId = sucursalParam;
     }
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
 
@@ -488,8 +488,8 @@ document.getElementById('btn-guardar-gasto').addEventListener('click', async () 
         descripcion: descripcion,
         monto: esAjusteInventario ? 0 : monto,
         productosVencidos: productosVencidos,
-        auditoriaUsuario: localStorage.getItem('currentUser') || 'Invitado',
-        auditoriaRol: localStorage.getItem('currentRole') || 'Sin Rol'
+        auditoriaUsuario: sessionStorage.getItem('currentUser') || 'Invitado',
+        auditoriaRol: sessionStorage.getItem('currentRole') || 'Sin Rol'
     };
 
     const response = esFechaAnterior
@@ -523,6 +523,6 @@ document.getElementById('btn-guardar-gasto').addEventListener('click', async () 
 });
 
 document.getElementById('btn-logout').addEventListener('click', () => {
-    localStorage.clear();
+    sessionStorage.clear();
     window.location.href = 'index.html';
 });

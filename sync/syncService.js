@@ -194,43 +194,62 @@ function solicitarSincronizacion(motivo = 'evento crítico') {
 
 // --- 0. SINCRONIZAR COLA DE AUDITORÍA (Local -> Supabase Logs) ---
 // Registro de auditoría append-only: sin ediciones ni conflictos, no necesita LWW.
+let syncAuditoriaPromesa = null;
+
 async function syncColaAuditoria() {
-    try {
-        const logsPendientes = await allQuery(`SELECT * FROM cola_auditoria WHERE sync_status = 'pending'`, []);
-        for (const log of logsPendientes) {
-            const { error } = await supabaseLogs
+    if (syncAuditoriaPromesa) return syncAuditoriaPromesa;
+    syncAuditoriaPromesa = (async () => {
+        try {
+            const logsPendientes = await allQuery(`SELECT * FROM cola_auditoria WHERE sync_status = 'pending'`, []);
+            if (!logsPendientes || logsPendientes.length === 0) return;
+
+            // Marcar de inmediato como 'uploading' para evitar que otra llamada concurrente procese los mismos registros
+            const ids = logsPendientes.map(l => l.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await runQuery(`UPDATE cola_auditoria SET sync_status = 'uploading' WHERE id IN (${placeholders})`, ids);
+
+            for (const log of logsPendientes) {
+                const { error } = await supabaseLogs
+                    .from('auditoria')
+                    .upsert({
+                        id: log.id,
+                        fecha: log.fecha,
+                        usuario: log.usuario,
+                        rol: log.rol,
+                        sucursal_id: log.sucursal_id,
+                        accion: log.accion,
+                        detalles: log.detalles
+                    }, { onConflict: 'id' });
+
+                if (error) {
+                    await runQuery(`UPDATE cola_auditoria SET sync_status = 'pending' WHERE id = ?`, [log.id]);
+                    throw error;
+                }
+
+                await runQuery(`UPDATE cola_auditoria SET sync_status = 'synced' WHERE id = ?`, [log.id]);
+                console.log(`[Sincronizador] Log de auditoría ${log.id} subido a Supabase Logs.`);
+            }
+
+            // Retención local de 60 días en SQLite: eliminar logs subidos más antiguos de 60 días
+            await runQuery(
+                `DELETE FROM cola_auditoria WHERE sync_status = 'synced' AND datetime(fecha) < datetime('now', '-60 days')`,
+                []
+            );
+
+            // Pruning en la Nube: Eliminar logs en Supabase más antiguos de 90 días para cuidar el límite de 500 MB
+            const fechaLimiteNube = new Date();
+            fechaLimiteNube.setDate(fechaLimiteNube.getDate() - 90);
+            await supabaseLogs
                 .from('auditoria')
-                .insert({
-                    fecha: log.fecha,
-                    usuario: log.usuario,
-                    rol: log.rol,
-                    sucursal_id: log.sucursal_id,
-                    accion: log.accion,
-                    detalles: log.detalles
-                });
-
-            if (error) throw error;
-
-            await runQuery(`UPDATE cola_auditoria SET sync_status = 'synced' WHERE id = ?`, [log.id]);
-            console.log(`[Sincronizador] Log de auditoría ${log.id} subido a Supabase Logs.`);
+                .delete()
+                .lt('fecha', fechaLimiteNube.toISOString());
+        } catch (err) {
+            console.log("[Sincronizador] Logs de auditoría no subidos (Offline o error de red):", err.message);
+        } finally {
+            syncAuditoriaPromesa = null;
         }
-
-        // Retención local de 60 días en SQLite: eliminar logs subidos más antiguos de 60 días
-        await runQuery(
-            `DELETE FROM cola_auditoria WHERE sync_status = 'synced' AND datetime(fecha) < datetime('now', '-60 days')`,
-            []
-        );
-
-        // Pruning en la Nube: Eliminar logs en Supabase más antiguos de 90 días para cuidar el límite de 500 MB
-        const fechaLimiteNube = new Date();
-        fechaLimiteNube.setDate(fechaLimiteNube.getDate() - 90);
-        await supabaseLogs
-            .from('auditoria')
-            .delete()
-            .lt('fecha', fechaLimiteNube.toISOString());
-    } catch (err) {
-        console.log("[Sincronizador] Logs de auditoría no subidos (Offline o error de red):", err.message);
-    }
+    })();
+    return syncAuditoriaPromesa;
 }
 
 // --- 1. SUBIR VENTAS LOCALES A LA NUBE (Local -> Supabase, con LWW) ---
@@ -1354,6 +1373,16 @@ async function syncSucursales() {
                 );
             }
             if (sucursalesNube.length > 0) console.log("[Sincronizador] Configuración de sucursales sincronizada con la nube.");
+
+            // Asegurar que este equipo mantenga al menos una sucursal activa asignada
+            const activaExistente = await allQuery(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, []);
+            if (activaExistente.length === 0) {
+                const primera = await allQuery(`SELECT id FROM config_sucursal WHERE (sync_status IS NULL OR sync_status <> 'deleted') LIMIT 1`, []);
+                if (primera.length > 0) {
+                    await runQuery(`UPDATE config_sucursal SET activa = 1 WHERE id = ?`, [primera[0].id]);
+                    console.log(`[Sincronizador] Sucursal '${primera[0].id}' auto-activada en este equipo.`);
+                }
+            }
         }
         if (cursorSucursales !== null) await actualizarCursor('config_sucursal', cursorSucursales);
     } catch (errDownload) {
@@ -1983,6 +2012,27 @@ async function syncAbonosPedido() {
     }
 }
 
+// --- 10.7. PURGAR ABONOS ELIMINADOS ANTIGUOS EN LA NUBE (retención de 30 días tras registro) ---
+const RETENCION_ABONOS_ELIMINADOS_DIAS = 30;
+async function purgarAbonosEliminadosNube() {
+    if (!supabase) return;
+    try {
+        const fechaCorte = new Date(Date.now() - RETENCION_ABONOS_ELIMINADOS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+        await Promise.allSettled([
+            supabase.from('abonos_credito')
+                .delete()
+                .not('deleted_at', 'is', null)
+                .lt('fecha', fechaCorte),
+            supabase.from('abonos_pedido')
+                .delete()
+                .not('deleted_at', 'is', null)
+                .lt('fecha', fechaCorte)
+        ]);
+    } catch (err) {
+        console.log("[Sincronizador] No se pudo purgar abonos eliminados antiguos en la nube:", err.message);
+    }
+}
+
 // --- SINCRONIZAR CIERRES DE CAJA (cuadre por ventana de tiempo, ver services/cierreCajaService.js) ---
 // Tabla plana sin efectos secundarios de inventario, mismo shape que abonos_pedido: sube
 // pendientes, procesa eliminados (sin flujo de UI hoy, se mantiene por paridad) y descarga por cursor.
@@ -2205,11 +2255,14 @@ function notificarTransferenciaEntrante(traslado) {
 }
 
 function notificarVentanasReportes() {
-    console.log('[Sincronizador] Sincronización finalizada. Notificando a ventanas de reportes.');
+    console.log('[Sincronizador] Sincronización finalizada. Notificando a ventanas de reportes y auditoría.');
     BrowserWindow.getAllWindows().forEach(win => {
-        if (win && !win.isDestroyed() && win.webContents.getURL().includes('reportes.html')) {
-            console.log('[Sincronizador] Enviando evento "sincronizacion-completa" a ventana de reportes.');
-            win.webContents.send('sincronizacion-completa');
+        if (win && !win.isDestroyed()) {
+            const url = win.webContents.getURL();
+            if (url.includes('reportes.html') || url.includes('admin-audit-logs.html')) {
+                console.log('[Sincronizador] Enviando evento "sincronizacion-completa" a:', url);
+                win.webContents.send('sincronizacion-completa');
+            }
         }
     });
 }
@@ -2347,6 +2400,7 @@ async function procesarSincronizacion() {
         await syncPedidosSubir();
         await syncPedidosDescargar();
         await syncAbonosPedido();
+        await purgarAbonosEliminadosNube();
         await syncCierresCaja();
         await syncSolicitudesVenta();
         await syncSolicitudesGasto();
@@ -2366,4 +2420,4 @@ async function procesarSincronizacion() {
     }
 }
 
-module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion, hayConexionConocida };
+module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion, hayConexionConocida, syncColaAuditoria, notificarVentanasReportes };

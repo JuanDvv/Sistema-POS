@@ -32,8 +32,8 @@ let filtroCategorias = null; // Instancia del selector múltiple de categorías 
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 
 // Datos de sesión activa
-const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const selectOrigen = document.getElementById('select-sucursal-origen');
@@ -392,6 +392,6 @@ async function enviarTransferencia() {
 
 // Manejo de Cerrar Sesión
 document.getElementById('btn-logout').addEventListener('click', () => {
-    localStorage.clear();
+    sessionStorage.clear();
     window.location.href = 'index.html';
 });

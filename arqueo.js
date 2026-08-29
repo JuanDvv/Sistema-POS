@@ -230,7 +230,7 @@ async function cargarHistorialCierres(fecha) {
         return;
     }
 
-    const esAdministrador = (localStorage.getItem('currentRole') || 'Sin Rol') === 'Administrador';
+    const esAdministrador = (sessionStorage.getItem('currentRole') || 'Sin Rol') === 'Administrador';
 
     tbody.innerHTML = response.data.map(c => {
         const hora = new Date(c.fecha_hasta).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
@@ -279,8 +279,8 @@ async function refrescarHistorialTrasEdicion() {
 async function eliminarCierreCaja(cierreId) {
     if (!confirm('¿Eliminar este cierre de caja? Esta acción no se puede deshacer.')) return;
 
-    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+    const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
     const response = await window.api.eliminarCierreCaja({ cierreId, auditoriaUsuario, auditoriaRol });
     if (response.success) {
@@ -293,8 +293,8 @@ async function eliminarCierreCaja(cierreId) {
 async function recalcularCierreCaja(cierreId) {
     if (!confirm('¿Recalcular el efectivo esperado de este cierre contra las ventas, abonos y gastos actuales de su ventana? El efectivo contado (conteo físico) no cambia.')) return;
 
-    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+    const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
     const response = await window.api.recalcularCierreCaja({ cierreId, auditoriaUsuario, auditoriaRol });
     if (!response.success) {
@@ -319,8 +319,8 @@ async function confirmarCierreCaja() {
 
     const tipo = document.getElementById('select-tipo-cierre').value;
     const nota = document.getElementById('input-nota-cierre').value.trim();
-    const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-    const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+    const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+    const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
     const totalContado = denominaciones.reduce((sum, d) => sum + (d.valor * d.cantidad), 0);
     const base = fondoBase || BASE_CAJA_SUCURSAL;

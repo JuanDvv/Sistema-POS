@@ -147,6 +147,7 @@ function crearBuscadorProducto({ input, obtenerProductos, onSeleccionar, etiquet
     window.addEventListener('resize', onReposicionar);
 
     return {
+        cerrar,
         // Se llama al quitar del DOM el elemento dueno del input (ej. una fila de "producto
         // vencido" en gastos.js), para no dejar el dropdown ni los listeners de document/window
         // colgando en memoria.

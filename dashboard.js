@@ -189,7 +189,7 @@ function renderizarProductos(productos) {
     const tbody = document.querySelector('#table-products tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    const userRole = localStorage.getItem('currentRole') || 'Sin Rol';
+    const userRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
     // Calcular y actualizar estadísticas
     let totalVariedad = productos.length;
@@ -336,8 +336,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         sucursalId = resId.id;
     }
 
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     const displayUser = document.getElementById('display-user');
     const displayRole = document.getElementById('display-role');
     if (displayUser) displayUser.innerText = user;
@@ -554,8 +554,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-            const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+            const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+            const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             let response;
             if (editingProductId) {
@@ -629,8 +629,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-            const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+            const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+            const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             const response = await window.api.abastecerStock({ 
                 id: abastecerProductId, 
@@ -740,8 +740,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (validos.length === 0) return;
             if (!confirm(`¿Confirmas ingresar ${validos.length} producto(s) al inventario de esta sucursal?`)) return;
 
-            const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-            const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+            const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+            const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             const response = await window.api.confirmarAbastecimientoMasivo({
                 sucursalId,
@@ -763,7 +763,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
         btnLogout.addEventListener('click', () => {
-            localStorage.clear();
+            sessionStorage.clear();
             window.location.href = 'index.html';
         });
     }
@@ -815,8 +815,8 @@ window.iniciarEdicion = async (id, nombre, descripcion, precio, stock, stockMini
 
 window.eliminarProducto = async (id) => {
     if (confirm("¿Estás seguro de que deseas borrar este producto?")) {
-        const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-        const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+        const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+        const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
         const response = await window.api.eliminarProducto({ 
             id, 

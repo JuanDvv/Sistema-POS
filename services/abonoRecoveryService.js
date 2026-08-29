@@ -13,18 +13,43 @@ const { registrarAuditoria } = require('./auditService');
 // la nube, que es la única fuente que todavía lo conserva.
 
 const LIMITE_ABONOS_ELIMINADOS = 50;
+const RETENCION_ABONOS_ELIMINADOS_DIAS = 30;
+
+async function purgarAbonosEliminadosAntiguos() {
+    if (!supabase) return;
+    const fechaCorte = new Date(Date.now() - RETENCION_ABONOS_ELIMINADOS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+    try {
+        await Promise.allSettled([
+            supabase.from('abonos_credito')
+                .delete()
+                .not('deleted_at', 'is', null)
+                .lt('fecha', fechaCorte),
+            supabase.from('abonos_pedido')
+                .delete()
+                .not('deleted_at', 'is', null)
+                .lt('fecha', fechaCorte)
+        ]);
+    } catch (err) {
+        console.log('[AbonoRecovery] Error al purgar abonos eliminados antiguos:', err.message);
+    }
+}
 
 async function listarAbonosEliminados() {
     if (!supabase) return { success: true, data: [] };
+    await purgarAbonosEliminadosAntiguos();
+
+    const fechaCorte = new Date(Date.now() - RETENCION_ABONOS_ELIMINADOS_DIAS * 24 * 60 * 60 * 1000).toISOString();
     const [credRes, pedRes] = await Promise.all([
         supabase.from('abonos_credito')
             .select('id, cliente_id, monto, fecha, metodo_pago, deleted_at')
             .not('deleted_at', 'is', null)
+            .gte('fecha', fechaCorte)
             .order('deleted_at', { ascending: false })
             .limit(LIMITE_ABONOS_ELIMINADOS),
         supabase.from('abonos_pedido')
             .select('id, pedido_id, monto, fecha, metodo_pago, deleted_at')
             .not('deleted_at', 'is', null)
+            .gte('fecha', fechaCorte)
             .order('deleted_at', { ascending: false })
             .limit(LIMITE_ABONOS_ELIMINADOS)
     ]);
@@ -70,6 +95,24 @@ async function recuperarAbono({ tipo, id, auditoriaUsuario, auditoriaRol }) {
     const tabla = tipo === 'credito' ? 'abonos_credito' : 'abonos_pedido';
     const ahora = new Date().toISOString();
 
+    const fechaCorte = new Date(Date.now() - RETENCION_ABONOS_ELIMINADOS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+
+    // Validar que el abono exista, esté eliminado y no supere los 30 días desde su registro
+    const { data: abonoPrevio, error: errorCheck } = await supabase
+        .from(tabla)
+        .select('id, fecha')
+        .eq('id', id)
+        .not('deleted_at', 'is', null)
+        .maybeSingle();
+    if (errorCheck) return { success: false, message: 'Error al consultar abono en la nube: ' + errorCheck.message };
+    if (!abonoPrevio) {
+        return { success: false, message: 'No se encontró el abono eliminado en la nube (puede que ya haya sido recuperado o purgado tras 1 mes de registro).' };
+    }
+    if (abonoPrevio.fecha && new Date(abonoPrevio.fecha) < new Date(fechaCorte)) {
+        await supabase.from(tabla).delete().eq('id', id);
+        return { success: false, message: 'No se puede recuperar el abono porque ya superó 1 mes desde su registro.' };
+    }
+
     // Limpiar deleted_at en Supabase (fuente de verdad): el trigger assign_sync_seq() le asigna un
     // sync_seq nuevo al quedar por encima del cursor de todos los equipos, así que también vuelve
     // a bajar sola en el próximo ciclo de sincronización de cualquier otra terminal.
@@ -80,7 +123,7 @@ async function recuperarAbono({ tipo, id, auditoriaUsuario, auditoriaRol }) {
         .select('*')
         .maybeSingle();
     if (error) return { success: false, message: 'Error al recuperar en la nube: ' + error.message };
-    if (!data) return { success: false, message: 'No se encontró el abono eliminado en la nube (puede que ya haya sido recuperado).' };
+    if (!data) return { success: false, message: 'No se encontró el abono eliminado en la nube.' };
 
     // Reflejarlo de inmediato en este equipo, con el mismo shape que usa la descarga normal (ver
     // syncAbonos/syncPedidosAbonosDescargar en sync/syncService.js), para no depender de esperar
@@ -113,4 +156,4 @@ async function recuperarAbono({ tipo, id, auditoriaUsuario, auditoriaRol }) {
     return { success: true, message: 'Abono recuperado exitosamente.' };
 }
 
-module.exports = { listarAbonosEliminados, recuperarAbono };
+module.exports = { listarAbonosEliminados, recuperarAbono, purgarAbonosEliminadosAntiguos };

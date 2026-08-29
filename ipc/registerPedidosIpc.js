@@ -173,17 +173,27 @@ function registerPedidosIpc() {
     // pedidos.js, así que ambos quedan consistentes.
     ipcMain.handle('contar-pedidos-atrasados', async () => {
         try {
-            const sucursalActiva = await new Promise((resolve, reject) => {
-                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => {
-                    if (err) reject(err); else resolve(row);
-                });
+            let sucursalId = null;
+            const sucursalActiva = await new Promise((resolve) => {
+                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => resolve(row));
             });
+            if (sucursalActiva && sucursalActiva.id) {
+                sucursalId = sucursalActiva.id;
+            } else {
+                const fallback = await new Promise(resolve => {
+                    db.get(`SELECT id FROM config_sucursal WHERE (sync_status IS NULL OR sync_status <> 'deleted') LIMIT 1`, [], (err, row) => resolve(row));
+                });
+                if (fallback && fallback.id) {
+                    sucursalId = fallback.id;
+                    await runQuery(`UPDATE config_sucursal SET activa = 1 WHERE id = ?`, [fallback.id]).catch(() => {});
+                }
+            }
             const pendientes = await allQuery(
                 `SELECT fecha_entrega_estimada FROM pedidos
                  WHERE estado = 'pendiente'
                    AND (sync_status IS NULL OR sync_status <> 'deleted')
                    AND sucursal_id = ?`,
-                [sucursalActiva ? sucursalActiva.id : null]
+                [sucursalId]
             );
 
             const hoy = new Date();

@@ -40,8 +40,8 @@ let sucursalListadoId = null;
 let pedidoActualId = null;
 let pedidoActualDetalle = null; // snapshot de la última respuesta de obtenerDetallePedido, para reimprimir
 
-const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
 const formatCOP = (val) => `$${Math.round(Number(val) || 0).toLocaleString('es-CO')}`;
 const formatNumberUI = (val) => {

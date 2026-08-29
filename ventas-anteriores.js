@@ -34,8 +34,8 @@ let modo = 'nueva';
 let ventaIdEnEdicion = null;
 let reservaOriginalPorProducto = {}; // producto_id -> cantidad ya vendida en la venta que se está editando
 
-const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
+const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 const formatNumberUI = (val) => {
@@ -1060,7 +1060,7 @@ async function guardarVenta() {
 const btnLogout = document.getElementById('btn-logout');
 if (btnLogout) {
     btnLogout.addEventListener('click', () => {
-        localStorage.clear();
+        sessionStorage.clear();
         window.location.href = 'index.html';
     });
 }

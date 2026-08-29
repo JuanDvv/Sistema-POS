@@ -66,7 +66,7 @@ function restaurarFiltrosDesdeStorage() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Validar Rol de Administrador
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     if (role !== 'Administrador') {
         alert("Acceso denegado. Esta sección es de uso exclusivo para administradores.");
         window.location.href = 'dashboard.html';

@@ -299,8 +299,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         badgeProductos.style.display = 'inline-block';
     }
     // 1. Mostrar información del usuario logueado en la barra lateral
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
 
@@ -864,8 +864,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-            const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+            const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+            const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             const res = await window.api.guardarCliente({
                 nombre,
@@ -1398,8 +1398,8 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
         const porcentajeDescuento = obtenerPorcentajeDescuento();
         const descuentoAplicado = porcentajeDescuento > 0 ? porcentajeDescuento : 0;
 
-        const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-        const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+        const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+        const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
         const payload = {
             sucursalId: sucursalId,
@@ -1482,7 +1482,7 @@ if (btnLogout) {
         } catch (e) {
             console.error('No se pudo limpiar carrito temporal al cerrar sesión:', e);
         }
-        localStorage.clear();
+        sessionStorage.clear();
         window.location.href = 'index.html';
     });
 }

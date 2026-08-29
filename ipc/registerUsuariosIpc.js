@@ -2,6 +2,7 @@ const { ipcMain } = require('electron');
 const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('../services/auditService');
+const { solicitarSincronizacion, syncColaAuditoria, notificarVentanasReportes } = require('../sync/syncService');
 
 // SRP: autenticación y administración de cuentas de usuario.
 
@@ -13,13 +14,32 @@ function registerUsuariosIpc() {
                 [credentials.username, credentials.password], async (err, row) => {
                     if (err) resolve({ success: false, message: 'Error de base de datos' });
                     else if (row) {
-                        // Registrar inicio de sesión en auditoría
-                        // Dado que el login no sabe la sucursal de inmediato, obtenemos la sucursal activa local
-                        db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], async (errSuc, rowSuc) => {
-                            const sucId = rowSuc ? rowSuc.id : 'Desconocida';
-                            await registrarAuditoria(row.username, row.rol, sucId, 'Inicio Sesión', 'Acceso al sistema');
-                            resolve({ success: true, username: row.username, role: row.rol });
+                        // Obtener sucursal activa en este equipo (con fallback y auto-activación si ninguna está activa)
+                        let sucId = 'Desconocida';
+                        const activaLocal = await new Promise(res => {
+                            db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (errAct, rAct) => res(rAct));
                         });
+                        if (activaLocal && activaLocal.id) {
+                            sucId = activaLocal.id;
+                        } else {
+                            const fallbackSuc = await new Promise(res => {
+                                db.get(`SELECT id FROM config_sucursal WHERE (sync_status IS NULL OR sync_status <> 'deleted') LIMIT 1`, [], (errFb, rFb) => res(rFb));
+                            });
+                            if (fallbackSuc && fallbackSuc.id) {
+                                sucId = fallbackSuc.id;
+                                db.run(`UPDATE config_sucursal SET activa = 1 WHERE id = ?`, [fallbackSuc.id]);
+                            }
+                        }
+
+                        await registrarAuditoria(row.username, row.rol, sucId, 'Inicio Sesión', 'Acceso al sistema');
+
+                        // Subir de inmediato el log de auditoría a Supabase y notificar a pantallas abiertas (ej. admin-audit-logs)
+                        syncColaAuditoria().then(() => {
+                            notificarVentanasReportes();
+                        }).catch(e => console.error('[Login] Error al sincronizar auditoría:', e.message));
+
+                        solicitarSincronizacion('inicio de sesión');
+                        resolve({ success: true, username: row.username, role: row.rol });
                     }
                     else resolve({ success: false, message: 'Credenciales incorrectas' });
                 });

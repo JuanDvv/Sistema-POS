@@ -46,6 +46,7 @@ let editingVentaCarrito = []; // Productos/cantidades editables de la venta en e
 let editingVentaEsCredito = false; // Si la venta en edición es a crédito (el método de pago queda bloqueado)
 let editingVentaMetodoPagoOriginal = ''; // Método de pago tal cual venía de la venta, por si es a crédito y no se toca
 let catalogoProductosEdicion = []; // Cache del inventario para el selector "Agregar producto"
+let buscadorProductoEdicion = null; // Instancia del buscador desplegable de productos
 let metodoFiltroVentas = 'Todos';
 
 const getMetodoPagoGrupo = (venta) => {
@@ -169,7 +170,7 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
 // Cargar Reporte Diario
 async function cargarReporte(fecha) {
     if (!fecha) return;
-    const userRole = localStorage.getItem('currentRole') || 'Sin Rol';
+    const userRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
     // Editar/borrar un gasto de un día anterior es exclusivo de Administrador; el día actual
     // sigue abierto para cualquier rol (ver 'editar-gasto'/'eliminar-gasto' en
     // ipc/registerGastosIpc.js, que aplican la misma restricción del lado del servidor).
@@ -800,8 +801,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
 
@@ -1020,7 +1021,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (editVentaMetodo) editVentaMetodo.disabled = false;
         if (editVentaChkDomicilio) editVentaChkDomicilio.disabled = false;
         const inputProd = document.getElementById('edit-venta-input-producto');
-        if (inputProd) inputProd.value = '';
+        if (inputProd) {
+            inputProd.value = '';
+            inputProd.blur();
+        }
+        if (buscadorProductoEdicion) buscadorProductoEdicion.cerrar();
     };
 
     if (btnCloseVenta) {
@@ -1080,8 +1085,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const user = localStorage.getItem('currentUser') || 'Invitado';
-            const role = localStorage.getItem('currentRole') || 'Sin Rol';
+            const user = sessionStorage.getItem('currentUser') || 'Invitado';
+            const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             const response = await window.api.editarGasto({
                 id: editingGastoId,
@@ -1179,8 +1184,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const user = localStorage.getItem('currentUser') || 'Invitado';
-            const role = localStorage.getItem('currentRole') || 'Sin Rol';
+            const user = sessionStorage.getItem('currentUser') || 'Invitado';
+            const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             let metodoPagoValue;
             let valorDomicilio = 0;
@@ -1318,7 +1323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
         btnLogout.addEventListener('click', () => {
-            localStorage.clear();
+            sessionStorage.clear();
             window.location.href = 'index.html';
         });
     }
@@ -1328,7 +1333,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // que se abre el modal (cargarCatalogoEdicionVenta), pero el input ya existe desde el arranque.
     const inputProductoEdicionVenta = document.getElementById('edit-venta-input-producto');
     if (inputProductoEdicionVenta) {
-        crearBuscadorProducto({
+        buscadorProductoEdicion = crearBuscadorProducto({
             input: inputProductoEdicionVenta,
             obtenerProductos: () => catalogoProductosEdicion,
             detalle: (p) => `$${formatCOP(p.precio)}`
@@ -1381,8 +1386,8 @@ window.resolverDevolucion = async function(id, nuevoEstado) {
         ? '¿Confirmas que el proveedor regresó el producto a la sucursal? Esto reingresará la cantidad al inventario.'
         : '¿Confirmas que el proveedor rechazó la devolución (el producto se queda con ellos)? El stock no se modificará.';
     if (confirm(mensajeConfirmacion)) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.actualizarEstadoDevolucion({ id, nuevoEstado, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);
@@ -1466,8 +1471,8 @@ function renderizarDevoluciones() {
 
 window.eliminarGasto = async function(id) {
     if (confirm("¿Estás seguro de que deseas borrar este gasto?")) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.eliminarGasto({ id, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);
@@ -1536,6 +1541,8 @@ window.agregarProductoEdicionVenta = function () {
         editingVentaCarrito.push({ id: prod.id, nombre: prod.nombre, precio: Number(prod.precio || 0), cantidad: 1 });
     }
     input.value = '';
+    input.blur();
+    if (buscadorProductoEdicion) buscadorProductoEdicion.cerrar();
     renderizarItemsEdicionVenta();
 };
 
@@ -1622,7 +1629,13 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
         }
 
         const inputProducto = document.getElementById('edit-venta-input-producto');
-        if (inputProducto) inputProducto.value = '';
+        if (inputProducto) {
+            inputProducto.value = '';
+            inputProducto.blur();
+        }
+        if (buscadorProductoEdicion) {
+            buscadorProductoEdicion.cerrar();
+        }
 
         renderizarItemsEdicionVenta();
         modalVenta.style.display = 'flex';
@@ -1630,16 +1643,13 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
         if (window.api?.forceRefocus) {
             window.api.forceRefocus();
         }
-        setTimeout(() => {
-            if (inputProducto) inputProducto.focus();
-        }, 50);
     }
 };
 
 window.eliminarVenta = async function(id) {
     if (confirm("¿Estás seguro de que deseas borrar esta venta? Se devolverán los productos al inventario.")) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.eliminarVenta({ id, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);

@@ -33,8 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Validar Rol: Administrador ve el panel completo; Operador ve Cambiar Contraseña,
     // Impresora de Tickets y Clientes (las demás secciones de gestión general quedan ocultas,
     // no bloqueadas con redirección, para que ambos roles puedan llegar a esta página desde el sidebar).
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     const esAdministrador = role === 'Administrador';
     activeUserSession = user;
 
@@ -637,7 +637,7 @@ window.eliminarUsuario = async (id, username) => {
 
 // Cerrar sesión
 document.getElementById('btn-logout').addEventListener('click', () => {
-    localStorage.clear();
+    sessionStorage.clear();
     window.location.href = 'index.html';
 });
 
@@ -841,7 +841,7 @@ window.iniciarEdicionCliente = (id, nombre, tipo, categoria, identificacion, tel
 
 window.eliminarCliente = async (id, nombre) => {
     if (confirm(`¿Estás seguro de que deseas eliminar al cliente "${nombre}"?`)) {
-        const res = await window.api.eliminarCliente({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: localStorage.getItem('currentRole') || 'Sin Rol' });
+        const res = await window.api.eliminarCliente({ id, nombre, auditoriaUsuario: activeUserSession, auditoriaRol: sessionStorage.getItem('currentRole') || 'Sin Rol' });
         alert(res.message);
         if (res.success) {
             await cargarClientes();

@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
     obtenerBalanceFinanciero: (filtros) => ipcRenderer.invoke('obtener-balance-financiero', filtros),
     obtenerRankingProductos: (filtros) => ipcRenderer.invoke('obtener-ranking-productos', filtros),
     forzarSincronizacion: () => ipcRenderer.invoke('forzar-sincronizacion'),
+    abrirNuevaVentana: () => ipcRenderer.invoke('abrir-nueva-ventana'),
     abrirVentanaVentas: () => ipcRenderer.invoke('abrir-ventana-ventas'),
     obtenerAniosDisponibles: () => ipcRenderer.invoke('obtener-anios-disponibles'),
     obtenerMesesDisponibles: (anio) => ipcRenderer.invoke('obtener-meses-disponibles', anio),
