@@ -1,7 +1,7 @@
 {
-  "name": "pos-delipostresturbaco",
-  "version": "4.0.1",
-  "description": "Sistema POS offline-first para Delipostres Turbaco",
+  "name": "pos-tiendakary",
+  "version": "1.0.0",
+  "description": "Sistema POS offline para Tienda de Kary",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,14 +10,12 @@
     "dev:prod": "cross-env APP_ENV=production nodemon --legacy-watch --ext js,html,css --exec electron .",
     "build": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "seed:test": "node sync/seed_test_from_prod.js",
-    "reset:test": "node sync/reset_and_seed_test.js",
     "seed:camisetas": "node scripts/seed_camisetas.js",
     "seed:apliques": "node scripts/seed_apliques.js"
   },
   "build": {
-    "appId": "com.delipostres.pos",
-    "productName": "POSDelipostresTurbaco",
+    "appId": "com.tiendakary.pos",
+    "productName": "POSTiendaKary",
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
@@ -27,7 +25,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "POS Delipostres Turbaco"
+      "shortcutName": "POS Tienda de Kary"
     },
     "mac": {
       "target": [

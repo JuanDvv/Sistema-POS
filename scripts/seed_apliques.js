@@ -45,16 +45,19 @@ function generarProductos(paso = 1000) {
 }
 
 function obtenerRutasBasesDatos() {
+    const pkg = require('../package.json');
     const appData = process.env.APPDATA || (process.platform === 'darwin'
         ? path.join(process.env.HOME, 'Library', 'Application Support')
         : path.join(process.env.HOME, '.config'));
-    const userDataPath = path.join(appData, 'pos-delipostresturbaco');
+    const appDirName = pkg.name || 'pos-tiendakary';
+    const userDataPath = path.join(appData, appDirName);
 
+    const baseName = (pkg.name || 'pos_tiendakary').replace(/[^a-zA-Z0-9_-]/g, '_');
     const posiblesArchivos = [
+        path.join(userDataPath, `${baseName}.db`),
+        path.join(userDataPath, `${baseName}.test.db`),
         path.join(userDataPath, 'pos_camisetas.db'),
-        path.join(userDataPath, 'pos_camisetas.test.db'),
-        path.join(userDataPath, 'pos_delipostres.db'),
-        path.join(userDataPath, 'pos_delipostres.test.db')
+        path.join(userDataPath, 'pos_camisetas.test.db')
     ];
 
     const archivosExistentes = posiblesArchivos.filter(f => fs.existsSync(f));

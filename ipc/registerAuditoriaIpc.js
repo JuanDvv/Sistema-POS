@@ -12,6 +12,7 @@ const PAGE_SIZE = 50;
 // más antiguas y perdía valores introducidos después (p. ej. las acciones de Pedidos), aunque sí
 // existieran en la BD.
 async function obtenerValoresDistintos(columna) {
+    if (!supabaseLogs) return [];
     const PAGE_SIZE = 1000;
     const valores = new Set();
     let desde = 0;
@@ -40,6 +41,9 @@ async function obtenerValoresDistintos(columna) {
 function registerAuditoriaIpc() {
     // Obtener Logs de Auditoría con filtros (usuario, sucursal, acción, detalles libre, rango de fechas) y paginación
     ipcMain.handle('obtener-auditoria', async (event, filtros = {}) => {
+        if (!supabaseLogs) {
+            return { success: true, data: [], total: 0, pagina: 1 };
+        }
         try {
             const { usuario, sucursalId, accion, detalles, productoIds, fechaDesdeUTC, fechaHastaUTC, pagina = 1 } = filtros || {};
             const desde = (Math.max(1, pagina) - 1) * PAGE_SIZE;

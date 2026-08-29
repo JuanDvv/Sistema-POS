@@ -143,23 +143,25 @@ function registerSucursalesIpc() {
             // Intentar sincronizar con Supabase de inmediato, además del ciclo de sync en segundo
             // plano, para que un error de red/RLS se pueda avisar ya mismo en vez de perderse.
             let avisoSync = '';
-            try {
-                if (oldId && oldId !== newId) {
-                    const { error: errorDelete } = await supabase.from('config_sucursal').delete().eq('id', oldId);
-                    if (errorDelete) throw errorDelete;
+            if (supabase) {
+                try {
+                    if (oldId && oldId !== newId) {
+                        const { error: errorDelete } = await supabase.from('config_sucursal').delete().eq('id', oldId);
+                        if (errorDelete) throw errorDelete;
+                    }
+                    const { data: filasActualizadas, error: errorUpsert } = await supabase
+                        .from('config_sucursal')
+                        .upsert({ id: newId, nombre, direccion, telefono, caja_base: valCajaBase, descuento_mayorista: valDescuento, updated_at: ahora })
+                        .select('id');
+                    if (errorUpsert) throw errorUpsert;
+                    if (!filasActualizadas || filasActualizadas.length === 0) {
+                        throw new Error('la nube rechazó el cambio (posible política de seguridad/RLS)');
+                    }
+                    await runQuery(`UPDATE config_sucursal SET sync_status = 'synced' WHERE id = ?`, [newId]);
+                } catch (errSync) {
+                    avisoSync = ` ⚠️ No se pudo sincronizar con la nube (${errSync.message}). Se reintentará automáticamente.`;
+                    solicitarSincronizacion('reintento tras fallo al guardar sucursal');
                 }
-                const { data: filasActualizadas, error: errorUpsert } = await supabase
-                    .from('config_sucursal')
-                    .upsert({ id: newId, nombre, direccion, telefono, caja_base: valCajaBase, descuento_mayorista: valDescuento, updated_at: ahora })
-                    .select('id');
-                if (errorUpsert) throw errorUpsert;
-                if (!filasActualizadas || filasActualizadas.length === 0) {
-                    throw new Error('la nube rechazó el cambio (posible política de seguridad/RLS)');
-                }
-                await runQuery(`UPDATE config_sucursal SET sync_status = 'synced' WHERE id = ?`, [newId]);
-            } catch (errSync) {
-                avisoSync = ` ⚠️ No se pudo sincronizar con la nube (${errSync.message}). Se reintentará automáticamente.`;
-                solicitarSincronizacion('reintento tras fallo al guardar sucursal');
             }
 
             return { success: true, message: 'Información de la sucursal guardada exitosamente.' + avisoSync };
