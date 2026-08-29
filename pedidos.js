@@ -187,6 +187,13 @@ function renderizarCarritoDetalle() {
     renderizarCarritoEn(carritoDetalle, 'detalle-cart-list', 'detalle-total', cambiarCantidadDetalle);
     const totalProductos = carritoDetalle.reduce((sum, i) => sum + Number(i.precio) * Number(i.cantidad), 0);
     actualizarSaldoPendienteDetalle(totalProductos);
+
+    if (pedidoActualDetalle && pedidoActualDetalle.pedido.estado !== 'pendiente') {
+        document.querySelectorAll('#detalle-cart-list .cart-btn').forEach(btn => {
+            btn.disabled = true;
+            btn.style.display = 'none';
+        });
+    }
 }
 
 // El "Saldo Pendiente" venía quedando congelado con el valor con el que se abrió el modal: al
@@ -420,10 +427,10 @@ async function cargarPedidos() {
         alert(res.message);
         return;
     }
-    // Con "Creados hoy" el backend ya ordena por fecha de creación (más reciente primero), así
-    // que no tiene sentido volver a agrupar por fecha de entrega: mostramos la lista plana para
-    // que el pedido recién registrado sea siempre el primero.
-    renderizarTablaPedidos(res.data || [], !soloHoy);
+    // Con "Creados hoy" o "Entregados hoy" el backend ya ordena por fecha más reciente primero,
+    // así que no tiene sentido volver a agrupar por fecha de entrega: mostramos la lista plana.
+    const agrupar = !soloHoy && estado !== 'entregados_hoy';
+    renderizarTablaPedidos(res.data || [], agrupar);
 }
 
 // Etiqueta del encabezado de grupo: el día de entrega, sin hora (agrupamos por día calendario).
@@ -533,14 +540,27 @@ function renderizarAbonos(abonos, esPendiente) {
 
 function aplicarPermisosDetalle(estado, saldoPendiente) {
     const esPendiente = estado === 'pendiente';
+    const esEntregado = estado === 'entregado';
+    const esAdmin = auditoriaRol === 'Administrador';
+
     ['detalle-fecha-entrega', 'detalle-hora-entrega', 'detalle-notas', 'detalle-agregar-producto', 'btn-agregar-producto-detalle', 'btn-guardar-productos-pedido', 'detalle-abono-monto', 'detalle-abono-metodo', 'btn-agregar-abono']
         .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !esPendiente; });
+    const btnGuardar = document.getElementById('btn-guardar-productos-pedido');
+    if (btnGuardar) btnGuardar.style.display = esPendiente ? 'flex' : 'none';
     const btnEntregar = document.getElementById('btn-entregar-pedido');
     btnEntregar.style.display = esPendiente ? 'flex' : 'none';
     const saldoSinSaldar = esPendiente && Number(saldoPendiente || 0) > 0;
     btnEntregar.disabled = saldoSinSaldar;
     btnEntregar.title = saldoSinSaldar ? 'No se puede entregar: aún hay saldo pendiente por abonar.' : '';
     document.getElementById('btn-cancelar-pedido').style.display = esPendiente ? 'flex' : 'none';
+
+    const containerAgregarProd = document.getElementById('detalle-agregar-producto-container');
+    if (containerAgregarProd) containerAgregarProd.style.display = esPendiente ? 'flex' : 'none';
+
+    const bannerAdmin = document.getElementById('banner-pedido-entregado-admin');
+    if (bannerAdmin) {
+        bannerAdmin.style.display = (esEntregado && esAdmin) ? 'flex' : 'none';
+    }
 }
 
 async function abrirDetallePedido(pedidoId) {
@@ -676,6 +696,43 @@ async function cancelarPedidoActual() {
     document.getElementById('modal-detalle-pedido').style.display = 'none';
     cargarPedidos();
     cargarCatalogo();
+}
+
+async function revertirEntregaPedidoActual() {
+    if (auditoriaRol !== 'Administrador') {
+        alert('Solo un Administrador puede revertir la entrega de un pedido.');
+        return;
+    }
+    if (!confirm('¿Deseas revertir la entrega de este pedido?\n\n• Se anulará la venta generada en el sistema.\n• Se restaurará el stock físico y reservado de los productos entregados.\n• El pedido volverá a estado "Pendiente" para que puedas modificar los productos llevados, ajustar abonos y volver a entregarlo.')) {
+        return;
+    }
+
+    const res = await window.api.revertirEntregaPedido({
+        pedidoId: pedidoActualId,
+        auditoriaUsuario,
+        auditoriaRol
+    });
+
+    if (!res.success) {
+        alert(res.message);
+        return;
+    }
+
+    alert(res.message);
+    document.getElementById('modal-detalle-pedido').style.display = 'none';
+    if (document.activeElement) document.activeElement.blur();
+
+    const filtroEstado = document.getElementById('filtro-estado-pedidos');
+    if (filtroEstado && (filtroEstado.value === 'entregado' || filtroEstado.value === 'entregados_hoy')) {
+        filtroEstado.value = 'pendiente';
+    }
+
+    await cargarPedidos();
+    await cargarCatalogo();
+
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
 }
 
 async function imprimirComprobantePedido(datosTicket) {
@@ -822,6 +879,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-agregar-abono').addEventListener('click', agregarAbono);
     document.getElementById('btn-entregar-pedido').addEventListener('click', entregarPedidoActual);
     document.getElementById('btn-cancelar-pedido').addEventListener('click', cancelarPedidoActual);
+    const btnRevertirEntrega = document.getElementById('btn-revertir-entrega-pedido');
+    if (btnRevertirEntrega) {
+        btnRevertirEntrega.addEventListener('click', revertirEntregaPedidoActual);
+    }
     document.getElementById('btn-imprimir-comprobante-detalle').addEventListener('click', () => {
         const ticket = construirTicketDesdeDetalleActual();
         if (ticket) imprimirComprobantePedido(ticket);
@@ -837,7 +898,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await cargarClientes();
     await cargarCatalogo();
-    await cargarPedidos();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramPedidoId = urlParams.get('pedidoId');
+    if (paramPedidoId) {
+        document.getElementById('filtro-estado-pedidos').value = '';
+        await cargarPedidos();
+        abrirDetallePedido(paramPedidoId);
+    } else {
+        await cargarPedidos();
+    }
 
     window.addEventListener('pos-sincronizacion-completa', () => {
         cargarCatalogo();

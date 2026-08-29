@@ -280,12 +280,18 @@ async function cargarReporte(fecha) {
                 const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 let botonesEdicion = '';
-                if (userRole === 'Administrador' && !venta.es_pedido) {
-                    const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
-                    botonesEdicion = `
-                        <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
-                        <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
-                    `;
+                if (userRole === 'Administrador') {
+                    if (!venta.es_pedido) {
+                        const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
+                        botonesEdicion = `
+                            <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
+                            <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
+                        `;
+                    } else if (venta.pedido_id) {
+                        botonesEdicion = `
+                            <a class="btn-edit" style="background-color: #d97706; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" href="pedidos.html?pedidoId=${encodeURIComponent(venta.pedido_id)}" title="Administrar este pedido entregado">📦 Pedido</a>
+                        `;
+                    }
                 }
                 const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
                     ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`

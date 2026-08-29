@@ -510,6 +510,107 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
     }
 }
 
+// Revierte la entrega de un pedido: anula la venta y el gasto de domicilio generados, devuelve el stock físico
+// al inventario y el hold a reservado, y regresa el estado del pedido a 'pendiente' para que un Administrador
+// pueda corregir productos o abonos y re-entregar.
+async function revertirEntregaPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
+    if (auditoriaRol !== 'Administrador') {
+        return { success: false, message: 'Solo un Administrador puede administrar o revertir pedidos entregados.' };
+    }
+
+    try {
+        const pedido = await new Promise((resolve, reject) => {
+            db.get(
+                `SELECT p.id, p.sucursal_id, p.estado, p.total, p.venta_id,
+                        COALESCE(c.nombre, p.cliente_nombre_registro) as cliente_nombre
+                 FROM pedidos p LEFT JOIN clientes c ON p.cliente_id = c.id
+                 WHERE p.id = ?`,
+                [pedidoId],
+                (err, row) => { if (err) reject(err); else resolve(row); }
+            );
+        });
+
+        if (!pedido) {
+            return { success: false, message: 'No se encontró el pedido especificado.' };
+        }
+        if (pedido.estado !== 'entregado') {
+            return { success: false, message: 'Solo se puede revertir la entrega de un pedido que esté en estado "entregado".' };
+        }
+
+        const ventaId = pedido.venta_id;
+
+        await runQuery("BEGIN TRANSACTION", []);
+
+        // 1. Reponer el stock físico e inventario reservado de los productos entregados
+        const detalle = await allQuery(
+            `SELECT dp.producto_id, dp.cantidad, dp.precio_unitario, p.nombre
+             FROM detalle_pedidos dp LEFT JOIN productos p ON dp.producto_id = p.id
+             WHERE dp.pedido_id = ?`,
+            [pedidoId]
+        );
+
+        if (detalle.length > 0) {
+            for (const item of detalle) {
+                await runQuery(
+                    `UPDATE inventario_sucursal SET stock = stock + ?, stock_reservado = stock_reservado + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
+                    [item.cantidad, item.cantidad, item.producto_id, pedido.sucursal_id]
+                );
+                await registrarMovimientoInventario({
+                    productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'ANULACION_VENTA',
+                    cantidad: Number(item.cantidad), referenciaId: ventaId || pedidoId, usuario: auditoriaUsuario
+                });
+                await registrarMovimientoReserva({
+                    productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'REVERSA_ENTREGA_PEDIDO',
+                    cantidad: Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario
+                });
+            }
+        }
+
+        // 2. Anular la venta generada y gastos asociados
+        if (ventaId) {
+            await runQuery(
+                `UPDATE gastos SET sync_status = 'deleted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE venta_id = ?`,
+                [ventaId]
+            );
+
+            const detallesVenta = await allQuery(`SELECT id FROM detalle_ventas WHERE venta_id = ?`, [ventaId]);
+            if (detallesVenta.length > 0) {
+                const outboxValues = detallesVenta.flatMap(det => [det.id, ventaId]);
+                const outboxPlaceholders = detallesVenta.map(() => '(?, ?)').join(', ');
+                await runQuery(
+                    `INSERT OR IGNORE INTO detalle_ventas_eliminaciones_pendientes (id, venta_id) VALUES ${outboxPlaceholders}`,
+                    outboxValues
+                ).catch(() => {});
+            }
+
+            await runQuery(
+                `UPDATE ventas SET sync_status = 'deleted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+                [ventaId]
+            );
+        }
+
+        // 3. Regresar pedido a 'pendiente' y desvincular venta
+        await runQuery(
+            `UPDATE pedidos SET estado = 'pendiente', venta_id = NULL, fecha_entrega_real = NULL, sync_status = 'pending', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+            [pedidoId]
+        );
+
+        await registrarAuditoria(
+            auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Revertir Entrega Pedido',
+            `Pedido ID: ${pedidoId} (Cliente: ${pedido.cliente_nombre || 'N/A'}) devuelto a estado Pendiente. Venta ID anulada: ${ventaId || 'N/A'}`
+        );
+
+        await runQuery("COMMIT", []);
+        notificarInventarioActualizado();
+        solicitarSincronizacion('entrega de pedido revertida');
+
+        return { success: true, message: 'La entrega del pedido ha sido revertida. El pedido se encuentra en estado "Pendiente" y el inventario fue restablecido.' };
+    } catch (err) {
+        await runQuery("ROLLBACK", []).catch(() => { });
+        return { success: false, message: 'Error al revertir la entrega del pedido: ' + err.message };
+    }
+}
+
 module.exports = {
     resolverOCrearClienteId,
     obtenerSaldoPedido,
@@ -518,5 +619,6 @@ module.exports = {
     eliminarAbonoPedidoTx,
     editarPedidoTx,
     cancelarPedidoTx,
-    entregarPedidoTx
+    entregarPedidoTx,
+    revertirEntregaPedidoTx
 };

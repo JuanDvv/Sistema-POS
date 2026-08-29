@@ -156,6 +156,7 @@ function registerVentasIpc() {
                     cli.categoria as cliente_categoria,
                     group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
                     CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido,
+                    ped.id as pedido_id,
                     -- Para pedidos entregados: entregarPedidoTx exige saldo $0 antes de entregar,
                     -- así que el total abonado siempre iguala v.total -- se recalcula aquí (en vez
                     -- de confiar en v.total) por si algún abono quedó excluido por soft-delete.
