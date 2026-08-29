@@ -1,7 +1,7 @@
 const { BrowserWindow } = require('electron');
 const { runQuery, allQuery } = require('../db/connection');
 const { obtenerMensajeSync } = require('../services/auditService');
-const { supabase, supabaseLogs, supabaseUrl, supabaseKey, isProd } = require('./supabaseClients');
+const { supabase, supabaseLogs, supabaseUrl, supabaseKey, isProd, isSyncConfigured } = require('./supabaseClients');
 
 // Todos los console.log/console.error de este archivo usan el tag "[Sincronizador]" a mano.
 // En vez de tocar cada línea, se intercepta console solo en este módulo para que ese tag
@@ -177,6 +177,7 @@ let debounceEventoCritico = null;
 let reintentoPendiente = false;
 
 function solicitarSincronizacion(motivo = 'evento crítico') {
+    if (!isSyncConfigured || !supabase) return;
     if (estaSincronizando) {
         // Ya hay un ciclo en curso: no lo interrumpimos, solo marcamos que hace falta
         // otra pasada al terminar para no perder este cambio.
@@ -2223,6 +2224,7 @@ function notificarVentanasReportes() {
 // específico de Supabase para saber si hay ruta hasta el proyecto.
 const TIMEOUT_CHEQUEO_CONEXION_MS = 6000;
 async function hayConexionConSupabase() {
+    if (!isSyncConfigured || !supabaseUrl) return false;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_CHEQUEO_CONEXION_MS);
     try {
@@ -2262,6 +2264,11 @@ function notificarEstadoConexion(conectado) {
 // con LWW resolviendo cualquier conflicto en ambas direcciones (ver helpers arriba).
 // =================================================================
 async function procesarSincronizacion() {
+    if (!isSyncConfigured || !supabase) {
+        console.log("[Sincronizador] Sincronización desactivada: este proyecto no tiene credenciales de Supabase configuradas.");
+        return;
+    }
+
     if (estaSincronizando) {
         console.log("[Sincronizador] Sincronización en curso. Omitiendo esta ejecución...");
         return;

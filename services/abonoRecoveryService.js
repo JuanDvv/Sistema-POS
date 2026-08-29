@@ -15,6 +15,7 @@ const { registrarAuditoria } = require('./auditService');
 const LIMITE_ABONOS_ELIMINADOS = 50;
 
 async function listarAbonosEliminados() {
+    if (!supabase) return { success: true, data: [] };
     const [credRes, pedRes] = await Promise.all([
         supabase.from('abonos_credito')
             .select('id, cliente_id, monto, fecha, metodo_pago, deleted_at')
@@ -60,6 +61,9 @@ async function listarAbonosEliminados() {
 }
 
 async function recuperarAbono({ tipo, id, auditoriaUsuario, auditoriaRol }) {
+    if (!supabase) {
+        return { success: false, message: 'La sincronización en la nube no está configurada.' };
+    }
     if (tipo !== 'credito' && tipo !== 'pedido') {
         return { success: false, message: 'Tipo de abono inválido.' };
     }
