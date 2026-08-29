@@ -33,6 +33,39 @@ function crearBuscadorProducto({ input, obtenerProductos, onSeleccionar, etiquet
         return String(value).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
     }
 
+    const TALLAS_ROPA = new Set(['xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl']);
+
+    function coincideBusquedaProducto(prod, query) {
+        if (!query) return true;
+        const terms = normalizar(query).split(/\s+/).filter(Boolean);
+        if (terms.length === 0) return true;
+
+        const rawText = `${prod.nombre || ''} ${prod.descripcion || ''} ${prod.codigo_barras || ''} ${prod.id || ''}`;
+        const norm = normalizar(rawText);
+
+        const tokens = new Set();
+        const palabras = norm.match(/[a-z0-9]+(?:[-/][a-z0-9]+)*/g) || [];
+        for (const p of palabras) {
+            tokens.add(p);
+            if (p.includes('-') || p.includes('/')) {
+                p.split(/[-/]+/).filter(Boolean).forEach(sub => tokens.add(sub));
+            }
+            const partesAlfaNum = p.match(/[a-z]+|[0-9]+/g);
+            if (partesAlfaNum && partesAlfaNum.length > 1) {
+                partesAlfaNum.forEach(sub => tokens.add(sub));
+            }
+        }
+        const tokenArr = Array.from(tokens);
+
+        return terms.every(term => {
+            if (tokens.has(term)) return true;
+            if (TALLAS_ROPA.has(term) || /^\d$/.test(term)) return false;
+            if (tokenArr.some(t => t.startsWith(term))) return true;
+            if (term.length >= 4 && norm.includes(term)) return true;
+            return false;
+        });
+    }
+
     function cerrar() {
         dropdown.style.display = 'none';
         indiceActivo = -1;
@@ -80,11 +113,7 @@ function crearBuscadorProducto({ input, obtenerProductos, onSeleccionar, etiquet
 
         coincidencias = (terms.length === 0
             ? productos
-            : productos.filter((p) => {
-                const nombre = normalizar(p.nombre);
-                const desc = normalizar(p.descripcion || '');
-                return terms.every((term) => nombre.includes(term) || desc.includes(term));
-            })
+            : productos.filter((p) => coincideBusquedaProducto(p, query))
         ).slice(0, LIMITE);
 
         if (coincidencias.length === 0) {

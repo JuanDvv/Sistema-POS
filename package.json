@@ -11,7 +11,9 @@
     "build": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "seed:test": "node sync/seed_test_from_prod.js",
-    "reset:test": "node sync/reset_and_seed_test.js"
+    "reset:test": "node sync/reset_and_seed_test.js",
+    "seed:camisetas": "node scripts/seed_camisetas.js",
+    "seed:apliques": "node scripts/seed_apliques.js"
   },
   "build": {
     "appId": "com.delipostres.pos",

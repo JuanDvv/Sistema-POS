@@ -35,6 +35,39 @@ const normalizeStr = (value) => {
     return String(value).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 };
 
+const TALLAS_ROPA = new Set(['xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl']);
+
+function coincideBusquedaProducto(prod, query) {
+    if (!query) return true;
+    const terms = normalizeStr(query).split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return true;
+
+    const rawText = `${prod.nombre || ''} ${prod.descripcion || ''} ${prod.codigo_barras || ''} ${prod.id || ''}`;
+    const norm = normalizeStr(rawText);
+
+    const tokens = new Set();
+    const palabras = norm.match(/[a-z0-9]+(?:[-/][a-z0-9]+)*/g) || [];
+    for (const p of palabras) {
+        tokens.add(p);
+        if (p.includes('-') || p.includes('/')) {
+            p.split(/[-/]+/).filter(Boolean).forEach(sub => tokens.add(sub));
+        }
+        const partesAlfaNum = p.match(/[a-z]+|[0-9]+/g);
+        if (partesAlfaNum && partesAlfaNum.length > 1) {
+            partesAlfaNum.forEach(sub => tokens.add(sub));
+        }
+    }
+    const tokenArr = Array.from(tokens);
+
+    return terms.every(term => {
+        if (tokens.has(term)) return true;
+        if (TALLAS_ROPA.has(term) || /^\d$/.test(term)) return false;
+        if (tokenArr.some(t => t.startsWith(term))) return true;
+        if (term.length >= 4 && norm.includes(term)) return true;
+        return false;
+    });
+}
+
 function obtenerFechaAyerYYYYMMDD() {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -661,10 +694,7 @@ function filtrarYRenderizarCatalogo() {
         }
         if (catIdsSeleccionadas.length > 0 && !allowedCatIds.includes(prod.categoria_id)) return false;
         if (query) {
-            const terms = query.split(/\s+/).filter(Boolean);
-            const nombre = normalizeStr(prod.nombre);
-            const desc = normalizeStr(prod.descripcion || "");
-            return terms.every(term => nombre.includes(term) || desc.includes(term));
+            return coincideBusquedaProducto(prod, query);
         }
         return true;
     });
