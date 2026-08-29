@@ -1,8 +1,26 @@
 // Corregir bug de pérdida de foco en Electron al cerrar diálogos nativos en Windows
 const originalAlert = window.alert;
-window.alert = (msg) => { originalAlert(msg); window.api.forceRefocus(); };
+window.alert = (msg) => {
+    const result = originalAlert(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return result;
+};
 const originalConfirm = window.confirm;
-window.confirm = (msg) => { const r = originalConfirm(msg); window.api.forceRefocus(); return r; };
+window.confirm = (msg) => {
+    const r = originalConfirm(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return r;
+};
 
 let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
@@ -242,12 +260,20 @@ async function cargarReporte(fecha) {
                 if (movimiento.tipo === 'abono') {
                     const abono = movimiento.abono;
                     const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const tieneTransferencia = !!abono.metodo_pago && abono.metodo_pago.toLowerCase().includes('transferencia');
+                    const checkboxVerificada = tieneTransferencia ? `
+                        <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
+                            <input type="checkbox" ${estaTransferenciaVerificadaLocal(abono.id) ? 'checked' : ''}
+                                onchange="toggleVerificacionTransferencia('${abono.id}', this.checked)">
+                            Verificada en movimientos
+                        </label>
+                    ` : '';
                     const tr = document.createElement('tr');
                     tr.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
                     tr.innerHTML = `
                         <td>${hora}</td>
                         <td>💳 Abono de Pedido — ${abono.cliente_nombre || '(Sin nombre)'}</td>
-                        <td>${abono.metodo_pago}</td>
+                        <td>${abono.metodo_pago}${checkboxVerificada}</td>
                         <td><strong>${formatCOP(abono.monto)}</strong></td>
                         <td></td>
                     `;
@@ -280,12 +306,18 @@ async function cargarReporte(fecha) {
                 const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 let botonesEdicion = '';
-                if (userRole === 'Administrador' && !venta.es_pedido) {
-                    const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
-                    botonesEdicion = `
-                        <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
-                        <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
-                    `;
+                if (userRole === 'Administrador') {
+                    if (!venta.es_pedido) {
+                        const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
+                        botonesEdicion = `
+                            <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
+                            <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
+                        `;
+                    } else if (venta.pedido_id) {
+                        botonesEdicion = `
+                            <a class="btn-edit" style="background-color: #d97706; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" href="pedidos.html?pedidoId=${encodeURIComponent(venta.pedido_id)}" title="Administrar este pedido entregado">📦 Pedido</a>
+                        `;
+                    }
                 }
                 const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
                     ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`
@@ -336,7 +368,7 @@ async function cargarReporte(fecha) {
                 }
 
                 let checkboxVerificada = '';
-                if (tieneComponenteTransferencia) {
+                if (tieneComponenteTransferencia && !venta.es_pedido) {
                     checkboxVerificada = `
                         <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
                             <input type="checkbox" ${estaTransferenciaVerificadaLocal(venta.id) ? 'checked' : ''}
@@ -977,12 +1009,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnCloseVenta = document.getElementById('btn-close-venta-modal');
     const formVenta = document.getElementById('form-venta');
 
+    const limpiarEstadoModalVenta = () => {
+        if (modalVenta) modalVenta.style.display = 'none';
+        if (formVenta) formVenta.reset();
+        editingVentaId = null;
+        editingVentaCarrito = [];
+        editingVentaEsCredito = false;
+        editingVentaMetodoPagoOriginal = '';
+        if (editVentaDomicilioContainer) editVentaDomicilioContainer.style.display = 'none';
+        if (editVentaMetodo) editVentaMetodo.disabled = false;
+        if (editVentaChkDomicilio) editVentaChkDomicilio.disabled = false;
+        const inputProd = document.getElementById('edit-venta-input-producto');
+        if (inputProd) inputProd.value = '';
+    };
+
     if (btnCloseVenta) {
-        btnCloseVenta.addEventListener('click', () => {
-            modalVenta.style.display = 'none';
-            formVenta.reset();
-            editingVentaId = null;
-        });
+        btnCloseVenta.addEventListener('click', limpiarEstadoModalVenta);
     }
 
     // Controles del modal de vista previa del comprobante
@@ -1019,9 +1061,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             editingGastoId = null;
         }
         if (e.target === modalVenta) {
-            modalVenta.style.display = 'none';
-            formVenta.reset();
-            editingVentaId = null;
+            limpiarEstadoModalVenta();
         }
     });
 
@@ -1080,12 +1120,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (editingVentaEsCredito) return;
             const marcado = editVentaChkDomicilio.checked;
             if (editVentaDomicilioContainer) editVentaDomicilioContainer.style.display = marcado ? 'block' : 'none';
-            // Los domicilios siempre se pagan por transferencia (misma regla que en Nueva Venta).
-            if (editVentaMetodo) {
-                if (marcado) editVentaMetodo.value = 'Transferencia';
-                editVentaMetodo.disabled = marcado;
-            }
-            if (ventaMixtaFields && marcado) ventaMixtaFields.style.display = 'none';
             if (marcado && editVentaInputDomicilio) {
                 editVentaInputDomicilio.value = '';
                 editVentaInputDomicilio.focus();
@@ -1193,16 +1227,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             if (response.success) {
+                limpiarEstadoModalVenta();
                 alert(response.message);
-                modalVenta.style.display = 'none';
-                formVenta.reset();
-                editingVentaId = null;
-                editingVentaCarrito = [];
-                editingVentaEsCredito = false;
-                editingVentaMetodoPagoOriginal = '';
-                if (editVentaDomicilioContainer) editVentaDomicilioContainer.style.display = 'none';
-                if (editVentaMetodo) editVentaMetodo.disabled = false;
-                if (editVentaChkDomicilio) editVentaChkDomicilio.disabled = false;
                 await cargarReporte(inputFecha.value);
             } else {
                 alert("Error al editar venta: " + response.message);
@@ -1571,16 +1597,15 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
 
         const isMixto = metodoBase.startsWith('Mixto');
         if (editVentaMetodo) {
-            // Los domicilios siempre se pagan por transferencia (misma regla que en Nueva Venta).
-            editVentaMetodo.value = matchDomicilio ? 'Transferencia' : (isMixto ? 'Mixto' : (metodoBase || 'Efectivo'));
-            editVentaMetodo.disabled = editingVentaEsCredito || !!matchDomicilio;
+            editVentaMetodo.value = isMixto ? 'Mixto' : (metodoBase || 'Efectivo');
+            editVentaMetodo.disabled = editingVentaEsCredito;
         }
 
         if (ventaMixtaFields) {
-            ventaMixtaFields.style.display = (isMixto && !matchDomicilio) ? 'flex' : 'none';
+            ventaMixtaFields.style.display = isMixto ? 'flex' : 'none';
         }
 
-        if (isMixto && !matchDomicilio) {
+        if (isMixto) {
             const matchEf = metodoBase.match(/Efectivo:\s*(\d+(?:\.\d+)?)/);
             const matchTr = metodoBase.match(/Transferencia:\s*(\d+(?:\.\d+)?)/);
             const efectivoInicial = matchEf ? parseFloat(matchEf[1]) : 0;
@@ -1596,8 +1621,18 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
             if (editVentaTransferencia) editVentaTransferencia.value = '';
         }
 
+        const inputProducto = document.getElementById('edit-venta-input-producto');
+        if (inputProducto) inputProducto.value = '';
+
         renderizarItemsEdicionVenta();
         modalVenta.style.display = 'flex';
+
+        if (window.api?.forceRefocus) {
+            window.api.forceRefocus();
+        }
+        setTimeout(() => {
+            if (inputProducto) inputProducto.focus();
+        }, 50);
     }
 };
 

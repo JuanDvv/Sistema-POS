@@ -43,13 +43,26 @@ function registerSistemaIpc() {
     ipcMain.handle('force-refocus', async (event) => {
         try {
             const win = BrowserWindow.fromWebContents(event.sender);
-            if (win) {
+            if (win && !win.isDestroyed()) {
                 if (win.isMinimized()) {
                     win.restore();
                 }
-                // Evitamos win.blur() ya que en Windows puede causar que la ventana se minimice o se envíe al fondo
+                win.blur();
                 win.focus();
+                if (win.webContents && !win.webContents.isDestroyed()) {
+                    win.webContents.focus();
+                }
             }
+            setTimeout(() => {
+                try {
+                    if (win && !win.isDestroyed()) {
+                        win.focus();
+                        if (win.webContents && !win.webContents.isDestroyed()) {
+                            win.webContents.focus();
+                        }
+                    }
+                } catch (e) {}
+            }, 50);
             return { success: true };
         } catch (err) {
             return { success: false };

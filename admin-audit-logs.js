@@ -1,6 +1,26 @@
 // Corregir bug de pérdida de foco en Electron al cerrar diálogos nativos en Windows
 const originalAlert = window.alert;
-window.alert = (msg) => { originalAlert(msg); window.api.forceRefocus(); };
+window.alert = (msg) => {
+    const result = originalAlert(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return result;
+};
+const originalConfirm = window.confirm;
+window.confirm = (msg) => {
+    const r = originalConfirm(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return r;
+};
 
 const PAGE_SIZE = 50;
 let paginaActual = 1;

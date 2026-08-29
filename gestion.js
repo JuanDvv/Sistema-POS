@@ -31,6 +31,9 @@ window.alert = (msg) => {
     if (window.api?.forceRefocus) {
         window.api.forceRefocus();
     }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
     return result;
 };
 
@@ -40,6 +43,9 @@ window.confirm = (msg) => {
     if (window.api?.forceRefocus) {
         window.api.forceRefocus();
     }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
     return result;
 };
 

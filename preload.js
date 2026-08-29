@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('api', {
     registrarAbonoPedido: (datos) => ipcRenderer.invoke('registrar-abono-pedido', datos),
     eliminarAbonoPedido: (datos) => ipcRenderer.invoke('eliminar-abono-pedido', datos),
     entregarPedido: (datos) => ipcRenderer.invoke('entregar-pedido', datos),
+    revertirEntregaPedido: (datos) => ipcRenderer.invoke('revertir-entrega-pedido', datos),
     cancelarPedido: (datos) => ipcRenderer.invoke('cancelar-pedido', datos),
     contarPedidosAtrasados: () => ipcRenderer.invoke('contar-pedidos-atrasados'),
 

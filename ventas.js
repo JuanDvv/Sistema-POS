@@ -1,8 +1,26 @@
 // Corregir bug de pérdida de foco en Electron al cerrar diálogos nativos en Windows
 const originalAlert = window.alert;
-window.alert = (msg) => { originalAlert(msg); window.api.forceRefocus(); };
+window.alert = (msg) => {
+    const result = originalAlert(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return result;
+};
 const originalConfirm = window.confirm;
-window.confirm = (msg) => { const r = originalConfirm(msg); window.api.forceRefocus(); return r; };
+window.confirm = (msg) => {
+    const r = originalConfirm(msg);
+    if (window.api?.forceRefocus) {
+        window.api.forceRefocus();
+    }
+    setTimeout(() => {
+        window.focus();
+    }, 20);
+    return r;
+};
 
 let productosLocales = []; // Guarda los productos cargados del inventario
 let carrito = []; // Guarda los items agregados temporalmente para la venta
@@ -583,6 +601,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (chkDomicilio && inputDomicilio && domContainer) {
         chkDomicilio.addEventListener('change', () => {
+            const chkFiscal = document.getElementById('chk-fiscal');
+            const esFiscal = chkFiscal && chkFiscal.checked;
             const btnEfectivo = document.getElementById('btn-pay-efectivo');
             const btnMixto = document.getElementById('btn-pay-mixto');
             
@@ -590,17 +610,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 domContainer.style.display = 'flex';
                 inputDomicilio.focus();
                 
-                // Forzar método de pago a Transferencia
-                selectMethod('Transferencia');
-                if (btnEfectivo) {
-                    btnEfectivo.disabled = true;
-                    btnEfectivo.style.opacity = '0.5';
-                    btnEfectivo.style.cursor = 'not-allowed';
-                }
-                if (btnMixto) {
-                    btnMixto.disabled = true;
-                    btnMixto.style.opacity = '0.5';
-                    btnMixto.style.cursor = 'not-allowed';
+                // Si no es venta fiscal, forzar método de pago a Transferencia
+                if (!esFiscal) {
+                    selectMethod('Transferencia');
+                    if (btnEfectivo) {
+                        btnEfectivo.disabled = true;
+                        btnEfectivo.style.opacity = '0.5';
+                        btnEfectivo.style.cursor = 'not-allowed';
+                    }
+                    if (btnMixto) {
+                        btnMixto.disabled = true;
+                        btnMixto.style.opacity = '0.5';
+                        btnMixto.style.cursor = 'not-allowed';
+                    }
                 }
             } else {
                 domContainer.style.display = 'none';
@@ -752,6 +774,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         await cargarClientesFiscales();
 
         chkFiscal.addEventListener('change', () => {
+            const chkDom = document.getElementById('chk-domicilio');
+            const btnEfectivo = document.getElementById('btn-pay-efectivo');
+            const btnMixto = document.getElementById('btn-pay-mixto');
+
             if (chkFiscal.checked) {
                 fiscalContainer.style.display = 'flex';
                 selectClienteFiscal.focus();
@@ -762,10 +788,40 @@ document.addEventListener('DOMContentLoaded', async () => {
                     chkCreditoExcl.checked = false;
                     chkCreditoExcl.dispatchEvent(new Event('change'));
                 }
+
+                // En ventas fiscales se permite efectivo y mixto aun cuando haya domicilio
+                if (chkDom && chkDom.checked) {
+                    if (btnEfectivo) {
+                        btnEfectivo.disabled = false;
+                        btnEfectivo.style.opacity = '1';
+                        btnEfectivo.style.cursor = 'pointer';
+                    }
+                    if (btnMixto) {
+                        btnMixto.disabled = false;
+                        btnMixto.style.opacity = '1';
+                        btnMixto.style.cursor = 'pointer';
+                    }
+                }
             } else {
                 fiscalContainer.style.display = 'none';
                 selectClienteFiscal.value = '';
+
+                // Si se desmarca fiscal y el domicilio está activo, volver a restringir a Transferencia
+                if (chkDom && chkDom.checked) {
+                    selectMethod('Transferencia');
+                    if (btnEfectivo) {
+                        btnEfectivo.disabled = true;
+                        btnEfectivo.style.opacity = '0.5';
+                        btnEfectivo.style.cursor = 'not-allowed';
+                    }
+                    if (btnMixto) {
+                        btnMixto.disabled = true;
+                        btnMixto.style.opacity = '0.5';
+                        btnMixto.style.cursor = 'not-allowed';
+                    }
+                }
             }
+            calcularCambio();
         });
     }
 
@@ -1291,6 +1347,11 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
         if (esDomicilio) {
             const inputDom = document.getElementById('input-valor-domicilio');
             if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
+            if (valorDomicilio <= 0) {
+                alert("Por favor ingresa un valor válido para el domicilio.");
+                setProcessingState(false);
+                return;
+            }
         }
 
         const total = calcularTotalVenta();

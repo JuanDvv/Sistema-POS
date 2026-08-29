@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { db, allQuery } = require('../db/connection');
 const {
     crearPedidoTx, registrarAbonoPedidoTx, eliminarAbonoPedidoTx,
-    editarPedidoTx, cancelarPedidoTx, entregarPedidoTx
+    editarPedidoTx, cancelarPedidoTx, entregarPedidoTx, revertirEntregaPedidoTx
 } = require('../services/pedidoService');
 
 // SRP: expone como IPC el ciclo de vida de un Pedido/Apartado. La lógica transaccional (hold de
@@ -46,7 +46,9 @@ function registerPedidosIpc() {
                 query += ` AND p.sucursal_id = ?`;
                 params.push(sucursalId);
             }
-            if (estado) {
+            if (estado === 'entregados_hoy') {
+                query += ` AND p.estado = 'entregado' AND date(p.fecha_entrega_real, 'localtime') = date('now', 'localtime')`;
+            } else if (estado) {
                 query += ` AND p.estado = ?`;
                 params.push(estado);
             }
@@ -70,7 +72,13 @@ function registerPedidosIpc() {
                 query += ` AND date(p.fecha_pedido, 'localtime') = date('now', 'localtime')`;
             }
 
-            query += ` GROUP BY p.id ORDER BY ${soloHoy ? 'p.fecha_pedido DESC' : 'p.fecha_entrega_estimada ASC'}`;
+            let orderClause = 'p.fecha_entrega_estimada ASC';
+            if (soloHoy) {
+                orderClause = 'p.fecha_pedido DESC';
+            } else if (estado === 'entregados_hoy' || estado === 'entregado') {
+                orderClause = 'COALESCE(p.fecha_entrega_real, p.fecha_entrega_estimada) DESC';
+            }
+            query += ` GROUP BY p.id ORDER BY ${orderClause}`;
 
             const rows = await allQuery(query, params);
             const data = rows.map(row => ({
@@ -140,6 +148,11 @@ function registerPedidosIpc() {
     ipcMain.handle('entregar-pedido', async (event, datos) => {
         const { pedidoId, auditoriaUsuario, auditoriaRol } = datos;
         return entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol });
+    });
+
+    ipcMain.handle('revertir-entrega-pedido', async (event, datos) => {
+        const { pedidoId, auditoriaUsuario, auditoriaRol } = datos;
+        return revertirEntregaPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol });
     });
 
     ipcMain.handle('cancelar-pedido', async (event, datos) => {
