@@ -174,9 +174,9 @@
             color: var(--text-primary);
         }
 
-        /* Detalle de Gastos: puede crecer mucho en días con muchos registros; se le da un alto
+        /* Tablas con scroll interno (ventas, BiBI, no vendidos, gastos): se les da un alto
            fijo con scroll interno (mismo criterio que .table-container-scroll en admin.html) en
-           vez de dejar que empuje el resto del reporte hacia abajo indefinidamente. */
+           vez de dejar que empujen el resto del reporte hacia abajo indefinidamente. */
         .table-container-scroll {
             overflow-x: auto;
             overflow-y: auto;
@@ -385,6 +385,15 @@
             font-size: 0.78em;
         }
 
+        .badge-descuento-venta {
+            display: block;
+            margin-top: 1px;
+            font-size: 0.69rem;
+            font-weight: 500;
+            color: #059669;
+            white-space: nowrap;
+        }
+
         /* Acción secundaria de la sección "Detalle de Gastos": estilo tipo chip, más liviano
            que .btn-primary, para que no compita visualmente con el título de la sección. */
         .btn-seguimiento-devoluciones {
@@ -525,9 +534,17 @@
 
         <div class="split-tables">
             <div class="table-section">
-                <h3>Detalle de Ventas <span id="contador-ventas-dia"
-                        style="font-size:0.7em; font-weight:500; color:#6b7280;">(0 movimientos)</span></h3>
-                <div style="overflow-x: auto; width: 100%;">
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Detalle de Ventas <span id="contador-ventas-dia"
+                            style="font-size:0.7em; font-weight:500; color:#6b7280;">(0 movimientos)</span></h3>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <input type="search" id="filtro-buscar-ventas" class="filter-input"
+                            style="width: 220px; padding: 6px 10px; font-size: 0.88rem;"
+                            placeholder="Buscar en ventas...">
+                    </div>
+                </div>
+                <div class="table-container-scroll">
                     <table id="table-ventas-dia">
                         <thead>
                             <tr id="tr-ventas-header">
@@ -561,8 +578,16 @@
                 </div>
             </div>
             <div class="table-section">
-                <h3>Reporte BiBI</h3>
-                <div style="overflow-x: auto; width: 100%;">
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Reporte BiBI</h3>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="search" id="filtro-buscar-bibi" class="filter-input"
+                            style="width: 240px; padding: 6px 10px; font-size: 0.88rem;"
+                            placeholder="Buscar producto en BiBI...">
+                    </div>
+                </div>
+                <div class="table-container-scroll">
                     <table id="table-productos-resumen">
                         <thead>
                             <tr>
@@ -586,7 +611,12 @@
                         style="font-size: 1.1em; color: #6b7280; transition: transform 0.2s;">▸</span>
                 </div>
                 <div id="contenido-no-vendidos" style="display: none; margin-top: 15px;">
-                    <div style="overflow-x: auto; width: 100%;">
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                        <input type="search" id="filtro-buscar-no-vendidos" class="filter-input"
+                            style="width: 240px; padding: 6px 10px; font-size: 0.88rem;"
+                            placeholder="Buscar producto no vendido...">
+                    </div>
+                    <div class="table-container-scroll">
                         <table id="table-productos-no-vendidos">
                             <thead>
                                 <tr>

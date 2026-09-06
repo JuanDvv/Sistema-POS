@@ -25,7 +25,7 @@ async function registrarAuditoria(usuario, rol, sucursalId, accion, detalles) {
         await runQuery(
             `INSERT INTO cola_auditoria (id, usuario, rol, sucursal_id, accion, detalles, fecha, sync_status)
              VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-            [id, usuario || 'Invitado', rol || 'Sin Rol', sucursalId || 'Sin Sucursal', accion, detString, fecha]
+            [id, usuario || 'Sistema', rol || 'Sin Rol', sucursalId || 'Sin Sucursal', accion, detString, fecha]
         );
         console.log(`[Auditoría] Acción '${accion}' registrada localmente.`);
     } catch (err) {

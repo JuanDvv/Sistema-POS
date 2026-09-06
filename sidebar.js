@@ -1,4 +1,25 @@
 (function () {
+    // Si la ventana fue abierta como secundaria, heredar la sesión de los query params
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('usuario') && !sessionStorage.getItem('currentUser')) {
+        sessionStorage.setItem('currentUser', urlParams.get('usuario'));
+        if (urlParams.get('rol')) {
+            sessionStorage.setItem('currentRole', urlParams.get('rol'));
+        }
+    }
+
+    // Guardián de autenticación: Si no hay usuario o es 'Invitado', redirigir al login
+    let authUser = sessionStorage.getItem('currentUser');
+    if (authUser === 'Invitado') {
+        sessionStorage.removeItem('currentUser');
+        sessionStorage.removeItem('currentRole');
+        authUser = null;
+    }
+    if (!authUser) {
+        window.location.href = 'index.html';
+        return;
+    }
+
     // Inyectar estilos modernos y limpios para el Sidebar
     const styleId = 'sidebar-modern-styles';
     if (!document.getElementById(styleId)) {
@@ -415,8 +436,8 @@
     }
 
     // Datos de sesión activa
-    const currentUser = sessionStorage.getItem('currentUser') || 'Invitado';
-    const currentRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
+    const currentUser = sessionStorage.getItem('currentUser') || '';
+    const currentRole = sessionStorage.getItem('currentRole') || 'Operador';
 
     // Determinar qué botón está activo
     const path = window.location.pathname;
@@ -475,7 +496,7 @@
             <button class="nav-btn ${isDashboard ? 'active' : ''}" onclick="location.href='dashboard.html'"><span>📋</span> <span class="nav-text">Ver Inventario</span></button>
             <div style="display: flex; gap: 4px; width: 100%;">
                 <button class="nav-btn ${isVentas ? 'active' : ''}" onclick="location.href='ventas.html'" style="flex-grow: 1;"><span>🛒</span> <span class="nav-text">Registrar Venta</span></button>
-                <button class="nav-btn" onclick="window.api.abrirVentanaVentas().then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
+                <button class="nav-btn" onclick="window.api.abrirVentanaVentas({ currentUser: sessionStorage.getItem('currentUser'), currentRole: sessionStorage.getItem('currentRole') }).then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
             </div>
             <button class="nav-btn ${isGastos ? 'active' : ''}" onclick="location.href='gastos.html'"><span>💸</span> <span class="nav-text">Registrar Gasto</span></button>
             <button class="nav-btn ${isTransferencias ? 'active' : ''}" onclick="location.href='transferencias.html'"><span>🔄</span> <span class="nav-text">Traslado de Productos</span></button>

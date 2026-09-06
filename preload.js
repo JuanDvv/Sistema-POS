@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
     obtenerRankingProductos: (filtros) => ipcRenderer.invoke('obtener-ranking-productos', filtros),
     forzarSincronizacion: () => ipcRenderer.invoke('forzar-sincronizacion'),
     abrirNuevaVentana: () => ipcRenderer.invoke('abrir-nueva-ventana'),
-    abrirVentanaVentas: () => ipcRenderer.invoke('abrir-ventana-ventas'),
+    abrirVentanaVentas: (sesion) => ipcRenderer.invoke('abrir-ventana-ventas', sesion),
     obtenerAniosDisponibles: () => ipcRenderer.invoke('obtener-anios-disponibles'),
     obtenerMesesDisponibles: (anio) => ipcRenderer.invoke('obtener-meses-disponibles', anio),
     onInventarioActualizado: (callback) => ipcRenderer.on('inventario-actualizado', (event, ...args) => callback(...args)),

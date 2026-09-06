@@ -53,6 +53,39 @@ const normalizeStr = (value) => {
     return String(value).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 };
 
+// Detecta si el producto corresponde a tamaño "1 Libra" o "Media Libra (1/2 Libra)" para asignarle
+// color de tarjeta diferenciado (rojo coral / turquesa del logo) sin importar si es tradicional o fría.
+function detectarTamanoLibra(producto) {
+    if (!producto) return null;
+    const nombre = producto.nombre || producto.name || producto.producto_nombre || '';
+    const descripcion = producto.descripcion || '';
+    const texto = normalizeStr(`${nombre} ${descripcion}`);
+    if (!texto) return null;
+
+    if (
+        /\b(?:1\/2|media|0[.,]5)\s*(?:de\s+)?(?:libras?|lbs?)?\b/.test(texto) ||
+        /\b1\/2\b/.test(texto)
+    ) {
+        return 'media-libra';
+    }
+
+    if (/\b(?:[2-9]|\d{2,}|1\/4|cuarto)\s*(?:de\s+)?(?:libras?|lbs?)?\b/.test(texto)) {
+        return null;
+    }
+
+    if (
+        /\b(?:1|1\.0|una)\s*(?:de\s+)?(?:libras?|lbs?)\b/.test(texto) ||
+        /\b1\s*lbs?\b/.test(texto) ||
+        /\b1lb\b/.test(texto) ||
+        /\b(?:de\s+)?libras?\b/.test(texto)
+    ) {
+        return '1-libra';
+    }
+
+    return null;
+}
+
+
 function obtenerFechaAyerYYYYMMDD() {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -766,7 +799,18 @@ function renderizarCatalogo(productos) {
             const productoNombre = prod.nombre || 'Sin nombre';
             const productoPrecio = Number(prod.precio ?? 0);
 
-            card.className = `product-card ${sinStock ? 'disabled' : ''}`;
+            const tamano = detectarTamanoLibra(prod);
+            let tamanoClass = '';
+            let tamanoBadgeHtml = '';
+            if (tamano === '1-libra') {
+                tamanoClass = 'card-tamano-1-libra';
+                tamanoBadgeHtml = `<span class="badge-tamano badge-tamano-1-libra" title="1 Libra">🎂 1 Libra</span>`;
+            } else if (tamano === 'media-libra') {
+                tamanoClass = 'card-tamano-media-libra';
+                tamanoBadgeHtml = `<span class="badge-tamano badge-tamano-media-libra" title="Media Libra">🧁 1/2 Libra</span>`;
+            }
+
+            card.className = `product-card ${tamanoClass} ${sinStock ? 'disabled' : ''}`.trim();
 
             const imgUrl = (prod.foto_path && (prod.foto_path.startsWith('http') || prod.foto_path.startsWith('file:///')))
                 ? prod.foto_path
@@ -782,6 +826,7 @@ function renderizarCatalogo(productos) {
             card.innerHTML = `
                 <div style="position: relative; width: 100% !important; height: 90px !important;">
                     <img src="${imgUrl}" alt="${productoNombre}" style="width: 100% !important; height: 90px !important; object-fit: cover !important; border-radius: 6px !important; display: block !important;">
+                    ${tamanoBadgeHtml ? `<div style="position: absolute; top: 4px; left: 4px; z-index: 5;">${tamanoBadgeHtml}</div>` : ''}
                     <div style="position: absolute; top: 4px; right: 4px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; z-index: 5;">
                         ${badgeHtml}
                     </div>

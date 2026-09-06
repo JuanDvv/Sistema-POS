@@ -24,12 +24,64 @@ window.confirm = (msg) => {
 
 let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
-let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], cierresCaja: [] };
+let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], abonosPedido: [], cierresCaja: [], productosResumen: [], productosNoVendidos: [] };
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 const normalizeStr = (value) => {
     if (value == null) return '';
     return String(value).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 };
+
+function coincideTotalBusqueda(monto, term) {
+    if (monto == null || isNaN(monto)) return false;
+    const montoNum = Math.round(Number(monto));
+    const termClean = term.trim().toLowerCase();
+    if (!termClean) return false;
+
+    const formatted = formatCOP(montoNum).toLowerCase();
+    if (formatted.includes(termClean)) return true;
+
+    const soloDigitos = termClean.replace(/\D/g, '');
+    if (soloDigitos && String(montoNum).includes(soloDigitos)) return true;
+
+    return false;
+}
+
+function coincideVentaFiltro(venta, term) {
+    if (!term) return true;
+    const termNorm = normalizeStr(term);
+    const prods = normalizeStr(venta.productos_vendidos || '');
+    const matchProd = prods.includes(termNorm) ||
+                      (venta.cliente_nombre && normalizeStr(venta.cliente_nombre).includes(termNorm));
+    let matchTotal = coincideTotalBusqueda(venta.total, term);
+    if (!matchTotal && venta.es_pedido && venta.pedido_abonado_mismo_dia) {
+        matchTotal = coincideTotalBusqueda(venta.pedido_abonado_mismo_dia, term);
+    }
+    if (!matchTotal && venta.metodo_pago && normalizeStr(venta.metodo_pago).includes(termNorm)) {
+        matchTotal = true;
+    }
+    if (!matchTotal && (termNorm === 'descuento' || termNorm === 'desc')) {
+        const subtotal = Number(venta.subtotal_productos || 0);
+        let dom = 0;
+        const matchDom = String(venta.metodo_pago || '').match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+        if (matchDom) dom = parseNumberUI(matchDom[1]);
+        if (!venta.es_pedido && subtotal > 0 && (subtotal + dom - Number(venta.total || 0)) >= 50) {
+            matchTotal = true;
+        }
+    }
+
+    return matchProd || matchTotal;
+}
+
+function coincideAbonoFiltro(abono, term) {
+    if (!term) return true;
+    const termNorm = normalizeStr(term);
+    const matchProd = (abono.cliente_nombre && normalizeStr(abono.cliente_nombre).includes(termNorm)) ||
+                      normalizeStr('abono').includes(termNorm) ||
+                      normalizeStr('pedido').includes(termNorm);
+    const matchTotal = coincideTotalBusqueda(abono.monto, term);
+
+    return matchProd || matchTotal;
+}
 
 // Fila marcadora que separa, dentro de Detalle de Ventas, hasta dónde llegaron las ventas de cada
 // cierre de caja (cambio de turno). Solo se usa ahí -- las demás tablas del reporte no la necesitan.
@@ -79,19 +131,48 @@ const parseNumberUI = (str) => {
 };
 
 // Comprobante Informativo (no fiscal) para impresora térmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento, valorDomicilio }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
-    const filasItems = items.map(item => `
+    const subtotalCalc = (items || []).reduce((sum, item) => sum + (Number(item.precio || 0) * Number(item.cantidad || 0)), 0);
+    const subtotalFinal = subtotal != null ? Number(subtotal) : subtotalCalc;
+
+    let valorDom = Number(valorDomicilio || 0);
+    if (!valorDom && metodoPago) {
+        const matchDom = String(metodoPago).match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+        if (matchDom) valorDom = parseNumberUI(matchDom[1]);
+    }
+
+    let montoDesc = descuento != null ? Number(descuento) : 0;
+    if (!montoDesc && subtotalFinal > 0 && total != null) {
+        const diff = Math.round(subtotalFinal + valorDom - Number(total));
+        if (diff >= 50) montoDesc = diff;
+    }
+
+    const tieneDescuento = montoDesc >= 50;
+    let pctDesc = porcentajeDescuento || 0;
+    if (!pctDesc && tieneDescuento && subtotalFinal > 0) {
+        pctDesc = Math.round((montoDesc / subtotalFinal) * 100);
+    }
+
+    const filasItems = (items || []).map(item => {
+        const subtotalItem = Number(item.precio || 0) * Number(item.cantidad || 0);
+        const itemDesc = Number(item.descuento || 0);
+        const itemPct = item.porcentajeDescuento || pctDesc;
+        return `
         <tr>
             <td class="col-cant">${item.cantidad}x</td>
-            <td>${item.nombre}</td>
-            <td class="col-sub">$${formatCOP(item.precio * item.cantidad)}</td>
+            <td>
+                ${item.nombre}
+                ${itemDesc > 0 ? `<div style="font-size: 9.5px; color: #4b5563;">Desc. ${itemPct ? `(${itemPct}%)` : ''}: -$${formatCOP(itemDesc)}</div>` : ''}
+            </td>
+            <td class="col-sub">$${formatCOP(subtotalItem)}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
@@ -108,6 +189,11 @@ function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRe
             <tbody>${filasItems}</tbody>
         </table>
         <div class="ticket-separador"></div>
+        ${tieneDescuento ? `
+        <div class="ticket-pago">Subtotal: $${formatCOP(subtotalFinal)}</div>
+        <div class="ticket-pago" style="color: #b91c1c;">Descuento${pctDesc ? ` (${pctDesc}%)` : ''}: -$${formatCOP(montoDesc)}</div>
+        ` : ''}
+        ${valorDom > 0 && tieneDescuento ? `<div class="ticket-pago">Domicilio: $${formatCOP(valorDom)}</div>` : ''}
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
         ${montoRecibido != null ? `
         <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
@@ -156,16 +242,366 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
         alert('No se pudo obtener el detalle de la venta: ' + res.message);
         return;
     }
+
+    const subtotalProductos = (res.detalle || []).reduce((sum, d) => sum + (Number(d.cantidad || 0) * Number(d.precio_unitario || 0)), 0);
+    let valorDomicilio = 0;
+    const matchDom = String(res.venta.metodo_pago || '').match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+    if (matchDom) {
+        valorDomicilio = parseNumberUI(matchDom[1]);
+    }
+    const subtotalOriginal = subtotalProductos + valorDomicilio;
+    const montoDescuento = Math.round(subtotalOriginal - Number(res.venta.total || 0));
+    const tieneDescuento = montoDescuento >= 50;
+
+    const esPasteleriaItem = (d) => {
+        const texto = `${d.categoria_nombre || ''} ${d.nombre || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return texto.includes('pasteleria') || texto.includes('pastel') || texto.includes('torta') || texto.includes('pudin') || texto.includes('cake') || texto.includes('postre');
+    };
+
+    let subtotalPasteleria = (res.detalle || []).reduce((sum, d) => {
+        return esPasteleriaItem(d) ? sum + (Number(d.cantidad || 0) * Number(d.precio_unitario || 0)) : sum;
+    }, 0);
+    if (subtotalPasteleria <= 0) subtotalPasteleria = subtotalProductos;
+
+    const pct = tieneDescuento && subtotalPasteleria > 0 ? Math.round((montoDescuento / subtotalPasteleria) * 100) : 0;
+
+    const items = (res.detalle || []).map(d => {
+        const subItem = Number(d.cantidad || 0) * Number(d.precio_unitario || 0);
+        const aplica = tieneDescuento && esPasteleriaItem(d);
+        const itemDesc = aplica && pct > 0 ? Math.round(subItem * (pct / 100)) : 0;
+        return {
+            nombre: d.nombre || 'Producto',
+            cantidad: d.cantidad,
+            precio: d.precio_unitario,
+            descuento: itemDesc,
+            porcentajeDescuento: aplica ? pct : 0
+        };
+    });
+
     mostrarPreviewTicket({
         ventaId: res.venta.id,
         fecha: res.venta.fecha,
-        items: res.detalle.map(d => ({ nombre: d.nombre || 'Producto', cantidad: d.cantidad, precio: d.precio_unitario })),
+        items,
+        subtotal: subtotalProductos,
+        descuento: tieneDescuento ? montoDescuento : 0,
+        porcentajeDescuento: pct,
+        valorDomicilio,
         total: res.venta.total,
         metodoPago: res.venta.metodo_pago,
         montoRecibido: res.venta.monto_recibido,
         vuelto: res.venta.vuelto
     });
 };
+
+function renderizarTablaVentas() {
+    const tbodyVentas = document.querySelector('#table-ventas-dia tbody');
+    const contadorVentasDia = document.getElementById('contador-ventas-dia');
+    if (!tbodyVentas) return;
+
+    const userRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
+    const ventasVisibles = filtrarVentasPorMetodo(datosReporteGlobal.ventas, metodoFiltroVentas);
+    const abonosPedidoVisibles = (datosReporteGlobal.abonosPedido || []).filter(a => {
+        if (metodoFiltroVentas === 'Efectivo') return a.metodo_pago === 'Efectivo';
+        if (metodoFiltroVentas === 'Transferencia') return a.metodo_pago !== 'Efectivo';
+        return true;
+    });
+
+    const inputBuscar = document.getElementById('filtro-buscar-ventas');
+    const term = normalizeStr(inputBuscar?.value || '');
+
+    const ventasFiltradas = term ? ventasVisibles.filter(v => coincideVentaFiltro(v, term)) : ventasVisibles;
+    const abonosFiltrados = term ? abonosPedidoVisibles.filter(a => coincideAbonoFiltro(a, term)) : abonosPedidoVisibles;
+
+    const movimientosVisibles = [
+        ...ventasFiltradas.map(venta => ({ tipo: 'venta', fecha: venta.fecha, venta })),
+        ...abonosFiltrados.map(abono => ({ tipo: 'abono', fecha: abono.fecha, abono }))
+    ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+    const totalMovimientos = ventasVisibles.length + abonosPedidoVisibles.length;
+    if (contadorVentasDia) {
+        if (term) {
+            contadorVentasDia.textContent = `(${movimientosVisibles.length} de ${totalMovimientos} movimientos)`;
+        } else {
+            contadorVentasDia.textContent = `(${totalMovimientos} ${totalMovimientos === 1 ? 'movimiento' : 'movimientos'})`;
+        }
+    }
+
+    tbodyVentas.innerHTML = '';
+    let idxCierre = 0;
+    const cierresDelDia = datosReporteGlobal.cierresCaja || [];
+
+    movimientosVisibles.forEach(movimiento => {
+        if (!term) {
+            while (idxCierre < cierresDelDia.length && new Date(movimiento.fecha) <= new Date(cierresDelDia[idxCierre].fecha_hasta)) {
+                tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
+                idxCierre++;
+            }
+        }
+
+        if (movimiento.tipo === 'abono') {
+            const abono = movimiento.abono;
+            const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+            const tieneTransferencia = !!abono.metodo_pago && abono.metodo_pago.toLowerCase().includes('transferencia');
+            const checkboxVerificada = tieneTransferencia ? `
+                <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
+                    <input type="checkbox" ${estaTransferenciaVerificadaLocal(abono.id) ? 'checked' : ''}
+                        onchange="toggleVerificacionTransferencia('${abono.id}', this.checked)">
+                    Verificada en movimientos
+                </label>
+            ` : '';
+            const tr = document.createElement('tr');
+            tr.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
+            tr.innerHTML = `
+                <td>${hora}</td>
+                <td>💳 Abono de Pedido — ${abono.cliente_nombre || '(Sin nombre)'}</td>
+                <td>${abono.metodo_pago}${checkboxVerificada}</td>
+                <td><strong>${formatCOP(abono.monto)}</strong></td>
+                <td></td>
+            `;
+            tbodyVentas.appendChild(tr);
+            return;
+        }
+
+        const venta = movimiento.venta;
+        const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        let botonesEdicion = '';
+        if (userRole === 'Administrador') {
+            if (!venta.es_pedido) {
+                const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
+                botonesEdicion = `
+                    <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
+                    <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
+                `;
+            } else if (venta.pedido_id) {
+                botonesEdicion = `
+                    <a class="btn-edit" style="background-color: #d97706; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" href="pedidos.html?pedidoId=${encodeURIComponent(venta.pedido_id)}" title="Administrar este pedido entregado">📦 Pedido</a>
+                `;
+            }
+        }
+        const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
+            ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`
+            : '';
+        const tdVentaAcciones = `
+            <td>
+                <div class="actions-cell">
+                    <button class="btn-edit" style="background-color: #6b7280;" onclick="imprimirComprobanteHistorial('${venta.id}')" title="Imprimir comprobante informativo">🖨️</button>
+                    ${botonCuentaCobro}
+                    ${botonesEdicion}
+                </div>
+            </td>
+        `;
+
+        let metodoPagoText = venta.metodo_pago;
+        let tieneComponenteTransferencia = !!venta.metodo_pago && venta.metodo_pago.startsWith('Transferencia');
+        if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
+            const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
+            const matchTr = venta.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
+            const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
+            const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
+            metodoPagoText = `Mixto (Efectivo: ${Math.round(cashVal).toLocaleString('es-CO')}, Transferencia: ${Math.round(transVal).toLocaleString('es-CO')})`;
+            tieneComponenteTransferencia = transVal > 0;
+        } else if (venta.metodo_pago === 'Crédito') {
+            metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
+        }
+
+        let montoPedidoHtml = '';
+        if (venta.es_pedido) {
+            const abonadoMismoDia = Number(venta.pedido_abonado_mismo_dia || 0);
+            metodoPagoText = abonadoMismoDia > 0
+                ? `📦 Pedido Entregado (cerrado con abono de hoy)`
+                : `📦 Pedido Entregado (ya estaba pago, sin saldo hoy)`;
+            const totalPedido = Number(venta.total || 0);
+            const primario = abonadoMismoDia > 0
+                ? `<strong style="color:#2563eb;">${formatCOP(abonadoMismoDia)}</strong>`
+                : `<strong style="color:#6b7280;">Cerrado sin saldo</strong>`;
+            montoPedidoHtml = `
+                <td>
+                    ${primario}
+                    <div style="font-size:0.8em; color:#9ca3af; margin-top:2px;">Total pedido: ${formatCOP(totalPedido)}</div>
+                </td>
+            `;
+        }
+
+        let checkboxVerificada = '';
+        if (tieneComponenteTransferencia && !venta.es_pedido) {
+            checkboxVerificada = `
+                <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
+                    <input type="checkbox" ${estaTransferenciaVerificadaLocal(venta.id) ? 'checked' : ''}
+                        onchange="toggleVerificacionTransferencia('${venta.id}', this.checked)">
+                    Verificada en movimientos
+                </label>
+            `;
+        }
+
+        const subtotalProductos = Number(venta.subtotal_productos || 0);
+        let valorDomicilio = 0;
+        const matchDom = String(venta.metodo_pago || '').match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+        if (matchDom) {
+            valorDomicilio = parseNumberUI(matchDom[1]);
+        }
+        const subtotalOriginal = subtotalProductos + valorDomicilio;
+        const montoDescuento = Math.round(subtotalOriginal - Number(venta.total || 0));
+        const tieneDescuento = !venta.es_pedido && subtotalProductos > 0 && montoDescuento >= 50;
+
+        let totalColHtml = `<td><strong>${formatCOP(venta.total)}</strong></td>`;
+        if (montoPedidoHtml) {
+            totalColHtml = montoPedidoHtml;
+        } else if (tieneDescuento) {
+            totalColHtml = `
+                <td>
+                    <strong>${formatCOP(venta.total)}</strong>
+                    <span class="badge-descuento-venta" title="Total original: $${formatCOP(subtotalOriginal)} | Descuento aplicado: -$${formatCOP(montoDescuento)}">
+                        (-$${formatCOP(montoDescuento)} desc.)
+                    </span>
+                </td>
+            `;
+        }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${hora}</td>
+            <td>
+                ${(venta.productos_vendidos || 'Sin detalles')
+                        .split(', ')
+                        .map((prod, idx, arr) => `
+                        <div style="padding: 3px 0; ${idx < arr.length - 1 ? 'border-bottom: 1px dashed #e5e7eb;' : ''}">
+                            • ${prod}
+                        </div>
+                    `).join('')}
+            </td>
+            <td>${metodoPagoText}${checkboxVerificada}</td>
+            ${totalColHtml}
+            ${tdVentaAcciones}
+        `;
+        tbodyVentas.appendChild(tr);
+    });
+
+    if (!term) {
+        for (; idxCierre < cierresDelDia.length; idxCierre++) {
+            tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
+        }
+    }
+
+    if (movimientosVisibles.length === 0) {
+        const cols = 5;
+        let mensaje = '';
+        if (term) {
+            mensaje = 'No se encontraron movimientos que coincidan con la búsqueda.';
+        } else if (metodoFiltroVentas === 'Todos') {
+            mensaje = 'No hay ventas hoy.';
+        } else {
+            mensaje = `No hay ventas con método ${metodoFiltroVentas.toLowerCase()}.`;
+        }
+        tbodyVentas.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#9ca3af;">${mensaje}</td></tr>`;
+    }
+}
+
+function renderizarReporteBiBi() {
+    const tbodyProds = document.querySelector('#table-productos-resumen tbody');
+    if (!tbodyProds) return;
+    tbodyProds.innerHTML = '';
+
+    const productos = datosReporteGlobal.productosResumen || [];
+    if (productos.length === 0) {
+        tbodyProds.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">No hay datos de productos hoy.</td></tr>';
+        return;
+    }
+
+    const inputBuscar = document.getElementById('filtro-buscar-bibi');
+    const term = normalizeStr(inputBuscar?.value || '');
+
+    const productosFiltrados = term
+        ? productos.filter(item => normalizeStr(item.producto_nombre).includes(term) || normalizeStr(item.categoria_nombre).includes(term))
+        : productos;
+
+    if (productosFiltrados.length === 0) {
+        tbodyProds.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">No se encontraron productos que coincidan con la búsqueda.</td></tr>';
+        return;
+    }
+
+    const agrupadosPorCategoria = {};
+    productosFiltrados.forEach(item => {
+        const catName = item.categoria_nombre || 'Sin Categoría';
+        if (!agrupadosPorCategoria[catName]) {
+            agrupadosPorCategoria[catName] = [];
+        }
+        agrupadosPorCategoria[catName].push(item);
+    });
+
+    Object.keys(agrupadosPorCategoria).sort().forEach(catName => {
+        const trCat = document.createElement('tr');
+        trCat.innerHTML = `
+            <td colspan="4" style="background-color: #f9fafb; font-weight: 700; color: #1f2937; padding: 10px 15px; border-bottom: 2px solid #e5e7eb;">
+                📂 ${catName}
+            </td>
+        `;
+        tbodyProds.appendChild(trCat);
+
+        agrupadosPorCategoria[catName].forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding-left: 30px;">${item.producto_nombre}</td>
+                <td>${item.total_cantidad} unidades</td>
+                <td>${item.stock_actual} unidades</td>
+                <td><strong>${formatCOP(item.total_ingreso)}</strong></td>
+            `;
+            tbodyProds.appendChild(tr);
+        });
+    });
+}
+
+function renderizarProductosNoVendidos() {
+    const tbodyNoVendidos = document.querySelector('#table-productos-no-vendidos tbody');
+    if (!tbodyNoVendidos) return;
+    tbodyNoVendidos.innerHTML = '';
+
+    const productos = datosReporteGlobal.productosNoVendidos || [];
+    if (productos.length === 0) {
+        tbodyNoVendidos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#9ca3af;">Todos los productos de la sucursal tuvieron al menos una venta hoy.</td></tr>';
+        return;
+    }
+
+    const inputBuscar = document.getElementById('filtro-buscar-no-vendidos');
+    const term = normalizeStr(inputBuscar?.value || '');
+
+    const productosFiltrados = term
+        ? productos.filter(item => normalizeStr(item.producto_nombre).includes(term) || normalizeStr(item.categoria_nombre).includes(term))
+        : productos;
+
+    if (productosFiltrados.length === 0) {
+        tbodyNoVendidos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#9ca3af;">No se encontraron productos que coincidan con la búsqueda.</td></tr>';
+        return;
+    }
+
+    const agrupadosPorCategoriaNoVendidos = {};
+    productosFiltrados.forEach(item => {
+        const catName = item.categoria_nombre || 'Sin Categoría';
+        if (!agrupadosPorCategoriaNoVendidos[catName]) {
+            agrupadosPorCategoriaNoVendidos[catName] = [];
+        }
+        agrupadosPorCategoriaNoVendidos[catName].push(item);
+    });
+
+    Object.keys(agrupadosPorCategoriaNoVendidos).sort().forEach(catName => {
+        const trCat = document.createElement('tr');
+        trCat.innerHTML = `
+            <td colspan="2" style="background-color: #f9fafb; font-weight: 700; color: #1f2937; padding: 10px 15px; border-bottom: 2px solid #e5e7eb;">
+                📂 ${catName}
+            </td>
+        `;
+        tbodyNoVendidos.appendChild(trCat);
+
+        agrupadosPorCategoriaNoVendidos[catName].forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding-left: 30px;">${item.producto_nombre}</td>
+                <td>${item.stock_actual} unidades</td>
+            `;
+            tbodyNoVendidos.appendChild(tr);
+        });
+    });
+}
 
 // Cargar Reporte Diario
 async function cargarReporte(fecha) {
@@ -205,7 +641,9 @@ async function cargarReporte(fecha) {
             abonosPedido: response.abonosPedido || [],
             // Ordenados DESC por fecha_hasta (igual que ventasVisibles por fecha), para intercalar
             // el separador visual de cada cierre en el punto correcto de Detalle de Ventas.
-            cierresCaja: (cierresResponse.success ? cierresResponse.data : []) || []
+            cierresCaja: (cierresResponse.success ? cierresResponse.data : []) || [],
+            productosResumen: response.productosResumen || [],
+            productosNoVendidos: response.productosNoVendidos || []
         };
 
         const ventasVisibles = filtrarVentasPorMetodo(datosReporteGlobal.ventas, metodoFiltroVentas);
@@ -232,186 +670,27 @@ async function cargarReporte(fecha) {
             }
         });
 
-        // 1. Renderizar Tabla Ventas (+ abonos de pedidos intercalados) y sumar KPIs
-        const tbodyVentas = document.querySelector('#table-ventas-dia tbody');
-        const contadorVentasDia = document.getElementById('contador-ventas-dia');
-        if (contadorVentasDia) {
-            const cantidad = ventasVisibles.length + abonosPedidoVisibles.length;
-            contadorVentasDia.textContent = `(${cantidad} ${cantidad === 1 ? 'movimiento' : 'movimientos'})`;
-        }
-        if (tbodyVentas) {
-            tbodyVentas.innerHTML = '';
-            // ventasVisibles, abonosPedidoVisibles y datosReporteGlobal.cierresCaja llegan
-            // ordenados/se combinan DESC por fecha, para intercalar el separador de cada cierre
-            // justo antes del primer movimiento (más antiguo) que ya quedó fuera de esa ventana.
-            let idxCierre = 0;
-            const cierresDelDia = datosReporteGlobal.cierresCaja || [];
-
-            const movimientosVisibles = [
-                ...ventasVisibles.map(venta => ({ tipo: 'venta', fecha: venta.fecha, venta })),
-                ...abonosPedidoVisibles.map(abono => ({ tipo: 'abono', fecha: abono.fecha, abono }))
-            ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-
-            movimientosVisibles.forEach(movimiento => {
-                while (idxCierre < cierresDelDia.length && new Date(movimiento.fecha) <= new Date(cierresDelDia[idxCierre].fecha_hasta)) {
-                    tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
-                    idxCierre++;
-                }
-
-                if (movimiento.tipo === 'abono') {
-                    const abono = movimiento.abono;
-                    const hora = new Date(abono.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                    const tieneTransferencia = !!abono.metodo_pago && abono.metodo_pago.toLowerCase().includes('transferencia');
-                    const checkboxVerificada = tieneTransferencia ? `
-                        <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
-                            <input type="checkbox" ${estaTransferenciaVerificadaLocal(abono.id) ? 'checked' : ''}
-                                onchange="toggleVerificacionTransferencia('${abono.id}', this.checked)">
-                            Verificada en movimientos
-                        </label>
-                    ` : '';
-                    const tr = document.createElement('tr');
-                    tr.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
-                    tr.innerHTML = `
-                        <td>${hora}</td>
-                        <td>💳 Abono de Pedido — ${abono.cliente_nombre || '(Sin nombre)'}</td>
-                        <td>${abono.metodo_pago}${checkboxVerificada}</td>
-                        <td><strong>${formatCOP(abono.monto)}</strong></td>
-                        <td></td>
-                    `;
-                    tbodyVentas.appendChild(tr);
-                    return;
-                }
-
-                const venta = movimiento.venta;
-
-                // El dinero de un pedido/apartado entregado ya se contó día a día con sus abonos (ver
-                // más abajo), así que la venta que genera la entrega NO se vuelve a sumar aquí -- solo
-                // se lista para que quede constancia de qué salió hoy.
-                if (venta.es_pedido) {
-                    // no suma a totalEfectivo/totalTransferencia
-                } else if (venta.metodo_pago === 'Efectivo') {
-                    totalEfectivo += venta.total;
-                } else if (venta.metodo_pago === 'Transferencia') {
-                    totalTransferencia += venta.total;
-                } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
-                    const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
-                    const matchTr = venta.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
-                    const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
-                    const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
-                    totalEfectivo += cashVal;
-                    totalTransferencia += transVal;
-                } else {
-                    totalTransferencia += venta.total;
-                }
-
-                const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-
-                let botonesEdicion = '';
-                if (userRole === 'Administrador') {
-                    if (!venta.es_pedido) {
-                        const metodoPagoEscapado = String(venta.metodo_pago || '').replace(/'/g, "\\'");
-                        botonesEdicion = `
-                            <button class="btn-edit" onclick="iniciarEdicionVenta('${venta.id}', '${metodoPagoEscapado}', ${Number(venta.total || 0)})">✏️ Editar</button>
-                            <button class="btn-delete" onclick="eliminarVenta('${venta.id}')">🗑️ Borrar</button>
-                        `;
-                    } else if (venta.pedido_id) {
-                        botonesEdicion = `
-                            <a class="btn-edit" style="background-color: #d97706; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" href="pedidos.html?pedidoId=${encodeURIComponent(venta.pedido_id)}" title="Administrar este pedido entregado">📦 Pedido</a>
-                        `;
-                    }
-                }
-                const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
-                    ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`
-                    : '';
-                const tdVentaAcciones = `
-                    <td>
-                        <div class="actions-cell">
-                            <button class="btn-edit" style="background-color: #6b7280;" onclick="imprimirComprobanteHistorial('${venta.id}')" title="Imprimir comprobante informativo">🖨️</button>
-                            ${botonCuentaCobro}
-                            ${botonesEdicion}
-                        </div>
-                    </td>
-                `;
-
-                let metodoPagoText = venta.metodo_pago;
-                let tieneComponenteTransferencia = !!venta.metodo_pago && venta.metodo_pago.startsWith('Transferencia');
-                if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
-                    const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
-                    const matchTr = venta.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
-                    const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
-                    const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
-                    metodoPagoText = `Mixto (Efectivo: ${Math.round(cashVal).toLocaleString('es-CO')}, Transferencia: ${Math.round(transVal).toLocaleString('es-CO')})`;
-                    tieneComponenteTransferencia = transVal > 0;
-                } else if (venta.metodo_pago === 'Crédito') {
-                    metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
-                }
-                // Monto a mostrar para el cierre de un pedido: nunca el total del pedido (eso ya
-                // entró a caja día a día vía sus abonos, ver abonosPedidoVisibles arriba). Lo
-                // relevante para el cierre de HOY es si al momento de entregar quedó algo por
-                // abonar hoy mismo (dinero real que sí entró hoy) o si ya estaba pago desde antes
-                // (entregar no metió plata nueva a la caja de hoy).
-                let montoPedidoHtml = '';
-                if (venta.es_pedido) {
-                    const abonadoMismoDia = Number(venta.pedido_abonado_mismo_dia || 0);
-                    metodoPagoText = abonadoMismoDia > 0
-                        ? `📦 Pedido Entregado (cerrado con abono de hoy)`
-                        : `📦 Pedido Entregado (ya estaba pago, sin saldo hoy)`;
-                    const totalPedido = Number(venta.total || 0);
-                    const primario = abonadoMismoDia > 0
-                        ? `<strong style="color:#2563eb;">${formatCOP(abonadoMismoDia)}</strong>`
-                        : `<strong style="color:#6b7280;">Cerrado sin saldo</strong>`;
-                    montoPedidoHtml = `
-                        <td>
-                            ${primario}
-                            <div style="font-size:0.8em; color:#9ca3af; margin-top:2px;">Total pedido: ${formatCOP(totalPedido)}</div>
-                        </td>
-                    `;
-                }
-
-                let checkboxVerificada = '';
-                if (tieneComponenteTransferencia && !venta.es_pedido) {
-                    checkboxVerificada = `
-                        <label style="display:flex; align-items:center; gap:4px; margin-top:4px; font-size:0.85em; color:#4b5563; cursor:pointer;">
-                            <input type="checkbox" ${estaTransferenciaVerificadaLocal(venta.id) ? 'checked' : ''}
-                                onchange="toggleVerificacionTransferencia('${venta.id}', this.checked)">
-                            Verificada en movimientos
-                        </label>
-                    `;
-                }
-
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${hora}</td>
-                    <td>
-                        ${(venta.productos_vendidos || 'Sin detalles')
-                                .split(', ')
-                                .map((prod, idx, arr) => `
-                                <div style="padding: 3px 0; ${idx < arr.length - 1 ? 'border-bottom: 1px dashed #e5e7eb;' : ''}">
-                                    • ${prod}
-                                </div>
-                            `).join('')}
-                    </td>
-                    <td>${metodoPagoText}${checkboxVerificada}</td>
-                    ${montoPedidoHtml || `<td><strong>${formatCOP(venta.total)}</strong></td>`}
-                    ${tdVentaAcciones}
-                `;
-                tbodyVentas.appendChild(tr);
-            });
-
-            // Cierres que quedaron sin ninguna venta más antigua que ellos (turno sin ventas, o el
-            // cierre más antiguo del día) se muestran al final de la tabla.
-            for (; idxCierre < cierresDelDia.length; idxCierre++) {
-                tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
+        ventasVisibles.forEach(venta => {
+            if (venta.es_pedido) {
+                // no suma a totalEfectivo/totalTransferencia
+            } else if (venta.metodo_pago === 'Efectivo') {
+                totalEfectivo += venta.total;
+            } else if (venta.metodo_pago === 'Transferencia') {
+                totalTransferencia += venta.total;
+            } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
+                const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
+                const matchTr = venta.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
+                const cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
+                const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
+                totalEfectivo += cashVal;
+                totalTransferencia += transVal;
+            } else {
+                totalTransferencia += venta.total;
             }
+        });
 
-            if (ventasVisibles.length === 0 && abonosPedidoVisibles.length === 0 && cierresDelDia.length === 0) {
-                const cols = 5;
-                const mensaje = metodoFiltroVentas === 'Todos'
-                    ? 'No hay ventas hoy.'
-                    : `No hay ventas con método ${metodoFiltroVentas.toLowerCase()}.`;
-                tbodyVentas.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#9ca3af;">${mensaje}</td></tr>`;
-            }
-        }
+        // 1. Renderizar Detalle de Ventas
+        renderizarTablaVentas();
 
         // 1.6. Cierres de Caja del Día: tabla resumen aparte (además del separador visual de
         // arriba) con un vistazo rápido de todos los cierres/cambios de turno del día.
@@ -631,84 +910,10 @@ async function cargarReporte(fecha) {
         }
 
         // 2.6. Renderizar Reporte BiBI (Resumen por Producto agrupado por Categoría)
-        const tbodyProds = document.querySelector('#table-productos-resumen tbody');
-        if (tbodyProds) {
-            tbodyProds.innerHTML = '';
-            if (response.productosResumen && response.productosResumen.length > 0) {
-                // Agrupar productos por categoría
-                const agrupadosPorCategoria = {};
-                response.productosResumen.forEach(item => {
-                    const catName = item.categoria_nombre || 'Sin Categoría';
-                    if (!agrupadosPorCategoria[catName]) {
-                        agrupadosPorCategoria[catName] = [];
-                    }
-                    agrupadosPorCategoria[catName].push(item);
-                });
-
-                // Renderizar categorías y sus productos
-                Object.keys(agrupadosPorCategoria).sort().forEach(catName => {
-                    // Fila de encabezado de la categoría
-                    const trCat = document.createElement('tr');
-                    trCat.innerHTML = `
-                        <td colspan="4" style="background-color: #f9fafb; font-weight: 700; color: #1f2937; padding: 10px 15px; border-bottom: 2px solid #e5e7eb;">
-                            📂 ${catName}
-                        </td>
-                    `;
-                    tbodyProds.appendChild(trCat);
-
-                    // Filas de productos en esta categoría
-                    agrupadosPorCategoria[catName].forEach(item => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td style="padding-left: 30px;">${item.producto_nombre}</td>
-                            <td>${item.total_cantidad} unidades</td>
-                            <td>${item.stock_actual} unidades</td>
-                            <td><strong>${formatCOP(item.total_ingreso)}</strong></td>
-                        `;
-                        tbodyProds.appendChild(tr);
-                    });
-                });
-            } else {
-                tbodyProds.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">No hay datos de productos hoy.</td></tr>';
-            }
-        }
+        renderizarReporteBiBi();
 
         // 2.6b. Renderizar sección "Productos que NO se vendieron" (colapsada por defecto)
-        const tbodyNoVendidos = document.querySelector('#table-productos-no-vendidos tbody');
-        if (tbodyNoVendidos) {
-            tbodyNoVendidos.innerHTML = '';
-            if (response.productosNoVendidos && response.productosNoVendidos.length > 0) {
-                const agrupadosPorCategoriaNoVendidos = {};
-                response.productosNoVendidos.forEach(item => {
-                    const catName = item.categoria_nombre || 'Sin Categoría';
-                    if (!agrupadosPorCategoriaNoVendidos[catName]) {
-                        agrupadosPorCategoriaNoVendidos[catName] = [];
-                    }
-                    agrupadosPorCategoriaNoVendidos[catName].push(item);
-                });
-
-                Object.keys(agrupadosPorCategoriaNoVendidos).sort().forEach(catName => {
-                    const trCat = document.createElement('tr');
-                    trCat.innerHTML = `
-                        <td colspan="2" style="background-color: #f9fafb; font-weight: 700; color: #1f2937; padding: 10px 15px; border-bottom: 2px solid #e5e7eb;">
-                            📂 ${catName}
-                        </td>
-                    `;
-                    tbodyNoVendidos.appendChild(trCat);
-
-                    agrupadosPorCategoriaNoVendidos[catName].forEach(item => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td style="padding-left: 30px;">${item.producto_nombre}</td>
-                            <td>${item.stock_actual} unidades</td>
-                        `;
-                        tbodyNoVendidos.appendChild(tr);
-                    });
-                });
-            } else {
-                tbodyNoVendidos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#9ca3af;">Todos los productos de la sucursal tuvieron al menos una venta hoy.</td></tr>';
-            }
-        }
+        renderizarProductosNoVendidos();
 
         // 2.7. Renderizar Tabla Transferencias
         const tbodyTrans = document.querySelector('#table-transferencias-dia tbody');
@@ -892,6 +1097,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         selectMetodoVentas.addEventListener('change', async () => {
             metodoFiltroVentas = selectMetodoVentas.value || 'Todos';
             await cargarReporte(inputFecha ? inputFecha.value : '');
+        });
+    }
+
+    const inputBuscarVentas = document.getElementById('filtro-buscar-ventas');
+    if (inputBuscarVentas) {
+        inputBuscarVentas.addEventListener('input', () => {
+            renderizarTablaVentas();
+        });
+    }
+
+    const inputBuscarBiBi = document.getElementById('filtro-buscar-bibi');
+    if (inputBuscarBiBi) {
+        inputBuscarBiBi.addEventListener('input', () => {
+            renderizarReporteBiBi();
+        });
+    }
+
+    const inputBuscarNoVendidos = document.getElementById('filtro-buscar-no-vendidos');
+    if (inputBuscarNoVendidos) {
+        inputBuscarNoVendidos.addEventListener('input', () => {
+            renderizarProductosNoVendidos();
         });
     }
 

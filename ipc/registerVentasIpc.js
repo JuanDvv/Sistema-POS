@@ -155,6 +155,11 @@ function registerVentasIpc() {
                     cli.nombre as cliente_nombre,
                     cli.categoria as cliente_categoria,
                     group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
+                    COALESCE((
+                        SELECT SUM(sub_dv.cantidad * sub_dv.precio_unitario)
+                        FROM detalle_ventas sub_dv
+                        WHERE sub_dv.venta_id = v.id AND (sub_dv.deleted_at IS NULL)
+                    ), 0) as subtotal_productos,
                     CASE WHEN ped.id IS NOT NULL THEN 1 ELSE 0 END as es_pedido,
                     ped.id as pedido_id,
                     -- Para pedidos entregados: entregarPedidoTx exige saldo $0 antes de entregar,

@@ -273,11 +273,19 @@ function registerClientesIpc() {
                 });
             }
 
+            const subtotalProductos = detalles.reduce((sum, d) => sum + (Number(d.cantidad || 0) * Number(d.precio_unitario || 0)), 0);
+            const subtotalTotal = subtotalProductos + valorDomicilio;
+            const montoDescuento = Math.round(subtotalTotal - Number(venta.total || 0));
+            const tieneDescuento = montoDescuento >= 50;
+
             const fechaVenta = new Date(venta.fecha);
             const numeroCuenta = `CC-${fechaVenta.getFullYear()}${String(fechaVenta.getMonth() + 1).padStart(2, '0')}${String(fechaVenta.getDate()).padStart(2, '0')}-${venta.id.substring(0, 8)}`;
 
             const html = construirHtmlCuentaCobro({
-                cliente, numeroCuenta, items, total: Number(venta.total || 0),
+                cliente, numeroCuenta, items,
+                subtotal: tieneDescuento ? subtotalTotal : null,
+                descuento: tieneDescuento ? montoDescuento : null,
+                total: Number(venta.total || 0),
                 sucursalLabel, direccion, telefonoSucursal, firmaDataUri: obtenerFirmaDataUri()
             });
 

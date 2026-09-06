@@ -105,7 +105,7 @@ function formatearFechaCorta(fecha) {
 // `telefonoSucursal` vienen de la sucursal de la venta y solo se muestran cuando hay una sola
 // sucursal involucrada (ver obtenerSucursalInfo en registerClientesIpc.js). `firmaDataUri` es la
 // firma escaneada como data URI; si no se provee, se cae de vuelta a un nombre en fuente cursiva.
-function construirHtmlCuentaCobro({ cliente, numeroCuenta, items, total, sucursalLabel, direccion, telefonoSucursal, firmaDataUri }) {
+function construirHtmlCuentaCobro({ cliente, numeroCuenta, items, total, subtotal, descuento, sucursalLabel, direccion, telefonoSucursal, firmaDataUri }) {
   const fechaActual = new Date();
   const ciudadFecha = `Turbaco, ${fechaActual.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}`;
   const sumaEnLetras = numeroALetras(total).toLowerCase();
@@ -194,6 +194,10 @@ function construirHtmlCuentaCobro({ cliente, numeroCuenta, items, total, sucursa
     </tbody>
   </table>
 
+  ${descuento && descuento > 0 ? `
+  <div class="totales">Subtotal: ${formatearCOP(subtotal)}</div>
+  <div class="totales" style="color: #b91c1c;">Descuento: -${formatearCOP(descuento)}</div>
+  ` : ''}
   <div class="totales">TOTAL: ${formatearCOP(total)}</div>
   <div class="total-letras">Total: <strong>${formatearCOP(total)} (${sumaEnLetras}.)</strong></div>
 

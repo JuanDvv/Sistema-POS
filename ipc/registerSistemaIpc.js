@@ -40,7 +40,7 @@ function registerSistemaIpc() {
     });
 
     // Abrir ventana de ventas secundaria
-    ipcMain.handle('abrir-ventana-ventas', async (event) => {
+    ipcMain.handle('abrir-ventana-ventas', async (event, sessionData) => {
         if (ventanasVentas.length >= 3) {
             return { success: false, message: 'Límite de 3 ventanas secundarias de ventas alcanzado.' };
         }
@@ -61,7 +61,11 @@ function registerSistemaIpc() {
             }
         });
 
-        win.loadFile('ventas.html', { query: { nueva_ventana: 'true' } });
+        const query = { nueva_ventana: 'true' };
+        if (sessionData?.currentUser) query.usuario = sessionData.currentUser;
+        if (sessionData?.currentRole) query.rol = sessionData.currentRole;
+
+        win.loadFile('ventas.html', { query });
         ventanasVentas.push(win);
 
         win.on('closed', () => {

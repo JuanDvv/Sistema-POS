@@ -90,9 +90,33 @@ function formatearFilaProducto(cantidad, nombre, precioTexto) {
     });
 }
 
-function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono, montoRecibido, vuelto } = {}) {
+function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento, valorDomicilio } = {}) {
     const formatCOP = (val) => `$${Math.round(Number(val) || 0).toLocaleString('es-CO')}`;
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+
+    const subtotalCalc = (items || []).reduce((sum, item) => sum + (Number(item.precio || 0) * Number(item.cantidad || 0)), 0);
+    const subtotalFinal = subtotal != null ? Number(subtotal) : subtotalCalc;
+
+    let valorDom = Number(valorDomicilio || 0);
+    if (!valorDom && metodoPago) {
+        const matchDom = String(metodoPago).match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+        if (matchDom) {
+            const num = parseFloat(matchDom[1].replace(/\./g, '').replace(/,/g, '.'));
+            if (Number.isFinite(num)) valorDom = num;
+        }
+    }
+
+    let montoDesc = descuento != null ? Number(descuento) : 0;
+    if (!montoDesc && subtotalFinal > 0 && total != null) {
+        const diff = Math.round(subtotalFinal + valorDom - Number(total));
+        if (diff >= 50) montoDesc = diff;
+    }
+
+    const tieneDescuento = montoDesc >= 50;
+    let pctDesc = porcentajeDescuento || 0;
+    if (!pctDesc && tieneDescuento && subtotalFinal > 0) {
+        pctDesc = Math.round((montoDesc / subtotalFinal) * 100);
+    }
 
     const partes = [INIT];
     const linea = (texto) => partes.push(Buffer.from(`${limpiar(texto)}\n`, 'ascii'));
@@ -116,11 +140,27 @@ function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucur
     sep();
 
     (items || []).forEach(item => {
-        const precioTexto = formatCOP((item.precio || 0) * (item.cantidad || 0));
+        const subtotalItem = (item.precio || 0) * (item.cantidad || 0);
+        const precioTexto = formatCOP(subtotalItem);
         formatearFilaProducto(item.cantidad, item.nombre, precioTexto).forEach(linea);
+        const itemDesc = Number(item.descuento || 0);
+        if (itemDesc > 0) {
+            const itemPct = item.porcentajeDescuento || pctDesc;
+            const descTexto = itemPct ? `  Desc. (${itemPct}%): -${formatCOP(itemDesc)}` : `  Desc.: -${formatCOP(itemDesc)}`;
+            linea(descTexto);
+        }
     });
 
     sep();
+    if (tieneDescuento) {
+        partes.push(ALIGN_RIGHT);
+        linea(`Subtotal: ${formatCOP(subtotalFinal)}`);
+        const descTexto = pctDesc ? `Descuento (${pctDesc}%): -${formatCOP(montoDesc)}` : `Descuento: -${formatCOP(montoDesc)}`;
+        linea(descTexto);
+        if (valorDom > 0) {
+            linea(`Domicilio: ${formatCOP(valorDom)}`);
+        }
+    }
     // "TOTAL: $X" como una sola línea en negrita alineada a la derecha, igual que .ticket-total
     // en la vista previa en pantalla (no como etiqueta/valor separados con puntos de relleno).
     partes.push(ALIGN_RIGHT, BOLD_ON);

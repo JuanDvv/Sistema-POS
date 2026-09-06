@@ -220,7 +220,7 @@ body {
     padding: 6px 8px;
     cursor: pointer;
     transition: all 0.2s ease-in-out;
-    background-color: white !important;
+    background-color: white;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -229,6 +229,26 @@ body {
     box-sizing: border-box;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     min-height: 200px;
+}
+
+.product-card.card-tamano-1-libra {
+    background-color: #fff1f2 !important;
+    border-color: #fecdd3 !important;
+}
+
+.product-card.card-tamano-1-libra:hover:not(.disabled) {
+    border-color: #be123c !important;
+    box-shadow: 0 4px 8px rgba(190, 18, 60, 0.15);
+}
+
+.product-card.card-tamano-media-libra {
+    background-color: #f0fdfa !important;
+    border-color: #99f6e4 !important;
+}
+
+.product-card.card-tamano-media-libra:hover:not(.disabled) {
+    border-color: #0d9488 !important;
+    box-shadow: 0 4px 8px rgba(13, 148, 136, 0.15);
 }
 
 .product-card.disabled {
@@ -301,6 +321,44 @@ body {
     font-weight: 700;
     border-radius: 8px;
     line-height: 1.2;
+}
+
+/* Badges sobre la imagen para 1 Libra y Media Libra */
+.badge-tamano {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    font-weight: 700;
+    line-height: 1.2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.badge-tamano-1-libra {
+    background-color: #fff1f2;
+    color: #be123c;
+    border: 1px solid #fecdd3;
+}
+
+.badge-tamano-media-libra {
+    background-color: #f0fdfa;
+    color: #0f766e;
+    border: 1px solid #99f6e4;
+}
+
+/* Badge de variante dentro de tarjetas de 1 Libra y Media Libra */
+.product-card.card-tamano-1-libra .product-variant-badge {
+    background-color: #ffe4e6;
+    color: #be123c;
+    border: 1px solid #fecdd3;
+}
+
+.product-card.card-tamano-media-libra .product-variant-badge {
+    background-color: #ccfbf1;
+    color: #0f766e;
+    border: 1px solid #99f6e4;
 }
 
 @media (max-width: 1200px) {

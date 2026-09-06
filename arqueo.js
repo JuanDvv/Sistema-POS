@@ -172,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     restaurarValoresCuadre(inputs);
     document.getElementById('btn-resetear').addEventListener('click', () => {
         limpiarValoresCuadre(inputs);
+        document.getElementById('select-tipo-cierre').value = 'Cierre Parcial';
     });
 
     // 6. Confirmar cierre de caja
@@ -357,6 +358,7 @@ async function confirmarCierreCaja() {
         if (response.success) {
             limpiarValoresCuadre();
             document.getElementById('input-nota-cierre').value = '';
+            document.getElementById('select-tipo-cierre').value = 'Cierre Parcial';
             await cargarVentanaCajaActual();
             const inputFechaHistorial = document.getElementById('input-fecha-historial-cierres');
             inputFechaHistorial.value = obtenerFechaHoyStr();

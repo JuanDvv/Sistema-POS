@@ -150,6 +150,44 @@ function separarNombreVariante(nombreCompleto) {
     return { base: nombre, variante: null };
 }
 
+// Detecta si el producto corresponde a tamaño "1 Libra" o "Media Libra (1/2 Libra)" para asignarle
+// color de tarjeta diferenciado (rojo coral / turquesa del logo) sin importar si es tradicional o fría.
+function detectarTamanoLibra(producto) {
+    if (!producto) return null;
+    const nombre = producto.nombre || producto.name || producto.producto_nombre || '';
+    const descripcion = producto.descripcion || '';
+    const texto = normalizeStr(`${nombre} ${descripcion}`);
+    if (!texto) return null;
+
+    // 1. Media Libra / 1/2 Libra:
+    // "1/2 libra", "1/2 lb", "1/2lb", "media libra", "media lb", "0.5 libra", "0.5 lb", "1/2"
+    if (
+        /\b(?:1\/2|media|0[.,]5)\s*(?:de\s+)?(?:libras?|lbs?)?\b/.test(texto) ||
+        /\b1\/2\b/.test(texto)
+    ) {
+        return 'media-libra';
+    }
+
+    // Descartar si es otro tamaño que no sea 1 libra (ej: 2 libras, 3 libras, 1/4 libra, etc.)
+    if (/\b(?:[2-9]|\d{2,}|1\/4|cuarto)\s*(?:de\s+)?(?:libras?|lbs?)?\b/.test(texto)) {
+        return null;
+    }
+
+    // 2. 1 Libra / Libra:
+    // "1 libra", "1 lb", "1lb", "una libra", "1.0 libra", "torta de libra", "pudin tradicional libra"
+    if (
+        /\b(?:1|1\.0|una)\s*(?:de\s+)?(?:libras?|lbs?)\b/.test(texto) ||
+        /\b1\s*lbs?\b/.test(texto) ||
+        /\b1lb\b/.test(texto) ||
+        /\b(?:de\s+)?libras?\b/.test(texto)
+    ) {
+        return '1-libra';
+    }
+
+    return null;
+}
+
+
 // Confirmacion visual breve al agregar/deshacer un producto (ademas del sonido, ver
 // reproducirBeep) -- el carrito esta al otro lado de la pantalla y con la grilla llena un clic
 // puede pasar inadvertido.
@@ -208,20 +246,49 @@ function deshacerUltimoAgregado() {
     guardarCarritoTemporal();
 }
 
-// Comprobante Informativo (no fiscal) para impresora t\u00e9rmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
+// Comprobante Informativo (no fiscal) para impresora térmica 58/80mm.
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento, valorDomicilio }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
-    const filasItems = items.map(item => `
+    const subtotalCalc = (items || []).reduce((sum, item) => sum + (Number(item.precio || 0) * Number(item.cantidad || 0)), 0);
+    const subtotalFinal = subtotal != null ? Number(subtotal) : subtotalCalc;
+
+    let valorDom = Number(valorDomicilio || 0);
+    if (!valorDom && metodoPago) {
+        const matchDom = String(metodoPago).match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
+        if (matchDom) valorDom = parseNumberUI(matchDom[1]);
+    }
+
+    let montoDesc = descuento != null ? Number(descuento) : 0;
+    if (!montoDesc && subtotalFinal > 0 && total != null) {
+        const diff = Math.round(subtotalFinal + valorDom - Number(total));
+        if (diff >= 50) montoDesc = diff;
+    }
+
+    const tieneDescuento = montoDesc >= 50;
+    let pctDesc = porcentajeDescuento || 0;
+    if (!pctDesc && tieneDescuento && subtotalFinal > 0) {
+        pctDesc = Math.round((montoDesc / subtotalFinal) * 100);
+    }
+
+    const filasItems = (items || []).map(item => {
+        const subtotalItem = Number(item.precio || 0) * Number(item.cantidad || 0);
+        const itemDesc = Number(item.descuento || 0);
+        const itemPct = item.porcentajeDescuento || pctDesc;
+        return `
         <tr>
             <td class="col-cant">${item.cantidad}x</td>
-            <td>${item.nombre}</td>
-            <td class="col-sub">$${formatCOP(item.precio * item.cantidad)}</td>
+            <td>
+                ${item.nombre}
+                ${itemDesc > 0 ? `<div style="font-size: 9.5px; color: #4b5563;">Desc. ${itemPct ? `(${itemPct}%)` : ''}: -$${formatCOP(itemDesc)}</div>` : ''}
+            </td>
+            <td class="col-sub">$${formatCOP(subtotalItem)}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
@@ -232,12 +299,17 @@ function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRe
         <div class="ticket-separador"></div>
         <div>Fecha: ${fechaTexto}</div>
         <div>Venta ID: ${String(ventaId || '').slice(0, 8)}</div>
-        <div>M\u00e9todo: ${metodoPago}</div>
+        <div>Método: ${metodoPago}</div>
         <div class="ticket-separador"></div>
         <table class="ticket-tabla">
             <tbody>${filasItems}</tbody>
         </table>
         <div class="ticket-separador"></div>
+        ${tieneDescuento ? `
+        <div class="ticket-pago">Subtotal: $${formatCOP(subtotalFinal)}</div>
+        <div class="ticket-pago" style="color: #b91c1c;">Descuento${pctDesc ? ` (${pctDesc}%)` : ''}: -$${formatCOP(montoDesc)}</div>
+        ` : ''}
+        ${valorDom > 0 && tieneDescuento ? `<div class="ticket-pago">Domicilio: $${formatCOP(valorDom)}</div>` : ''}
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
         ${montoRecibido != null ? `
         <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
@@ -299,10 +371,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         badgeProductos.style.display = 'inline-block';
     }
     // 1. Mostrar información del usuario logueado en la barra lateral
-    const user = sessionStorage.getItem('currentUser') || 'Invitado';
-    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
-    document.getElementById('display-user').innerText = user;
-    document.getElementById('display-role').innerText = role;
+    const user = sessionStorage.getItem('currentUser');
+    const role = sessionStorage.getItem('currentRole');
+    if (!user) {
+        window.location.href = 'index.html';
+        return;
+    }
+    if (document.getElementById('display-user')) document.getElementById('display-user').innerText = user;
+    if (document.getElementById('display-role')) document.getElementById('display-role').innerText = role || '';
 
     // Cargar carrito temporal si existe para que persista al navegar a otra página dentro de esta
     // misma ventana. sessionStorage está aislado por ventana (a diferencia de localStorage, que es
@@ -864,8 +940,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
-            const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
+            const auditoriaUsuario = sessionStorage.getItem('currentUser') || '';
+            const auditoriaRol = sessionStorage.getItem('currentRole') || '';
 
             const res = await window.api.guardarCliente({
                 nombre,
@@ -1004,7 +1080,18 @@ function renderizarCatalogo(productos) {
 
             // Ya no se deshabilita la tarjeta cuando no hay stock: se permite vender productos
             // agotados (quedan con inventario negativo), pidiendo confirmación al cobrar.
-            card.className = 'product-card';
+            const tamano = detectarTamanoLibra(prod);
+            let tamanoClass = '';
+            let tamanoBadgeHtml = '';
+            if (tamano === '1-libra') {
+                tamanoClass = 'card-tamano-1-libra';
+                tamanoBadgeHtml = `<span class="badge-tamano badge-tamano-1-libra" title="1 Libra">🎂 1 Libra</span>`;
+            } else if (tamano === 'media-libra') {
+                tamanoClass = 'card-tamano-media-libra';
+                tamanoBadgeHtml = `<span class="badge-tamano badge-tamano-media-libra" title="Media Libra">🧁 1/2 Libra</span>`;
+            }
+
+            card.className = `product-card ${tamanoClass}`.trim();
 
             const imgUrl = (prod.foto_path && (prod.foto_path.startsWith('http') || prod.foto_path.startsWith('file:///')))
                 ? prod.foto_path
@@ -1022,6 +1109,7 @@ function renderizarCatalogo(productos) {
             card.innerHTML = `
                 <div style="position: relative; width: 100% !important; height: 90px !important;">
                     <img src="${imgUrl}" alt="${productoNombre}" style="width: 100% !important; height: 90px !important; object-fit: cover !important; border-radius: 6px !important; display: block !important;">
+                    ${tamanoBadgeHtml ? `<div style="position: absolute; top: 4px; left: 4px; z-index: 5;">${tamanoBadgeHtml}</div>` : ''}
                     <div style="position: absolute; top: 4px; right: 4px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; z-index: 5;">
                         ${badgeHtml}
                     </div>
@@ -1398,8 +1486,14 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
         const porcentajeDescuento = obtenerPorcentajeDescuento();
         const descuentoAplicado = porcentajeDescuento > 0 ? porcentajeDescuento : 0;
 
-        const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
-        const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
+        const auditoriaUsuario = sessionStorage.getItem('currentUser');
+        const auditoriaRol = sessionStorage.getItem('currentRole');
+
+        if (!auditoriaUsuario) {
+            alert('Sesión no válida o expirada. Por favor vuelva a iniciar sesión.');
+            window.location.href = 'index.html';
+            return;
+        }
 
         const payload = {
             sucursalId: sucursalId,
@@ -1421,10 +1515,36 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
 
         if (response.success) {
             const carritoProcesado = carrito;
+            const subtotalProductosVenta = carritoProcesado.reduce((sum, item) => sum + (Number(item.precio || 0) * Number(item.cantidad || 0)), 0);
+            let montoDescTotalVenta = 0;
+            if (descuentoAplicado > 0) {
+                const subPasteleria = carritoProcesado.reduce((sum, item) => {
+                    return esCategoriaPasteleria(item) ? sum + (Number(item.precio || 0) * Number(item.cantidad || 0)) : sum;
+                }, 0);
+                montoDescTotalVenta = Math.round(subPasteleria * (descuentoAplicado / 100));
+            }
+
+            const itemsConDescuento = carritoProcesado.map(i => {
+                const itemSub = Number(i.precio || 0) * Number(i.cantidad || 0);
+                const aplica = descuentoAplicado > 0 && esCategoriaPasteleria(i);
+                const itemMontoDesc = aplica ? Math.round(itemSub * (descuentoAplicado / 100)) : 0;
+                return {
+                    nombre: i.nombre,
+                    cantidad: i.cantidad,
+                    precio: i.precio,
+                    descuento: itemMontoDesc,
+                    porcentajeDescuento: aplica ? descuentoAplicado : 0
+                };
+            });
+
             ultimoTicket = {
                 ventaId: response.ventaId,
                 fecha: new Date().toISOString(),
-                items: carritoProcesado.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
+                items: itemsConDescuento,
+                subtotal: subtotalProductosVenta,
+                descuento: montoDescTotalVenta,
+                porcentajeDescuento: descuentoAplicado,
+                valorDomicilio,
                 total,
                 metodoPago,
                 montoRecibido,
