@@ -1,4 +1,25 @@
 (function () {
+    // Si la ventana fue abierta como secundaria, heredar la sesión de los query params
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('usuario') && !sessionStorage.getItem('currentUser')) {
+        sessionStorage.setItem('currentUser', urlParams.get('usuario'));
+        if (urlParams.get('rol')) {
+            sessionStorage.setItem('currentRole', urlParams.get('rol'));
+        }
+    }
+
+    // Guardián de autenticación: Si no hay usuario o es 'Invitado', redirigir al login
+    let authUser = sessionStorage.getItem('currentUser');
+    if (authUser === 'Invitado') {
+        sessionStorage.removeItem('currentUser');
+        sessionStorage.removeItem('currentRole');
+        authUser = null;
+    }
+    if (!authUser) {
+        window.location.href = 'index.html';
+        return;
+    }
+
     // Inyectar estilos modernos y limpios para el Sidebar
     const styleId = 'sidebar-modern-styles';
     if (!document.getElementById(styleId)) {
@@ -415,8 +436,8 @@
     }
 
     // Datos de sesión activa
-    const currentUser = localStorage.getItem('currentUser') || 'Invitado';
-    const currentRole = localStorage.getItem('currentRole') || 'Sin Rol';
+    const currentUser = sessionStorage.getItem('currentUser') || '';
+    const currentRole = sessionStorage.getItem('currentRole') || 'Operador';
 
     // Determinar qué botón está activo
     const path = window.location.pathname;
@@ -459,8 +480,11 @@
     container.innerHTML = `
         <div class="sidebar-header" style="display: flex; align-items: center; margin-bottom: 16px; gap: 12px; height: 50px; overflow: hidden; flex-shrink: 0;">
             <img src="logo_kary.png" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
-            <div class="sidebar-header-info" style="display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
-                <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Tienda de Kary</h2>
+            <div class="sidebar-header-info" style="display: flex; flex-direction: column; overflow: hidden; min-width: 0; flex: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <h2 class="sidebar-title" style="margin: 0; font-size: 1.1rem; color: #f8fafc; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Tienda de Kary</h2>
+                    <button id="btn-nueva-ventana-sutil" onclick="window.api.abrirNuevaVentana().then(res => { if (res && !res.success) alert(res.message); })" title="Abrir nueva ventana / otra sesión (Ctrl+N)" style="background: transparent; border: 1px solid rgba(148,163,184,0.25); color: #94a3b8; cursor: pointer; font-size: 0.85rem; padding: 2px 6px; border-radius: 6px; line-height: 1; transition: all 0.2s;" onmouseenter="this.style.color='#f8fafc'; this.style.borderColor='#94a3b8'; this.style.backgroundColor='rgba(255,255,255,0.08)'" onmouseleave="this.style.color='#94a3b8'; this.style.borderColor='rgba(148,163,184,0.25)'; this.style.backgroundColor='transparent'">🗗</button>
+                </div>
                 <span style="font-size: 0.8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; margin-top: 1px;">
                     <strong id="display-user">${currentUser}</strong>
                     <span id="display-role" style="color: #FCF9F5; opacity: 0.8; font-weight: 600;">(${currentRole})</span>
@@ -472,7 +496,7 @@
             <button class="nav-btn ${isDashboard ? 'active' : ''}" onclick="location.href='dashboard.html'"><span>📋</span> <span class="nav-text">Ver Inventario</span></button>
             <div style="display: flex; gap: 4px; width: 100%;">
                 <button class="nav-btn ${isVentas ? 'active' : ''}" onclick="location.href='ventas.html'" style="flex-grow: 1;"><span>🛒</span> <span class="nav-text">Registrar Venta</span></button>
-                <button class="nav-btn" onclick="window.api.abrirVentanaVentas().then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
+                <button class="nav-btn" onclick="window.api.abrirVentanaVentas({ currentUser: sessionStorage.getItem('currentUser'), currentRole: sessionStorage.getItem('currentRole') }).then(res => { if (res && !res.success) alert(res.message); })" title="Abrir en ventana independiente" style="width: 40px; flex-shrink: 0; justify-content: center; padding: 10px 0;"><span>🗔</span></button>
             </div>
             <button class="nav-btn ${isGastos ? 'active' : ''}" onclick="location.href='gastos.html'"><span>💸</span> <span class="nav-text">Registrar Gasto</span></button>
 
@@ -607,11 +631,11 @@
     if (intervaloRolMs && window.api && window.api.forzarSincronizacion) {
         // setInterval no dispara su primera ejecución de inmediato, así que sin esto el primer
         // dato fresco tras iniciar sesión tardaría hasta 5 minutos (Administrador). El login
-        // (renderer.js) deja esta marca en localStorage justo antes de redirigir a ventas.html;
+        // (renderer.js) deja esta marca en sessionStorage justo antes de redirigir a ventas.html;
         // se consume una sola vez aquí -- no en cada navegación interna entre páginas del sidebar,
         // solo la primera vez que carga una página después de loguearse.
-        if (localStorage.getItem('syncAlEntrarPendiente') === '1') {
-            localStorage.removeItem('syncAlEntrarPendiente');
+        if (sessionStorage.getItem('syncAlEntrarPendiente') === '1') {
+            sessionStorage.removeItem('syncAlEntrarPendiente');
             ejecutarSincronizacion({ mostrarAlertas: false });
         }
         intervalSincronizacionRol = setInterval(() => {
@@ -625,12 +649,22 @@
         actualizarProximaSincronizacion();
     }
 
+    // Atajo de teclado (Ctrl+N o Cmd+N) para abrir una nueva ventana con sesión independiente
+    window.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+            e.preventDefault();
+            if (window.api && window.api.abrirNuevaVentana) {
+                window.api.abrirNuevaVentana();
+            }
+        }
+    });
+
     // Configurar listener para Cerrar Sesión
     const btnLogout = container.querySelector('#btn-logout');
     if (btnLogout) {
         btnLogout.addEventListener('click', async (evt) => {
             // Cada página (ventas.js, admin.js, gastos.js, etc.) registra su propio listener extra
-            // sobre este mismo #btn-logout que solo limpia localStorage y redirige. Al ser este handler
+            // sobre este mismo #btn-logout que solo limpia sessionStorage y redirige. Al ser este handler
             // 'async', cede el control en el primer 'await' y ese listener synchronous alcanzaría a
             // redirigir antes de que termine la sincronización o la alerta de inventario negativo de
             // abajo. stopImmediatePropagation() evita que se dispare.
@@ -679,7 +713,7 @@
                 console.error('No se pudo verificar inventario negativo al cerrar sesión:', err);
             }
 
-            localStorage.clear();
+            sessionStorage.clear();
             window.location.href = 'index.html';
         });
     }

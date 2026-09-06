@@ -26,15 +26,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const response = await window.api.login({ username: user, password: pass });
 
     if (response.success) {
-        // Guardamos temporalmente el rol y usuario en el almacenamiento del navegador de Electron
-        localStorage.setItem('currentUser', response.username);
-        localStorage.setItem('currentRole', response.role);
+        // Guardamos temporalmente el rol y usuario en el almacenamiento de sesión de la ventana
+        sessionStorage.setItem('currentUser', response.username);
+        sessionStorage.setItem('currentRole', response.role);
 
         // Marca para que sidebar.js dispare una sincronización inmediata al cargar ventas.html,
         // en vez de esperar al primer intervalo automático (hasta 5 min para Administrador). Sin
         // esto, un cajero que inicia sesión en una app que llevaba rato abierta podía empezar a
         // vender con inventario desactualizado respecto a lo que otras terminales ya sincronizaron.
-        localStorage.setItem('syncAlEntrarPendiente', '1');
+        sessionStorage.setItem('syncAlEntrarPendiente', '1');
 
         // Redireccionamos al panel principal (Ventas)
         window.location.href = 'ventas.html';

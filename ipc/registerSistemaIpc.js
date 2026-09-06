@@ -6,9 +6,41 @@ const { procesarSincronizacion, isSincronizando, hayConexionConocida } = require
 
 function registerSistemaIpc() {
     let ventanasVentas = [];
+    let ventanasAbiertas = [];
+
+    // Abrir nueva ventana independiente (con su propia sesión/pantalla de login)
+    ipcMain.handle('abrir-nueva-ventana', async (event) => {
+        const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+        const minWidth = Math.round(screenWidth * 0.5);
+
+        const win = new BrowserWindow({
+            width: 1150,
+            height: 800,
+            minWidth: minWidth,
+            minHeight: 600,
+            icon: path.join(__dirname, '..', 'build/icon.png'),
+            autoHideMenuBar: true,
+            webPreferences: {
+                preload: path.join(__dirname, '..', 'preload.js'),
+                contextIsolation: true,
+                nodeIntegration: false
+            }
+        });
+
+        win.webContents.session.clearCache().then(() => {
+            win.loadFile('index.html');
+        });
+
+        ventanasAbiertas.push(win);
+        win.on('closed', () => {
+            ventanasAbiertas = ventanasAbiertas.filter(w => w !== win);
+        });
+
+        return { success: true };
+    });
 
     // Abrir ventana de ventas secundaria
-    ipcMain.handle('abrir-ventana-ventas', async (event) => {
+    ipcMain.handle('abrir-ventana-ventas', async (event, sessionData) => {
         if (ventanasVentas.length >= 3) {
             return { success: false, message: 'Límite de 3 ventanas secundarias de ventas alcanzado.' };
         }
@@ -29,7 +61,11 @@ function registerSistemaIpc() {
             }
         });
 
-        win.loadFile('ventas.html', { query: { nueva_ventana: 'true' } });
+        const query = { nueva_ventana: 'true' };
+        if (sessionData?.currentUser) query.usuario = sessionData.currentUser;
+        if (sessionData?.currentRole) query.rol = sessionData.currentRole;
+
+        win.loadFile('ventas.html', { query });
         ventanasVentas.push(win);
 
         win.on('closed', () => {

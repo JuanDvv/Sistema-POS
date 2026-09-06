@@ -1,6 +1,6 @@
 const formatCOP = (val) => `$${Math.round(val).toLocaleString('es-CO')}`;
-const auditoriaUsuario = localStorage.getItem('currentUser') || 'Invitado';
-const auditoriaRol = localStorage.getItem('currentRole') || 'Sin Rol';
+const auditoriaUsuario = sessionStorage.getItem('currentUser') || 'Invitado';
+const auditoriaRol = sessionStorage.getItem('currentRole') || 'Sin Rol';
 let datosReporteGlobal = { ventas: [], gastos: [], ranking: [], abonos: [], abonosPedido: [] };
 
 // Mismo día calendario LOCAL (no solo "hace menos de 24h"). Mismo criterio que usa el backend

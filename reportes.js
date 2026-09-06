@@ -186,7 +186,7 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
 // Cargar Reporte Diario
 async function cargarReporte(fecha) {
     if (!fecha) return;
-    const userRole = localStorage.getItem('currentRole') || 'Sin Rol';
+    const userRole = sessionStorage.getItem('currentRole') || 'Sin Rol';
     // Editar/borrar un gasto de un día anterior es exclusivo de Administrador; el día actual
     // sigue abierto para cualquier rol (ver 'editar-gasto'/'eliminar-gasto' en
     // ipc/registerGastosIpc.js, que aplican la misma restricción del lado del servidor).
@@ -786,8 +786,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    const user = localStorage.getItem('currentUser') || 'Invitado';
-    const role = localStorage.getItem('currentRole') || 'Sin Rol';
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
     document.getElementById('display-user').innerText = user;
     document.getElementById('display-role').innerText = role;
 
@@ -1058,8 +1058,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const user = localStorage.getItem('currentUser') || 'Invitado';
-            const role = localStorage.getItem('currentRole') || 'Sin Rol';
+            const user = sessionStorage.getItem('currentUser') || 'Invitado';
+            const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             const response = await window.api.editarGasto({
                 id: editingGastoId,
@@ -1132,8 +1132,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            const user = localStorage.getItem('currentUser') || 'Invitado';
-            const role = localStorage.getItem('currentRole') || 'Sin Rol';
+            const user = sessionStorage.getItem('currentUser') || 'Invitado';
+            const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
 
             let metodoPagoValue;
             if (editingVentaEsCredito) {
@@ -1265,7 +1265,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
         btnLogout.addEventListener('click', () => {
-            localStorage.clear();
+            sessionStorage.clear();
             window.location.href = 'index.html';
         });
     }
@@ -1328,8 +1328,8 @@ window.resolverDevolucion = async function(id, nuevoEstado) {
         ? '¿Confirmas que el proveedor regresó el producto a la sucursal? Esto reingresará la cantidad al inventario.'
         : '¿Confirmas que el proveedor rechazó la devolución (el producto se queda con ellos)? El stock no se modificará.';
     if (confirm(mensajeConfirmacion)) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.actualizarEstadoDevolucion({ id, nuevoEstado, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);
@@ -1413,8 +1413,8 @@ function renderizarDevoluciones() {
 
 window.eliminarGasto = async function(id) {
     if (confirm("¿Estás seguro de que deseas borrar este gasto?")) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.eliminarGasto({ id, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);
@@ -1554,8 +1554,8 @@ window.iniciarEdicionVenta = async function(id, metodoPago) {
 
 window.eliminarVenta = async function(id) {
     if (confirm("¿Estás seguro de que deseas borrar esta venta? Se devolverán los productos al inventario.")) {
-        const user = localStorage.getItem('currentUser') || 'Invitado';
-        const role = localStorage.getItem('currentRole') || 'Sin Rol';
+        const user = sessionStorage.getItem('currentUser') || 'Invitado';
+        const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
         const response = await window.api.eliminarVenta({ id, auditoriaUsuario: user, auditoriaRol: role });
         if (response.success) {
             alert(response.message);
