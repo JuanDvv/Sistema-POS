@@ -109,6 +109,9 @@ function construirHtmlCuentaCobro({ cliente, numeroCuenta, items, total, sucursa
   const fechaActual = new Date();
   const ciudadFecha = `Turbaco, ${fechaActual.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}`;
   const sumaEnLetras = numeroALetras(total).toLowerCase();
+  const subtotal = (items || []).reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+  const totalNum = Number(total || 0);
+  const descuento = Math.max(0, subtotal - totalNum);
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -194,7 +197,13 @@ function construirHtmlCuentaCobro({ cliente, numeroCuenta, items, total, sucursa
     </tbody>
   </table>
 
-  <div class="totales">TOTAL: ${formatearCOP(total)}</div>
+  <div class="totales">
+    ${descuento > 0 ? `
+      <div>Subtotal: ${formatearCOP(subtotal)}</div>
+      <div style="color: #c0392b;">Descuento: -${formatearCOP(descuento)}</div>
+    ` : ''}
+    <div>TOTAL: ${formatearCOP(total)}</div>
+  </div>
   <div class="total-letras">Total: <strong>${formatearCOP(total)} (${sumaEnLetras}.)</strong></div>
 
   <div class="cordialmente">Cordialmente,</div>

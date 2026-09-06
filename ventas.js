@@ -84,8 +84,12 @@ const esCategoriaCamiseta = (categoria) => {
     if (!categoria) return false;
 
     const ids = [];
+    const nombres = [];
 
     if (categoria && typeof categoria === 'object') {
+        if (categoria.categoria_nombre) nombres.push(categoria.categoria_nombre);
+        if (categoria.nombre) nombres.push(categoria.nombre);
+        if (categoria.categoria) nombres.push(categoria.categoria);
         if (categoria.categoria_id || categoria.id) {
             const categoriaId = categoria.categoria_id || categoria.id;
             const categoriaEncontrada = categoriasCargadas.find(cat => String(cat.id) === String(categoriaId));
@@ -93,17 +97,31 @@ const esCategoriaCamiseta = (categoria) => {
                 let actual = categoriaEncontrada;
                 while (actual) {
                     ids.push(actual.id);
+                    if (actual.nombre) nombres.push(actual.nombre);
                     actual = categoriasCargadas.find(cat => String(cat.id) === String(actual.categoria_padre_id)) || null;
                 }
             }
         }
+    } else if (typeof categoria === 'string') {
+        nombres.push(categoria);
+        ids.push(categoria);
     }
 
     // Retorna true si esta categoría o alguna de sus categorías padre tiene aplica_descuento_mayorista = 1
-    return ids.some(id => {
+    // o coincide con camisetas por ID o nombre de categoría/producto
+    const porColumna = ids.some(id => {
         const cat = categoriasCargadas.find(c => String(c.id) === String(id));
         return cat && Number(cat.aplica_descuento_mayorista) === 1;
     });
+    if (porColumna) return true;
+
+    const porId = ids.some(id => String(id).toLowerCase().includes('cam'));
+    const porNombre = nombres.some(n => {
+        const norm = normalizeStr(n);
+        return norm.includes('cam') || norm.includes('viscosa') || norm.includes('dama') || norm.includes('unisex') || norm.includes('nina') || norm.includes('nino');
+    });
+
+    return porId || porNombre;
 };
 const calcularTotalVenta = () => {
     let subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
@@ -237,35 +255,54 @@ function deshacerUltimoAgregado() {
 }
 
 // Comprobante Informativo (no fiscal) para impresora t\u00e9rmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
-    const filasItems = items.map(item => `
-        <tr>
-            <td class="col-cant">${item.cantidad}x</td>
-            <td>${item.nombre}</td>
-            <td class="col-sub">$${formatCOP(item.precio * item.cantidad)}</td>
-        </tr>
-    `).join('');
+    const subtotalCalculado = subtotal ?? (items || []).reduce((sum, item) => sum + ((item.precio || 0) * (item.cantidad || 0)), 0);
+    const descuentoCalculado = descuento ?? Math.max(0, subtotalCalculado - (total || 0));
+
+    const filasItems = (items || []).map(item => {
+        const precioReal = item.precioReal ?? ((item.precio || 0) * (item.cantidad || 0));
+        const itemDesc = Number(item.descuento || 0);
+        const tieneDesc = itemDesc > 0;
+        const precioFinal = tieneDesc ? precioReal - itemDesc : precioReal;
+
+        return `
+            <tr>
+                <td class="col-cant">${item.cantidad}x</td>
+                <td>
+                    ${item.nombre}
+                    ${tieneDesc ? `<br><small style="color: #4b5563; font-size: 0.8em;">Desc.${item.porcentajeDescuento ? ` (${item.porcentajeDescuento}%)` : ''}: -$${formatCOP(itemDesc)}</small>` : ''}
+                </td>
+                <td class="col-sub">
+                    ${tieneDesc ? `<span style="text-decoration: line-through; font-size: 0.85em; color: #6b7280;">$${formatCOP(precioReal)}</span><br>$${formatCOP(precioFinal)}` : `$${formatCOP(precioReal)}`}
+                </td>
+            </tr>
+        `;
+    }).join('');
 
     return `
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
         <div class="ticket-separador"></div>
-        <div class="ticket-centro ticket-negrita">Delipostres Venecia ${nombreSucursal}</div>
+        <div class="ticket-centro ticket-negrita">Tienda de Kary ${nombreSucursal}</div>
         ${direccion ? `<div class="ticket-centro">${direccion}</div>` : ''}
         ${telefono ? `<div class="ticket-centro">Tel: ${telefono}</div>` : ''}
         <div class="ticket-separador"></div>
         <div>Fecha: ${fechaTexto}</div>
         <div>Venta ID: ${String(ventaId || '').slice(0, 8)}</div>
-        <div>M\u00e9todo: ${metodoPago}</div>
+        <div>Método: ${metodoPago}</div>
         <div class="ticket-separador"></div>
         <table class="ticket-tabla">
             <tbody>${filasItems}</tbody>
         </table>
         <div class="ticket-separador"></div>
+        ${descuentoCalculado > 0 ? `
+        <div class="ticket-pago">Subtotal: $${formatCOP(subtotalCalculado)}</div>
+        <div class="ticket-pago" style="color: #b91c1c;">Descuento${porcentajeDescuento ? ` (${porcentajeDescuento}%)` : ''}: -$${formatCOP(descuentoCalculado)}</div>
+        ` : ''}
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
         ${montoRecibido != null ? `
         <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
@@ -296,8 +333,8 @@ function actualizarEstadoDescuentoUI() {
 
     if (!chkDescuento || !selectDescuento || !descuentoContainer) return;
 
-    const hayPasteleria = carrito.some(item => esCategoriaPasteleria(item));
-    const puedeAplicar = hayPasteleria;
+    const hayCamisetas = carrito.some(item => esCategoriaCamiseta(item));
+    const puedeAplicar = hayCamisetas;
 
     chkDescuento.disabled = !puedeAplicar;
     selectDescuento.disabled = !chkDescuento.checked || !puedeAplicar;
@@ -1343,10 +1380,29 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
 
         if (response.success) {
             const carritoProcesado = carrito;
+            const subtotalVenta = carritoProcesado.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+            const descuentoVenta = Math.max(0, subtotalVenta - total);
+
             ultimoTicket = {
                 ventaId: response.ventaId,
                 fecha: new Date().toISOString(),
-                items: carritoProcesado.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
+                items: carritoProcesado.map(i => {
+                    const itemBase = i.precio * i.cantidad;
+                    const aplicaDesc = porcentajeDescuento > 0 && esCategoriaCamiseta(i);
+                    const itemDesc = aplicaDesc ? itemBase * (porcentajeDescuento / 100) : 0;
+                    return {
+                        nombre: i.nombre,
+                        cantidad: i.cantidad,
+                        precio: i.precio,
+                        precioReal: itemBase,
+                        descuento: itemDesc,
+                        porcentajeDescuento: aplicaDesc ? porcentajeDescuento : 0,
+                        total: itemBase - itemDesc
+                    };
+                }),
+                subtotal: subtotalVenta,
+                descuento: descuentoVenta,
+                porcentajeDescuento: descuentoVenta > 0 ? porcentajeDescuento : 0,
                 total,
                 metodoPago,
                 montoRecibido,

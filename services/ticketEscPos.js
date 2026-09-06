@@ -90,9 +90,12 @@ function formatearFilaProducto(cantidad, nombre, precioTexto) {
     });
 }
 
-function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono, montoRecibido, vuelto } = {}) {
+function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucursalNombre, direccion, telefono, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento } = {}) {
     const formatCOP = (val) => `$${Math.round(Number(val) || 0).toLocaleString('es-CO')}`;
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+
+    const subtotalCalculado = subtotal ?? (items || []).reduce((sum, item) => sum + ((item.precio || 0) * (item.cantidad || 0)), 0);
+    const descuentoCalculado = descuento ?? Math.max(0, subtotalCalculado - (total || 0));
 
     const partes = [INIT];
     const linea = (texto) => partes.push(Buffer.from(`${limpiar(texto)}\n`, 'ascii'));
@@ -116,11 +119,26 @@ function construirTicketBuffer({ ventaId, fecha, items, total, metodoPago, sucur
     sep();
 
     (items || []).forEach(item => {
-        const precioTexto = formatCOP((item.precio || 0) * (item.cantidad || 0));
+        const precioReal = item.precioReal ?? ((item.precio || 0) * (item.cantidad || 0));
+        const itemDesc = Number(item.descuento || 0);
+        const tieneDesc = itemDesc > 0;
+        const precioFinal = tieneDesc ? precioReal - itemDesc : precioReal;
+
+        const precioTexto = formatCOP(precioFinal);
         formatearFilaProducto(item.cantidad, item.nombre, precioTexto).forEach(linea);
+        if (tieneDesc) {
+            const descTexto = `  Desc: -${formatCOP(itemDesc)} (Real: ${formatCOP(precioReal)})`;
+            envolverTexto(descTexto, ANCHO_SEPARADOR).forEach(linea);
+        }
     });
 
     sep();
+    if (descuentoCalculado > 0) {
+        partes.push(ALIGN_RIGHT);
+        linea(`Subtotal: ${formatCOP(subtotalCalculado)}`);
+        linea(`Descuento${porcentajeDescuento ? ` (${porcentajeDescuento}%)` : ''}: -${formatCOP(descuentoCalculado)}`);
+        partes.push(ALIGN_LEFT);
+    }
     // "TOTAL: $X" como una sola línea en negrita alineada a la derecha, igual que .ticket-total
     // en la vista previa en pantalla (no como etiqueta/valor separados con puntos de relleno).
     partes.push(ALIGN_RIGHT, BOLD_ON);

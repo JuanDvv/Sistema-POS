@@ -486,12 +486,18 @@ async function cargarListaVentasDia() {
             ? `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`
             : (venta.metodo_pago || '');
         const esFiscal = venta.cliente_categoria === 'Fiscal';
+        const subtotalVenta = Number(venta.subtotal_productos || 0);
+        const totalVenta = Number(venta.total || 0);
+        const descuentoVenta = venta.descuento ? Number(venta.descuento) : Math.max(0, Math.round(subtotalVenta - totalVenta));
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${hora}</td>
             <td>${venta.productos_vendidos || 'Sin detalles'}</td>
             <td>${metodoPagoText}</td>
-            <td><strong>${formatCOP(venta.total)}</strong></td>
+            <td>
+                <strong>${formatCOP(venta.total)}</strong>
+                ${descuentoVenta > 0 ? `<div style="font-size: 0.82em; color: #0d9488; font-weight: 500; margin-top: 2px;">(-$${formatCOP(descuentoVenta)} desc.)</div>` : ''}
+            </td>
             <td>
                 <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Editar</button>
                 <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>

@@ -60,24 +60,39 @@ const parseNumberUI = (str) => {
 };
 
 // Comprobante Informativo (no fiscal) para impresora térmica 58/80mm.
-function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto }) {
+function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRecibido, vuelto, subtotal, descuento, porcentajeDescuento }) {
     const nombreSucursal = sucursalDetalle?.nombre || sucursalId;
     const direccion = sucursalDetalle?.direccion || '';
     const telefono = sucursalDetalle?.telefono || '';
     const fechaTexto = new Date(fecha).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
-    const filasItems = items.map(item => `
-        <tr>
-            <td class="col-cant">${item.cantidad}x</td>
-            <td>${item.nombre}</td>
-            <td class="col-sub">$${formatCOP(item.precio * item.cantidad)}</td>
-        </tr>
-    `).join('');
+    const subtotalCalculado = subtotal ?? (items || []).reduce((sum, item) => sum + ((item.precio || 0) * (item.cantidad || 0)), 0);
+    const descuentoCalculado = descuento ?? Math.max(0, subtotalCalculado - (total || 0));
+
+    const filasItems = (items || []).map(item => {
+        const precioReal = item.precioReal ?? ((item.precio || 0) * (item.cantidad || 0));
+        const itemDesc = Number(item.descuento || 0);
+        const tieneDesc = itemDesc > 0;
+        const precioFinal = tieneDesc ? precioReal - itemDesc : precioReal;
+
+        return `
+            <tr>
+                <td class="col-cant">${item.cantidad}x</td>
+                <td>
+                    ${item.nombre}
+                    ${tieneDesc ? `<br><small style="color: #4b5563; font-size: 0.8em;">Desc.${item.porcentajeDescuento ? ` (${item.porcentajeDescuento}%)` : ''}: -$${formatCOP(itemDesc)}</small>` : ''}
+                </td>
+                <td class="col-sub">
+                    ${tieneDesc ? `<span style="text-decoration: line-through; font-size: 0.85em; color: #6b7280;">$${formatCOP(precioReal)}</span><br>$${formatCOP(precioFinal)}` : `$${formatCOP(precioReal)}`}
+                </td>
+            </tr>
+        `;
+    }).join('');
 
     return `
         <div class="ticket-aviso">*** COMPROBANTE INFORMATIVO ***<br>NO ES FACTURA DE VENTA</div>
         <div class="ticket-separador"></div>
-        <div class="ticket-centro ticket-negrita">Delipostres Venecia ${nombreSucursal}</div>
+        <div class="ticket-centro ticket-negrita">Tienda de Kary ${nombreSucursal}</div>
         ${direccion ? `<div class="ticket-centro">${direccion}</div>` : ''}
         ${telefono ? `<div class="ticket-centro">Tel: ${telefono}</div>` : ''}
         <div class="ticket-separador"></div>
@@ -89,6 +104,10 @@ function construirTicketHTML({ ventaId, fecha, items, total, metodoPago, montoRe
             <tbody>${filasItems}</tbody>
         </table>
         <div class="ticket-separador"></div>
+        ${descuentoCalculado > 0 ? `
+        <div class="ticket-pago">Subtotal: $${formatCOP(subtotalCalculado)}</div>
+        <div class="ticket-pago" style="color: #b91c1c;">Descuento${porcentajeDescuento ? ` (${porcentajeDescuento}%)` : ''}: -$${formatCOP(descuentoCalculado)}</div>
+        ` : ''}
         <div class="ticket-total">TOTAL: $${formatCOP(total)}</div>
         ${montoRecibido != null ? `
         <div class="ticket-pago">Recibido: $${formatCOP(montoRecibido)}</div>
@@ -137,11 +156,27 @@ window.imprimirComprobanteHistorial = async (ventaId) => {
         alert('No se pudo obtener el detalle de la venta: ' + res.message);
         return;
     }
+    const subtotal = res.detalle.reduce((sum, d) => sum + (Number(d.cantidad || 0) * Number(d.precio_unitario || 0)), 0);
+    const total = Number(res.venta.total || 0);
+    const descuento = Math.max(0, subtotal - total);
+    const porcentajeDescuento = (descuento > 0 && subtotal > 0) ? Math.round((descuento / subtotal) * 100) : 0;
+
     mostrarPreviewTicket({
         ventaId: res.venta.id,
         fecha: res.venta.fecha,
-        items: res.detalle.map(d => ({ nombre: d.nombre || 'Producto', cantidad: d.cantidad, precio: d.precio_unitario })),
-        total: res.venta.total,
+        items: res.detalle.map(d => {
+            const precioReal = Number(d.cantidad || 0) * Number(d.precio_unitario || 0);
+            return {
+                nombre: d.nombre || 'Producto',
+                cantidad: d.cantidad,
+                precio: d.precio_unitario,
+                precioReal
+            };
+        }),
+        subtotal,
+        descuento,
+        porcentajeDescuento,
+        total,
         metodoPago: res.venta.metodo_pago,
         montoRecibido: res.venta.monto_recibido,
         vuelto: res.venta.vuelto
@@ -352,6 +387,10 @@ async function cargarReporte(fecha) {
                     `;
                 }
 
+                const subtotalVenta = Number(venta.subtotal_productos || 0);
+                const totalVenta = Number(venta.total || 0);
+                const descuentoVenta = venta.descuento ? Number(venta.descuento) : Math.max(0, Math.round(subtotalVenta - totalVenta));
+
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${hora}</td>
@@ -365,7 +404,10 @@ async function cargarReporte(fecha) {
                             `).join('')}
                     </td>
                     <td>${metodoPagoText}${checkboxVerificada}</td>
-                    ${montoPedidoHtml || `<td><strong>${formatCOP(venta.total)}</strong></td>`}
+                    ${montoPedidoHtml || `<td>
+                        <strong>${formatCOP(venta.total)}</strong>
+                        ${descuentoVenta > 0 ? `<div style="font-size: 0.82em; color: #0d9488; font-weight: 500; margin-top: 2px;">(-$${formatCOP(descuentoVenta)} desc.)</div>` : ''}
+                    </td>`}
                     ${tdVentaAcciones}
                 `;
                 tbodyVentas.appendChild(tr);
