@@ -1633,16 +1633,28 @@ async function syncClientes() {
         // A. Subir clientes locales creados/editados
         const clientesPendientes = await allQuery(`SELECT * FROM clientes WHERE sync_status = 'pending'`, []);
         for (const cli of clientesPendientes) {
-            const gano = await upsertConLWW('clientes', {
+            let payloadCliente = {
                 id: cli.id,
                 nombre: cli.nombre,
                 tipo: cli.tipo,
+                categoria: cli.categoria || 'Normal',
                 identificacion: cli.identificacion,
                 telefono: cli.telefono,
                 email: cli.email,
                 origen: cli.origen,
                 updated_at: cli.updated_at
-            });
+            };
+            let gano;
+            try {
+                gano = await upsertConLWW('clientes', payloadCliente);
+            } catch (errUpsert) {
+                if (String(errUpsert?.message || '').toLowerCase().includes('categoria')) {
+                    delete payloadCliente.categoria;
+                    gano = await upsertConLWW('clientes', payloadCliente);
+                } else {
+                    throw errUpsert;
+                }
+            }
             if (!gano) {
                 console.log(`[Sincronizador] Cliente ${cli.id} no subido: hay una versión más reciente en la nube.`);
                 continue;
@@ -1667,11 +1679,12 @@ async function syncClientes() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO clientes (id, nombre, tipo, categoria, identificacion, telefono, email, origen, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         tipo = excluded.tipo,
+                        categoria = COALESCE(excluded.categoria, clientes.categoria, 'Normal'),
                         identificacion = excluded.identificacion,
                         telefono = excluded.telefono,
                         email = excluded.email,
@@ -1679,7 +1692,7 @@ async function syncClientes() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cli.id, cli.nombre, cli.tipo, cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
+                    [cli.id, cli.nombre, cli.tipo, cli.categoria || 'Normal', cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
                 );
             }
         }

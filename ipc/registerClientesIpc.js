@@ -124,27 +124,16 @@ function registerClientesIpc() {
                  WHERE v.es_credito = 1 AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
             `;
             const paramsVentas = [];
-            if (fechaInicio && fechaFin) {
-                queryVentas += ` AND strftime('%Y-%m-%d', v.fecha) >= ? AND strftime('%Y-%m-%d', v.fecha) <= ?`;
-                paramsVentas.push(fechaInicio, fechaFin);
-            }
             if (sucursalId) {
                 queryVentas += ` AND v.sucursal_id = ?`;
                 paramsVentas.push(sucursalId);
             }
-            queryVentas += ` GROUP BY v.id ORDER BY v.fecha DESC`;
+            queryVentas += ` GROUP BY v.id ORDER BY v.fecha ASC`;
             const ventas = await allQuery(queryVentas, paramsVentas);
 
-            // abonos_credito no tiene sucursal_id (los clientes no están ligados a una sucursal),
-            // por lo que solo se filtra por fecha, igual que en el balance financiero.
-            let queryAbonos = `SELECT id, cliente_id, monto, fecha, metodo_pago FROM abonos_credito WHERE (sync_status IS NULL OR sync_status <> 'deleted')`;
-            const paramsAbonos = [];
-            if (fechaInicio && fechaFin) {
-                queryAbonos += ` AND strftime('%Y-%m-%d', fecha) >= ? AND strftime('%Y-%m-%d', fecha) <= ?`;
-                paramsAbonos.push(fechaInicio, fechaFin);
-            }
-            queryAbonos += ` ORDER BY fecha DESC`;
-            const abonos = await allQuery(queryAbonos, paramsAbonos);
+            // Traer todos los abonos activos en orden cronológico para conciliar cartera y amortizar créditos
+            let queryAbonos = `SELECT id, cliente_id, monto, fecha, metodo_pago FROM abonos_credito WHERE (sync_status IS NULL OR sync_status <> 'deleted') ORDER BY fecha ASC`;
+            const abonos = await allQuery(queryAbonos, []);
 
             return { success: true, clientes, ventas, abonos };
         } catch (err) {
@@ -230,11 +219,19 @@ function registerClientesIpc() {
         const win = BrowserWindow.fromWebContents(event.sender);
 
         try {
+            let idClienteFinal = clienteId;
+            if (!idClienteFinal && ventaId) {
+                const ventaRow = await new Promise((resolve) => {
+                    db.get(`SELECT cliente_id FROM ventas WHERE id = ?`, [ventaId], (err, row) => resolve(row));
+                });
+                idClienteFinal = ventaRow ? ventaRow.cliente_id : null;
+            }
+
             const cliente = await new Promise((resolve) => {
-                db.get(`SELECT * FROM clientes WHERE id = ?`, [clienteId], (err, row) => resolve(row));
+                db.get(`SELECT * FROM clientes WHERE id = ?`, [idClienteFinal], (err, row) => resolve(row));
             });
             if (!cliente) {
-                return { success: false, message: 'No se encontró el cliente.' };
+                return { success: false, message: 'No se encontró el cliente asociado a esta venta para generar la cuenta de cobro.' };
             }
 
             const venta = await new Promise((resolve) => {

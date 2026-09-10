@@ -31,12 +31,13 @@ async function calcularEfectivoVentana(sucursalId, fechaDesde, fechaHasta) {
          FROM ventas v
          LEFT JOIN pedidos ped ON ped.venta_id = v.id
          WHERE v.sucursal_id = ? AND v.fecha > ? AND v.fecha <= ?
-           AND (v.sync_status IS NULL OR v.sync_status <> 'deleted') AND ped.id IS NULL`,
+           AND (v.sync_status IS NULL OR v.sync_status <> 'deleted') AND ped.id IS NULL
+           AND (v.es_credito IS NULL OR v.es_credito = 0)`,
         [sucursalId, fechaDesde, fechaHasta]
     );
     let ventasEfectivo = 0;
     ventas.forEach(v => {
-        if (v.metodo_pago === 'Efectivo') {
+        if (v.metodo_pago && v.metodo_pago.startsWith('Efectivo')) {
             ventasEfectivo += v.total;
         } else if (v.metodo_pago && v.metodo_pago.startsWith('Mixto')) {
             const m = v.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);

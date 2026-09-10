@@ -50,20 +50,15 @@ window.confirm = (msg) => {
 };
 
 function restaurarFocoSelectoresCredito() {
-    const selects = [
-        document.getElementById('select-filtro-cliente-reporte'),
-        document.getElementById('abono-cliente-select')
-    ];
-
-    selects.forEach((select) => {
-        if (!select) return;
-        select.blur();
+    const selectFiltro = document.getElementById('select-filtro-cliente-reporte');
+    if (selectFiltro && selectFiltro.offsetParent !== null) {
+        selectFiltro.blur();
         requestAnimationFrame(() => {
-            if (document.activeElement !== select) {
-                select.focus({ preventScroll: true });
+            if (document.activeElement !== selectFiltro) {
+                selectFiltro.focus({ preventScroll: true });
             }
         });
-    });
+    }
 }
 
 async function actualizarMesesDisponibles(anio, mesSeleccionadoDefault = null) {
@@ -264,15 +259,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (ventas) {
             ventas.forEach(v => {
                 totalIngresos += v.total;
-                if (v.metodo_pago === 'Efectivo') {
+                if (v.metodo_pago && v.metodo_pago.startsWith('Efectivo')) {
                     subtotalEfectivo += v.total;
-                } else if (v.metodo_pago === 'Transferencia') {
+                } else if (v.metodo_pago && v.metodo_pago.startsWith('Transferencia')) {
                     subtotalTransferencia += v.total;
                 } else if (v.metodo_pago && v.metodo_pago.startsWith('Mixto')) {
                     const matchEf = v.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
                     const matchTr = v.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
                     subtotalEfectivo += matchEf ? parseFloat(matchEf[1]) : 0;
                     subtotalTransferencia += matchTr ? parseFloat(matchTr[1]) : 0;
+                } else if (v.metodo_pago && v.metodo_pago.startsWith('Crédito')) {
+                    // Crédito
                 } else {
                     subtotalTransferencia += v.total;
                 }
@@ -395,18 +392,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const modalAbono = document.getElementById('modal-abono');
-    const btnRegistrarAbonoDirecto = document.getElementById('btn-registrar-abono-directo');
     const btnCloseAbonoModal = document.getElementById('btn-close-abono-modal');
     const formAbono = document.getElementById('form-abono');
-
-    if (btnRegistrarAbonoDirecto) {
-        btnRegistrarAbonoDirecto.addEventListener('click', () => {
-            const modalAbono = document.getElementById('modal-abono');
-            document.getElementById('form-abono').reset();
-            document.getElementById('abono-fecha').value = new Date().toISOString().split('T')[0];
-            if (modalAbono) modalAbono.style.display = 'flex';
-        });
-    }
 
     if (btnCloseAbonoModal) {
         btnCloseAbonoModal.addEventListener('click', () => {
@@ -422,6 +409,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const btnAbonoDesdeDetalle = document.getElementById('btn-abono-desde-detalle');
+    if (btnAbonoDesdeDetalle) {
+        btnAbonoDesdeDetalle.addEventListener('click', () => {
+            if (modalDetalleCliente) modalDetalleCliente.style.display = 'none';
+            if (clienteDetalleActualId) {
+                iniciarAbonoCliente(clienteDetalleActualId);
+            }
+        });
+    }
+
     window.addEventListener('click', (e) => {
         if (e.target === modalAbono) {
             modalAbono.style.display = 'none';
@@ -434,7 +431,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (formAbono) {
         formAbono.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const clienteId = document.getElementById('abono-cliente-select').value;
+            const clienteId = document.getElementById('abono-cliente-id')?.value
+                || document.getElementById('abono-cliente-select')?.value
+                || clienteAbonoSeleccionadoActual;
             const montoRaw = document.getElementById('abono-monto').value;
             const metodoPago = document.getElementById('abono-metodo').value;
             const fecha = document.getElementById('abono-fecha').value;
@@ -591,15 +590,17 @@ async function cargarReportesGestion() {
 
             let cashVal = 0;
             let transVal = 0;
-            if (v.metodo_pago === 'Efectivo') {
+            if (v.metodo_pago && v.metodo_pago.startsWith('Efectivo')) {
                 cashVal = v.total;
-            } else if (v.metodo_pago === 'Transferencia') {
+            } else if (v.metodo_pago && v.metodo_pago.startsWith('Transferencia')) {
                 transVal = v.total;
             } else if (v.metodo_pago && v.metodo_pago.startsWith('Mixto')) {
                 const matchEf = v.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);
                 const matchTr = v.metodo_pago.match(/Transferencia:\s*(\d+(\.\d+)?)/);
                 cashVal = matchEf ? parseFloat(matchEf[1]) : 0;
                 transVal = matchTr ? parseFloat(matchTr[1]) : 0;
+            } else if (v.metodo_pago && v.metodo_pago.startsWith('Crédito')) {
+                // Crédito
             } else {
                 transVal = v.total;
             }
@@ -844,13 +845,14 @@ async function cargarReportesGestion() {
 let datosReporteCreditos = { clientes: [], ventas: [], abonos: [] };
 let filtroClienteCreditoActual = '';
 let clienteAbonoSeleccionadoActual = '';
+let clienteDetalleActualId = null;
 
 function poblarSelectClientesCredito(select, placeholderText, valorActual) {
     if (!select) return '';
 
     const clientes = datosReporteCreditos.clientes || [];
-    const valorValido = valorActual && clientes.some(cli => String(cli.id) === String(valorActual))
-        ? valorActual
+    const valorValido = valorActual && clientes.some(cli => String(cli.id).trim() === String(valorActual).trim())
+        ? String(valorActual).trim()
         : '';
 
     const estabaActivo = document.activeElement === select;
@@ -861,7 +863,7 @@ function poblarSelectClientesCredito(select, placeholderText, valorActual) {
     const opcionesDeseadas = [
         { value: '', text: placeholderText },
         ...clientes.map(cli => ({
-            value: String(cli.id),
+            value: String(cli.id).trim(),
             text: `${cli.nombre} (${cli.tipo})`
         }))
     ];
@@ -877,7 +879,7 @@ function poblarSelectClientesCredito(select, placeholderText, valorActual) {
 
         clientes.forEach(cli => {
             const opt = document.createElement('option');
-            opt.value = cli.id;
+            opt.value = String(cli.id).trim();
             opt.textContent = `${cli.nombre} (${cli.tipo})`;
             fragment.appendChild(opt);
         });
@@ -953,6 +955,98 @@ async function cargarReporteCreditos() {
     renderizarTabCreditos();
 }
 
+function calcularEstadoCreditos(datosReporte, fechaInicio, fechaFin) {
+    const balancePorCliente = {};
+
+    (datosReporte.clientes || []).forEach(cli => {
+        balancePorCliente[cli.id] = {
+            cliente: cli,
+            ventasTodas: [],
+            abonosTodos: [],
+            ventasPeriodo: [],
+            totalCreditosPeriodo: 0,
+            totalDomiciliosPeriodo: 0,
+            totalAbonosAplicadosPeriodo: 0,
+            saldoPeriodo: 0,
+            totalCreditosHistorico: 0,
+            totalAbonosHistorico: 0,
+            saldoHistorico: 0
+        };
+    });
+
+    (datosReporte.ventas || []).forEach(v => {
+        const item = balancePorCliente[v.cliente_id];
+        if (!item) return;
+        item.ventasTodas.push({
+            ...v,
+            total: Number(v.total || 0),
+            montoPagado: 0,
+            saldo: Number(v.total || 0),
+            abonosAsociados: []
+        });
+    });
+
+    (datosReporte.abonos || []).forEach(ab => {
+        const item = balancePorCliente[ab.cliente_id];
+        if (!item) return;
+        item.abonosTodos.push({
+            ...ab,
+            monto: Number(ab.monto || 0)
+        });
+    });
+
+    // Amortización cronológica (FIFO): cada abono amortiza las deudas de crédito más antiguas
+    Object.values(balancePorCliente).forEach(item => {
+        item.ventasTodas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+        item.abonosTodos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+        let vIdx = 0;
+        for (const ab of item.abonosTodos) {
+            let rem = ab.monto;
+            while (rem > 0 && vIdx < item.ventasTodas.length) {
+                const v = item.ventasTodas[vIdx];
+                const pend = v.total - v.montoPagado;
+                if (pend <= 0) {
+                    vIdx++;
+                    continue;
+                }
+                const pago = Math.min(rem, pend);
+                v.montoPagado += pago;
+                v.saldo = v.total - v.montoPagado;
+                v.abonosAsociados.push({
+                    abonoId: ab.id,
+                    monto: pago,
+                    fecha: ab.fecha,
+                    metodoPago: ab.metodo_pago
+                });
+                rem -= pago;
+                if (v.saldo <= 0) {
+                    vIdx++;
+                }
+            }
+        }
+
+        item.ventasTodas.forEach(v => {
+            item.totalCreditosHistorico += v.total;
+            item.saldoHistorico += v.saldo;
+
+            const fIso = v.fecha ? v.fecha.split('T')[0] : '';
+            const enPeriodo = (!fechaInicio || fIso >= fechaInicio) && (!fechaFin || fIso <= fechaFin);
+            if (enPeriodo) {
+                item.ventasPeriodo.push(v);
+                item.totalCreditosPeriodo += v.total;
+                item.totalDomiciliosPeriodo += extraerDomicilio(v.metodo_pago);
+                item.totalAbonosAplicadosPeriodo += v.montoPagado;
+                item.saldoPeriodo += v.saldo;
+            }
+        });
+
+        item.totalAbonosHistorico = item.abonosTodos.reduce((sum, ab) => sum + ab.monto, 0);
+    });
+
+    return balancePorCliente;
+}
+
 function renderizarTabCreditos() {
     const selectFiltroCliente = document.getElementById('select-filtro-cliente-reporte');
     const filterClienteId = selectFiltroCliente ? (selectFiltroCliente.value || filtroClienteCreditoActual) : filtroClienteCreditoActual;
@@ -960,34 +1054,9 @@ function renderizarTabCreditos() {
         filtroClienteCreditoActual = selectFiltroCliente.value || '';
     }
     
-    // Calcular agregaciones por cliente
-    const balancePorCliente = {};
-    datosReporteCreditos.clientes.forEach(cli => {
-        balancePorCliente[cli.id] = {
-            cliente: cli,
-            totalCreditos: 0,
-            totalDomicilios: 0,
-            totalAbonos: 0,
-            saldo: 0
-        };
-    });
-
-    // Sumar ventas a crédito (el total ya incluye el domicilio; se desglosa aparte para mostrarlo)
-    datosReporteCreditos.ventas.forEach(v => {
-        if (balancePorCliente[v.cliente_id]) {
-            balancePorCliente[v.cliente_id].totalCreditos += v.total;
-            balancePorCliente[v.cliente_id].totalDomicilios += extraerDomicilio(v.metodo_pago);
-        }
-    });
+    // Conciliación de cartera y amortizaciones por cliente
+    const balancePorCliente = calcularEstadoCreditos(datosReporteCreditos, gFechaInicio, gFechaFin);
     
-    // Sumar abonos
-    datosReporteCreditos.abonos.forEach(ab => {
-        if (balancePorCliente[ab.cliente_id]) {
-            balancePorCliente[ab.cliente_id].totalAbonos += ab.monto;
-        }
-    });
-    
-    // Calcular saldos y KPIs
     let kpiCreditos = 0;
     let kpiAbonos = 0;
     let kpiSaldo = 0;
@@ -996,35 +1065,38 @@ function renderizarTabCreditos() {
     if (tbodyClientes) tbodyClientes.innerHTML = '';
     
     Object.values(balancePorCliente).forEach(item => {
-        item.saldo = item.totalCreditos - item.totalAbonos;
-        
-        // Sumar a los KPIs globales o filtrados
+        // Sumar a los KPIs del periodo según filtro
         if (!filterClienteId || item.cliente.id === filterClienteId) {
-            kpiCreditos += item.totalCreditos;
-            kpiAbonos += item.totalAbonos;
-            kpiSaldo += item.saldo;
+            kpiCreditos += item.totalCreditosPeriodo;
+            kpiAbonos += item.totalAbonosAplicadosPeriodo;
+            kpiSaldo += item.saldoPeriodo;
         }
         
-        // Renderizar en la tabla de estados por cliente si no está filtrado
+        // Filtrar por cliente si está seleccionado
         if (filterClienteId && item.cliente.id !== filterClienteId) return;
 
-        // Solo mostrar clientes con créditos activos (saldo pendiente > 0)
-        if (item.saldo <= 0) return;
+        // Mostrar si tuvo créditos en este periodo O si aún tiene saldo pendiente histórico
+        if (item.totalCreditosPeriodo === 0 && item.saldoHistorico <= 0) return;
 
         if (tbodyClientes) {
             const tr = document.createElement('tr');
-            const escId = item.cliente.id.replace(/'/g, "\\'");
+            const escId = String(item.cliente.id).trim().replace(/'/g, "\\'");
+            const tieneSaldo = item.saldoHistorico > 0;
+            const btnAbonarHtml = tieneSaldo
+                ? `<button class="btn-edit" style="background-color: #10b981;" onclick="iniciarAbonoCliente('${escId}')">💵 Abonar</button>`
+                : `<span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 0.85em;">✅ Al día</span>`;
+
             tr.innerHTML = `
                 <td><strong>${item.cliente.nombre}</strong></td>
                 <td><span style="background: ${item.cliente.tipo === 'Empresa' ? '#dfe7fd' : '#f0ebd8'}; padding: 4px 8px; border-radius: 4px; font-weight: 600; color: #1e293b;">${item.cliente.tipo}</span></td>
                 <td>${item.cliente.identificacion || '-'}</td>
-                <td style="color: #3b82f6; font-weight: 600;">${formatCOP(item.totalCreditos)}</td>
-                <td style="color: #6b7280;">${formatCOP(item.totalDomicilios)}</td>
-                <td style="color: #10b981; font-weight: 600;">${formatCOP(item.totalAbonos)}</td>
-                <td style="color: ${item.saldo > 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">${formatCOP(item.saldo)}</td>
+                <td style="color: #3b82f6; font-weight: 600;">${formatCOP(item.totalCreditosPeriodo)}</td>
+                <td style="color: #6b7280;">${formatCOP(item.totalDomiciliosPeriodo)}</td>
+                <td style="color: #10b981; font-weight: 600;">${formatCOP(item.totalAbonosAplicadosPeriodo)}</td>
+                <td style="color: ${item.saldoPeriodo > 0 ? '#ef4444' : '#10b981'}; font-weight: bold;">${formatCOP(item.saldoPeriodo)}</td>
                 <td>
-                    <div class="actions-cell" style="display: flex; gap: 6px;">
-                        <button class="btn-edit" style="background-color: #10b981;" onclick="iniciarAbonoCliente('${escId}')">💵 Abonar</button>
+                    <div class="actions-cell" style="display: flex; gap: 6px; align-items: center;">
+                        ${btnAbonarHtml}
                         <button class="btn-edit" onclick="verDetalleCliente('${escId}')">🔍 Ver Ventas</button>
                     </div>
                 </td>
@@ -1058,20 +1130,21 @@ function renderizarTabCreditos() {
         }
     }
     
-    // Renderizar Historial Detallado de Movimientos (Ventas y Abonos combinados)
+    // Renderizar Historial Detallado de Movimientos del periodo (Ventas y Abonos combinados)
     const tbodyMovimientos = document.querySelector('#table-movimientos-creditos tbody');
     if (!tbodyMovimientos) return;
     tbodyMovimientos.innerHTML = '';
     
     const movimientos = [];
     
-    // Agregar ventas
+    // Agregar ventas dentro del periodo seleccionado
     datosReporteCreditos.ventas.forEach(v => {
         const cli = datosReporteCreditos.clientes.find(c => c.id === v.cliente_id);
         if (!cli) return;
-        
-        // Si hay filtro por cliente y no coincide, ignorar
         if (filterClienteId && v.cliente_id !== filterClienteId) return;
+
+        const fIso = v.fecha ? v.fecha.split('T')[0] : '';
+        if (gFechaInicio && gFechaFin && (fIso < gFechaInicio || fIso > gFechaFin)) return;
         
         movimientos.push({
             id: v.id,
@@ -1084,13 +1157,14 @@ function renderizarTabCreditos() {
         });
     });
     
-    // Agregar abonos
+    // Agregar abonos recibidos dentro del periodo seleccionado
     datosReporteCreditos.abonos.forEach(ab => {
         const cli = datosReporteCreditos.clientes.find(c => c.id === ab.cliente_id);
         if (!cli) return;
-        
-        // Si hay filtro por cliente y no coincide, ignorar
         if (filterClienteId && ab.cliente_id !== filterClienteId) return;
+
+        const fIso = ab.fecha ? ab.fecha.split('T')[0] : '';
+        if (gFechaInicio && gFechaFin && (fIso < gFechaInicio || fIso > gFechaFin)) return;
         
         movimientos.push({
             id: ab.id,
@@ -1107,7 +1181,7 @@ function renderizarTabCreditos() {
     movimientos.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
     
     if (movimientos.length === 0) {
-        tbodyMovimientos.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No se encontraron movimientos.</td></tr>';
+        tbodyMovimientos.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No se encontraron movimientos en este período.</td></tr>';
         return;
     }
     
@@ -1115,9 +1189,6 @@ function renderizarTabCreditos() {
         const tr = document.createElement('tr');
         const fechaLegible = new Date(mov.fecha).toLocaleString('es-CO');
         const escId = mov.id.replace(/'/g, "\\'");
-        // Un abono de un día anterior solo lo puede borrar un Administrador (el backend ya lo
-        // bloquea, ver 'eliminar-abono' en ipc/registerClientesIpc.js; esto solo evita mostrarle
-        // el botón a quien de todas formas recibiría el error al hacer clic).
         const puedeEliminarAbono = !mov.isVenta && (auditoriaRol === 'Administrador' || esFechaDeHoy(mov.fecha));
         const btnDeleteHtml = puedeEliminarAbono
             ? `<button class="btn-delete" onclick="eliminarAbono('${escId}')">🗑️ Borrar</button>`
@@ -1138,15 +1209,46 @@ function renderizarTabCreditos() {
 
 window.iniciarAbonoCliente = (clienteId) => {
     const modalAbono = document.getElementById('modal-abono');
+    const inputHidden = document.getElementById('abono-cliente-id');
     const select = document.getElementById('abono-cliente-select');
+    const displayNombre = document.getElementById('abono-cliente-nombre');
+    const displayDetalle = document.getElementById('abono-cliente-detalle');
+    const displaySaldo = document.getElementById('abono-cliente-saldo-info');
+
     document.getElementById('form-abono').reset();
     document.getElementById('abono-fecha').value = new Date().toISOString().split('T')[0];
-    
+
+    const cIdStr = String(clienteId).trim();
+    if (inputHidden) inputHidden.value = cIdStr;
+    clienteAbonoSeleccionadoActual = cIdStr;
+
     if (select) {
-        select.value = clienteId;
-        clienteAbonoSeleccionadoActual = clienteId;
+        select.value = cIdStr;
     }
-    if (modalAbono) modalAbono.style.display = 'flex';
+
+    const cliente = (datosReporteCreditos.clientes || []).find(c => String(c.id).trim() === cIdStr);
+    if (displayNombre) {
+        displayNombre.textContent = cliente ? cliente.nombre : 'Cliente';
+    }
+    if (displayDetalle) {
+        displayDetalle.textContent = cliente ? `${cliente.tipo} • Identificación: ${cliente.identificacion || '-'}` : '';
+    }
+    if (displaySaldo) {
+        const estadoMap = calcularEstadoCreditos(datosReporteCreditos, gFechaInicio, gFechaFin);
+        const itemCli = estadoMap[cIdStr];
+        const saldoPendiente = itemCli ? itemCli.saldoHistorico : 0;
+        displaySaldo.textContent = saldoPendiente > 0
+            ? `Saldo pendiente actual: ${formatCOP(saldoPendiente)}`
+            : `Sin saldo pendiente (Al día)`;
+    }
+
+    if (modalAbono) {
+        modalAbono.style.display = 'flex';
+        requestAnimationFrame(() => {
+            const montoInput = document.getElementById('abono-monto');
+            if (montoInput) montoInput.focus();
+        });
+    }
 };
 
 window.verDetalleCliente = (clienteId) => {
@@ -1154,23 +1256,37 @@ window.verDetalleCliente = (clienteId) => {
     const tbody = document.querySelector('#table-detalle-cliente tbody');
     if (!modal || !tbody) return;
 
-    const cliente = datosReporteCreditos.clientes.find(c => c.id === clienteId);
+    const cIdStr = String(clienteId).trim();
+    clienteDetalleActualId = cIdStr;
+
+    const estadoMap = calcularEstadoCreditos(datosReporteCreditos, gFechaInicio, gFechaFin);
+    const itemCli = estadoMap[cIdStr];
+    const cliente = itemCli ? itemCli.cliente : (datosReporteCreditos.clientes || []).find(c => String(c.id).trim() === cIdStr);
     document.getElementById('modal-detalle-cliente-title').innerText = `Ventas a Crédito - ${cliente ? cliente.nombre : ''}`;
 
-    const ventasCliente = datosReporteCreditos.ventas
-        .filter(v => v.cliente_id === clienteId)
-        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    // Mostrar ventas del período o todas si en el período no hubo ventas
+    const listaVentas = (itemCli && itemCli.ventasPeriodo.length > 0) ? itemCli.ventasPeriodo : (itemCli ? itemCli.ventasTodas : []);
+    const ventasOrdenadas = [...listaVentas].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
     tbody.innerHTML = '';
-    if (ventasCliente.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#9ca3af;">Sin ventas a crédito registradas.</td></tr>';
+    if (ventasOrdenadas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#9ca3af;">Sin ventas a crédito registradas.</td></tr>';
     } else {
-        ventasCliente.forEach(v => {
+        ventasOrdenadas.forEach(v => {
             const tr = document.createElement('tr');
+            const estaPagado = v.saldo <= 0;
+            const infoAbono = v.abonosAsociados && v.abonosAsociados.length > 0
+                ? `<div style="font-size: 0.75em; color: #059669; margin-top: 2px;">Amortizado con pago del ${v.abonosAsociados.map(a => new Date(a.fecha).toLocaleDateString('es-CO')).join(', ')}</div>`
+                : '';
+            const estadoHtml = estaPagado
+                ? `<span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 0.85em;">✅ Pagado</span>${infoAbono}`
+                : `<span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 0.85em;">⚠️ Pendiente: ${formatCOP(v.saldo)}</span>`;
+
             tr.innerHTML = `
                 <td>${new Date(v.fecha).toLocaleString('es-CO')}</td>
                 <td>${v.productos_vendidos || 'Sin detalle'}</td>
                 <td style="color:#3b82f6; font-weight:600;">${formatCOP(v.total)}</td>
+                <td>${estadoHtml}</td>
                 <td>${v.metodo_pago}</td>
             `;
             tbody.appendChild(tr);
@@ -1208,30 +1324,12 @@ function exportarCreditosExcel() {
     csvContent += "--- ESTADO DE CARTERA ---\n";
     csvContent += "Cliente;Tipo;Identificacion;Total Creditos;Domicilios;Total Abonos;Saldo Pendiente\n";
 
-    const balancePorCliente = {};
-    datosReporteCreditos.clientes.forEach(cli => {
-        balancePorCliente[cli.id] = {
-            cliente: cli,
-            totalCreditos: 0,
-            totalDomicilios: 0,
-            totalAbonos: 0,
-            saldo: 0
-        };
-    });
-    datosReporteCreditos.ventas.forEach(v => {
-        if (balancePorCliente[v.cliente_id]) {
-            balancePorCliente[v.cliente_id].totalCreditos += v.total;
-            balancePorCliente[v.cliente_id].totalDomicilios += extraerDomicilio(v.metodo_pago);
-        }
-    });
-    datosReporteCreditos.abonos.forEach(ab => {
-        if (balancePorCliente[ab.cliente_id]) balancePorCliente[ab.cliente_id].totalAbonos += ab.monto;
-    });
+    const balancePorCliente = calcularEstadoCreditos(datosReporteCreditos, gFechaInicio, gFechaFin);
 
     Object.values(balancePorCliente).forEach(item => {
-        item.saldo = item.totalCreditos - item.totalAbonos;
         if (filterClienteId && item.cliente.id !== filterClienteId) return;
-        csvContent += `${item.cliente.nombre};${item.cliente.tipo};${item.cliente.identificacion || '-'};${item.totalCreditos};${item.totalDomicilios};${item.totalAbonos};${item.saldo}\n`;
+        if (item.totalCreditosPeriodo === 0 && item.saldoHistorico <= 0) return;
+        csvContent += `${item.cliente.nombre};${item.cliente.tipo};${item.cliente.identificacion || '-'};${item.totalCreditosPeriodo};${item.totalDomiciliosPeriodo};${item.totalAbonosAplicadosPeriodo};${item.saldoPeriodo}\n`;
     });
     csvContent += "\n";
  
@@ -1244,6 +1342,8 @@ function exportarCreditosExcel() {
         const cli = datosReporteCreditos.clientes.find(c => c.id === v.cliente_id);
         if (!cli) return;
         if (filterClienteId && v.cliente_id !== filterClienteId) return;
+        const fIso = v.fecha ? v.fecha.split('T')[0] : '';
+        if (gFechaInicio && gFechaFin && (fIso < gFechaInicio || fIso > gFechaFin)) return;
         movimientos.push({
             fecha: v.fecha,
             clienteNombre: cli.nombre,
@@ -1256,6 +1356,8 @@ function exportarCreditosExcel() {
         const cli = datosReporteCreditos.clientes.find(c => c.id === ab.cliente_id);
         if (!cli) return;
         if (filterClienteId && ab.cliente_id !== filterClienteId) return;
+        const fIso = ab.fecha ? ab.fecha.split('T')[0] : '';
+        if (gFechaInicio && gFechaFin && (fIso < gFechaInicio || fIso > gFechaFin)) return;
         movimientos.push({
             fecha: ab.fecha,
             clienteNombre: cli.nombre,

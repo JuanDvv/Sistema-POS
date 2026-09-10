@@ -539,10 +539,12 @@ async function cargarListaVentasDia() {
     tbody.innerHTML = '';
     ventas.forEach(venta => {
         const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-        const metodoPagoText = venta.metodo_pago === 'Crédito'
+        const metodoPagoText = (venta.metodo_pago && venta.metodo_pago.startsWith('Crédito'))
             ? `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`
             : (venta.metodo_pago || '');
-        const esFiscal = venta.cliente_categoria === 'Fiscal';
+        const esFiscal = Boolean(venta.es_fiscal) ||
+            String(venta.cliente_categoria || '').trim().toLowerCase() === 'fiscal' ||
+            (Boolean(venta.cliente_id) && !venta.es_credito && !venta.es_pedido && !String(venta.metodo_pago || '').startsWith('Crédito'));
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${hora}</td>
@@ -552,7 +554,7 @@ async function cargarListaVentasDia() {
             <td>
                 <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Editar</button>
                 <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>
-                ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id}">🧾 Cuenta de Cobro</button>` : ''}
+                ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id || ''}">🧾 Cuenta de Cobro</button>` : ''}
             </td>
         `;
         tbody.appendChild(tr);

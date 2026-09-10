@@ -68,6 +68,12 @@ function coincideVentaFiltro(venta, term) {
             matchTotal = true;
         }
     }
+    if (!matchTotal && (termNorm === 'fiscal' || termNorm === 'cuenta de cobro' || termNorm === 'cobro')) {
+        const esFiscal = Boolean(venta.es_fiscal) ||
+            String(venta.cliente_categoria || '').trim().toLowerCase() === 'fiscal' ||
+            (Boolean(venta.cliente_id) && !venta.es_credito && !venta.es_pedido && !String(venta.metodo_pago || '').startsWith('Crédito'));
+        if (esFiscal) matchTotal = true;
+    }
 
     return matchProd || matchTotal;
 }
@@ -379,8 +385,17 @@ function renderizarTablaVentas() {
                 `;
             }
         }
-        const botonCuentaCobro = venta.cliente_categoria === 'Fiscal'
-            ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id}')" title="Generar cuenta de cobro">🧾</button>`
+        const esVentaFiscal = Boolean(venta.es_fiscal) ||
+            String(venta.cliente_categoria || '').trim().toLowerCase() === 'fiscal' ||
+            (Boolean(venta.cliente_id) && !venta.es_credito && !venta.es_pedido && !String(venta.metodo_pago || '').startsWith('Crédito'));
+        const botonCuentaCobro = esVentaFiscal
+            ? `<button class="btn-edit" style="background-color: #7c3aed;" onclick="generarCuentaCobroVenta('${venta.id}', '${venta.cliente_id || ''}')" title="Generar cuenta de cobro">🧾</button>`
+            : '';
+        const badgeFiscal = esVentaFiscal
+            ? `<div><span class="badge-venta-fiscal" title="Venta Fiscal${venta.cliente_nombre ? ` — Cliente: ${venta.cliente_nombre}` : ''}">🧾 Fiscal</span></div>`
+            : '';
+        const clienteFiscalHtml = esVentaFiscal && venta.cliente_nombre
+            ? `<div class="cliente-fiscal-info" title="Cliente fiscal">👤 ${venta.cliente_nombre}</div>`
             : '';
         const tdVentaAcciones = `
             <td>
@@ -401,7 +416,7 @@ function renderizarTablaVentas() {
             const transVal = matchTr ? parseFloat(matchTr[1]) : 0;
             metodoPagoText = `Mixto (Efectivo: ${Math.round(cashVal).toLocaleString('es-CO')}, Transferencia: ${Math.round(transVal).toLocaleString('es-CO')})`;
             tieneComponenteTransferencia = transVal > 0;
-        } else if (venta.metodo_pago === 'Crédito') {
+        } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Crédito')) {
             metodoPagoText = `Crédito (${venta.cliente_nombre || 'Cliente sin registrar'})`;
         }
 
@@ -459,8 +474,14 @@ function renderizarTablaVentas() {
         }
 
         const tr = document.createElement('tr');
+        if (esVentaFiscal) {
+            tr.classList.add('fila-venta-fiscal');
+        }
         tr.innerHTML = `
-            <td>${hora}</td>
+            <td>
+                <div>${hora}</div>
+                ${badgeFiscal}
+            </td>
             <td>
                 ${(venta.productos_vendidos || 'Sin detalles')
                         .split(', ')
@@ -470,7 +491,7 @@ function renderizarTablaVentas() {
                         </div>
                     `).join('')}
             </td>
-            <td>${metodoPagoText}${checkboxVerificada}</td>
+            <td>${metodoPagoText}${clienteFiscalHtml}${checkboxVerificada}</td>
             ${totalColHtml}
             ${tdVentaAcciones}
         `;
@@ -671,11 +692,11 @@ async function cargarReporte(fecha) {
         });
 
         ventasVisibles.forEach(venta => {
-            if (venta.es_pedido) {
+            if (venta.es_pedido || venta.es_credito || (venta.metodo_pago && venta.metodo_pago.startsWith('Crédito'))) {
                 // no suma a totalEfectivo/totalTransferencia
-            } else if (venta.metodo_pago === 'Efectivo') {
+            } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Efectivo')) {
                 totalEfectivo += venta.total;
-            } else if (venta.metodo_pago === 'Transferencia') {
+            } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Transferencia')) {
                 totalTransferencia += venta.total;
             } else if (venta.metodo_pago && venta.metodo_pago.startsWith('Mixto')) {
                 const matchEf = venta.metodo_pago.match(/Efectivo:\s*(\d+(\.\d+)?)/);

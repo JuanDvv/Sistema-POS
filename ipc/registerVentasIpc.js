@@ -151,9 +151,15 @@ function registerVentasIpc() {
                     v.fecha,
                     v.metodo_pago,
                     v.total,
+                    v.es_credito,
                     v.cliente_id,
                     cli.nombre as cliente_nombre,
-                    cli.categoria as cliente_categoria,
+                    COALESCE(cli.categoria, 'Normal') as cliente_categoria,
+                    CASE 
+                        WHEN (COALESCE(cli.categoria, '') = 'Fiscal' OR (v.cliente_id IS NOT NULL AND COALESCE(v.es_credito, 0) = 0 AND ped.id IS NULL AND v.metodo_pago NOT LIKE 'Crédito%')) 
+                        THEN 1 
+                        ELSE 0 
+                    END as es_fiscal,
                     group_concat(p.nombre || ' (x' || dv.cantidad || ')', ', ') as productos_vendidos,
                     COALESCE((
                         SELECT SUM(sub_dv.cantidad * sub_dv.precio_unitario)

@@ -434,7 +434,7 @@
 
         <!-- Contenido Pestaña 3: Créditos y Abonos -->
         <div id="content-creditos" class="tab-content">
-            <!-- Selector de Clientes y Botón Pago -->
+            <!-- Selector de Clientes -->
             <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; box-sizing: border-box;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 0.85rem; font-weight: 600; color: #475569;">Filtrar por Cliente:</label>
@@ -442,7 +442,6 @@
                         <option value="">-- Todos los Clientes --</option>
                     </select>
                 </div>
-                <button class="btn-query" id="btn-registrar-abono-directo" style="background-color: #10b981; margin-top: 18px;">💵 Registrar Pago/Abono</button>
             </div>
 
             <!-- KPIs de Crédito -->
@@ -521,9 +520,15 @@
                 <button class="close-btn" id="btn-close-abono-modal">&times;</button>
             </div>
             <form id="form-abono">
+                <input type="hidden" id="abono-cliente-id">
                 <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="abono-cliente-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Cliente *</label>
-                    <select id="abono-cliente-select" required style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: inherit;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9em;">Cliente a Abonar *</label>
+                    <div id="abono-cliente-display" style="padding: 10px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
+                        <div id="abono-cliente-nombre" style="font-weight: 600; color: #1e293b; font-size: 1rem;">-</div>
+                        <div id="abono-cliente-detalle" style="font-size: 0.85em; color: #64748b; margin-top: 2px;">-</div>
+                        <div id="abono-cliente-saldo-info" style="font-size: 0.85em; color: #ef4444; font-weight: bold; margin-top: 4px;">Saldo pendiente: $0</div>
+                    </div>
+                    <select id="abono-cliente-select" style="display: none;">
                         <!-- Dinámico -->
                     </select>
                 </div>
@@ -562,6 +567,7 @@
                             <th>Fecha</th>
                             <th>Productos</th>
                             <th>Total</th>
+                            <th>Estado</th>
                             <th>Método de Pago</th>
                         </tr>
                     </thead>
@@ -569,6 +575,9 @@
                         <!-- Insertado dinámicamente -->
                     </tbody>
                 </table>
+            </div>
+            <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                <button type="button" class="btn-primary" id="btn-abono-desde-detalle" style="background-color: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">💵 Registrar Abono a este Cliente</button>
             </div>
         </div>
     </div>
