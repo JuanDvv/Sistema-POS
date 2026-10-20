@@ -552,6 +552,13 @@ function initDB(db) {
             deleted_at TEXT
         )`, [], () => {
             agregarSoporteLWW(db, 'cierres_caja', ['id']);
+            db.run(`UPDATE cierres_caja SET
+                fecha_hasta = replace(replace(replace(replace(fecha_hasta, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), 'Z:00', 'Z'),
+                fecha_desde = replace(replace(replace(replace(fecha_desde, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), 'Z:00', 'Z')
+                WHERE fecha_hasta LIKE '%+00%' OR fecha_desde LIKE '%+00%'
+                   OR fecha_hasta LIKE '% %' OR fecha_desde LIKE '% %'
+                   OR fecha_hasta LIKE '%Z:00' OR fecha_desde LIKE '%Z:00'`, [], () => { });
+            db.run(`DELETE FROM sync_cursores WHERE tabla = 'cierres_caja'`, [], () => { });
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_cierres_caja_sucursal_fecha ON cierres_caja(sucursal_id, fecha_hasta)`);
 
@@ -607,6 +614,28 @@ function initDB(db) {
         db.run(`CREATE INDEX IF NOT EXISTS idx_detalle_ventas_producto ON detalle_ventas(producto_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_gastos_sucursal ON gastos(sucursal_id)`);
+
+        // Autocorrección de timestamps numéricos desfasados a ISO 8601 (Universal Wall-Clock Time Standard)
+        db.all(`SELECT id, fecha FROM ventas WHERE fecha GLOB '[0-9]*' AND length(fecha) > 10 AND fecha NOT LIKE '20%'`, [], (err, rows) => {
+            if (!err && rows && rows.length > 0) {
+                rows.forEach(r => {
+                    const num = parseFloat(r.fecha);
+                    if (!isNaN(num) && num > 0) {
+                        db.run(`UPDATE ventas SET fecha = ? WHERE id = ?`, [new Date(num).toISOString(), r.id]);
+                    }
+                });
+            }
+        });
+        db.all(`SELECT id, fecha FROM gastos WHERE fecha GLOB '[0-9]*' AND length(fecha) > 10 AND fecha NOT LIKE '20%'`, [], (err, rows) => {
+            if (!err && rows && rows.length > 0) {
+                rows.forEach(r => {
+                    const num = parseFloat(r.fecha);
+                    if (!isNaN(num) && num > 0) {
+                        db.run(`UPDATE gastos SET fecha = ? WHERE id = ?`, [new Date(num).toISOString(), r.id]);
+                    }
+                });
+            }
+        });
     });
 }
 

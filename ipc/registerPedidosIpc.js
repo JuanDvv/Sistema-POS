@@ -4,9 +4,18 @@ const {
     crearPedidoTx, registrarAbonoPedidoTx, eliminarAbonoPedidoTx,
     editarPedidoTx, cancelarPedidoTx, entregarPedidoTx, revertirEntregaPedidoTx
 } = require('../services/pedidoService');
+const { obtenerFechaHoyYYYYMMDD } = require('../services/fechaService');
 
 // SRP: expone como IPC el ciclo de vida de un Pedido/Apartado. La lógica transaccional (hold de
 // inventario, abonos, entrega/cancelación) vive en services/pedidoService.
+
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
 
 function registerPedidosIpc() {
     ipcMain.handle('crear-pedido', async (event, datos) => {
@@ -47,7 +56,8 @@ function registerPedidosIpc() {
                 params.push(sucursalId);
             }
             if (estado === 'entregados_hoy') {
-                query += ` AND p.estado = 'entregado' AND date(p.fecha_entrega_real, 'localtime') = date('now', 'localtime')`;
+                query += ` AND p.estado = 'entregado' AND ${sqlFechaDia('p.fecha_entrega_real')} = ?`;
+                params.push(obtenerFechaHoyYYYYMMDD());
             } else if (estado) {
                 query += ` AND p.estado = ?`;
                 params.push(estado);
@@ -69,7 +79,8 @@ function registerPedidosIpc() {
             // cajero pueda verificar de inmediato que un pedido recién registrado quedó guardado,
             // sin importar qué tan lejos esté programada su entrega.
             if (soloHoy) {
-                query += ` AND date(p.fecha_pedido, 'localtime') = date('now', 'localtime')`;
+                query += ` AND ${sqlFechaDia('p.fecha_pedido')} = ?`;
+                params.push(obtenerFechaHoyYYYYMMDD());
             }
 
             let orderClause = 'p.fecha_entrega_estimada ASC';

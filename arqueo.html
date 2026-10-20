@@ -308,6 +308,11 @@
             text-align: right;
         }
 
+        .historial-cierres th:first-child,
+        .historial-cierres td:first-child {
+            white-space: nowrap;
+        }
+
         /* Igual que ventas.html: los dos paneles se quedan siempre lado a lado (nunca se apilan)
            y cada uno scrollea por su cuenta -- al achicar la ventana solo se reduce el padding y
            los anchos mínimos, así ambos paneles quedan visibles a la vez sin scroll de página. */
@@ -453,6 +458,7 @@
             <div class="cierre-form">
                 <select id="select-tipo-cierre">
                     <option value="Cierre Parcial" selected>🕐 Cierre Parcial</option>
+                    <option value="Cambio de Turno">🔄 Cambio de Turno</option>
                     <option value="Cierre de Día">🌙 Cierre de Día</option>
                 </select>
                 <input type="text" id="input-nota-cierre" placeholder="Nota (opcional)">

@@ -12,6 +12,14 @@ const { TIPOS_GASTO, ESTADOS_DEVOLUCION, requiereAjusteInventario } = require('.
 // registro vive en services/gastoService (insertarGastoTx), compartida entre el flujo del día
 // actual, el de fecha anterior y la aprobación de solicitudes retroactivas.
 
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
+
 function registerGastosIpc() {
     // Registrar Gasto (día actual)
     ipcMain.handle('registrar-gasto', async (event, datosGasto) => {
@@ -60,7 +68,7 @@ function registerGastosIpc() {
         try {
             // Obtener el gasto original antes de modificarlo, para auditoría y para bloquear el domicilio
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, tipo, descripcion, monto, metodo_pago, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, descripcion, monto, metodo_pago, ${sqlFechaDia('fecha')} as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // "Domicilio (Descuento de Caja)" lo genera y reconcilia automáticamente
             // insertarVentaTx/editarVentaCompletaTx (ver services/ventaService.js); editarlo aquí lo
@@ -102,7 +110,7 @@ function registerGastosIpc() {
         try {
             // Obtener datos del gasto antes de marcar como eliminado
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, tipo, monto, descripcion, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, monto, descripcion, ${sqlFechaDia('fecha')} as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // Igual que en editar-gasto: este gasto se borra automáticamente al quitar el domicilio
             // de su venta (ver editarVentaCompletaTx en services/ventaService.js), no manualmente aquí.

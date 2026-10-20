@@ -1,2 +1,7 @@
 node_modules
 dist/
+config.json
+.env
+.env.*
+!.env.example
+!config.example.json

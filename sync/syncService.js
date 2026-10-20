@@ -47,6 +47,28 @@ function nowISO() {
     return new Date().toISOString();
 }
 
+function normalizarFechaString(val) {
+    if (!val) return val;
+    if (val instanceof Date) return val.toISOString();
+    if (typeof val === 'number') return new Date(val).toISOString();
+    if (typeof val === 'string') {
+        let trimmed = val.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+        if (/^\d{11,}(\.\d+)?$/.test(trimmed)) {
+            const num = parseFloat(trimmed);
+            if (!isNaN(num) && num > 0) return new Date(num).toISOString();
+        }
+        if (/[+-]\d{2}(:\d{2})?$/.test(trimmed) || trimmed.includes(' ')) {
+            const parsed = new Date(trimmed.replace(' ', 'T'));
+            if (!isNaN(parsed.getTime())) return parsed.toISOString();
+            trimmed = trimmed.replace(' ', 'T');
+            if (/[+-]\d{2}$/.test(trimmed)) trimmed += ':00';
+        }
+        return trimmed;
+    }
+    return String(val);
+}
+
 // Sube `payload` (debe incluir updated_at) a `tabla`. Devuelve true si Supabase confirmó la
 // escritura (fila devuelta) o false si no se aplicó -- por RLS o porque el trigger LWW la
 // descartó por estar desactualizada frente a lo que ya había en la nube.
@@ -422,7 +444,7 @@ async function syncVentasDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [venta.id, venta.sucursal_id, venta.total, venta.metodo_pago, venta.fecha, venta.es_credito, venta.cliente_id, venta.monto_recibido, venta.vuelto, venta.updated_at]
+                    [venta.id, venta.sucursal_id, venta.total, venta.metodo_pago, normalizarFechaString(venta.fecha), venta.es_credito, venta.cliente_id, venta.monto_recibido, venta.vuelto, normalizarFechaString(venta.updated_at)]
                 );
             }
         }
@@ -446,7 +468,7 @@ async function syncVentasDescargar() {
                         precio_unitario = excluded.precio_unitario,
                         updated_at = excluded.updated_at
                      WHERE excluded.updated_at > updated_at`,
-                    [det.id, det.venta_id, det.producto_id, det.cantidad, det.precio_unitario, det.updated_at]
+                    [det.id, det.venta_id, det.producto_id, det.cantidad, det.precio_unitario, normalizarFechaString(det.updated_at)]
                 );
             }
         }
@@ -754,7 +776,7 @@ async function syncGastosDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [gasto.id, gasto.sucursal_id, gasto.tipo, gasto.descripcion, gasto.monto, gasto.fecha, gasto.metodo_pago, gasto.estado, gasto.venta_id || null, gasto.pedido_id || null, gasto.updated_at]
+                    [gasto.id, gasto.sucursal_id, gasto.tipo, gasto.descripcion, gasto.monto, normalizarFechaString(gasto.fecha), gasto.metodo_pago, gasto.estado, gasto.venta_id || null, gasto.pedido_id || null, normalizarFechaString(gasto.updated_at)]
                 );
             }
             if (gastosNube.length > 0) console.log("[Sincronizador] Gastos descargados desde la nube.");
@@ -1221,7 +1243,7 @@ async function syncMovimientosInventarioDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, mov.fecha, mov.updated_at]
+                    [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, normalizarFechaString(mov.fecha), normalizarFechaString(mov.updated_at)]
                 );
             }
             if (movsNube.length > 0) console.log("[Sincronizador] Movimientos de inventario actualizados desde la nube.");
@@ -1263,7 +1285,7 @@ async function syncReservaInventarioDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, mov.fecha, mov.updated_at]
+                    [mov.id, mov.producto_id, mov.sucursal_id, mov.tipo, mov.cantidad, mov.referencia_id, mov.usuario, normalizarFechaString(mov.fecha), normalizarFechaString(mov.updated_at)]
                 );
             }
             if (movsNube.length > 0) console.log("[Sincronizador] Movimientos de reserva actualizados desde la nube.");
@@ -1492,6 +1514,14 @@ async function syncTransferenciasSubir() {
             }
 
             const detalles = await allQuery(`SELECT * FROM detalle_transferencias WHERE transferencia_id = ?`, [trans.id]);
+            const idsActuales = detalles.map(d => d.id);
+            if (idsActuales.length > 0) {
+                await supabase
+                    .from('detalle_transferencias')
+                    .update({ deleted_at: nowISO(), updated_at: nowISO() })
+                    .eq('transferencia_id', trans.id)
+                    .not('id', 'in', `(${idsActuales.map(id => `"${id}"`).join(',')})`);
+            }
             for (const det of detalles) {
                 const { error: errDetalle } = await supabase
                     .from('detalle_transferencias')
@@ -1569,7 +1599,7 @@ async function syncTransferenciasDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [trans.id, trans.sucursal_origen_id, trans.sucursal_destino_id, trans.fecha, trans.usuario, trans.updated_at]
+                    [trans.id, trans.sucursal_origen_id, trans.sucursal_destino_id, normalizarFechaString(trans.fecha), trans.usuario, normalizarFechaString(trans.updated_at)]
                 );
 
                 if (!yaExistiaLocal && sucursalLocalId && trans.sucursal_destino_id === sucursalLocalId) {
@@ -1684,7 +1714,10 @@ async function syncClientes() {
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         tipo = excluded.tipo,
-                        categoria = COALESCE(excluded.categoria, clientes.categoria, 'Normal'),
+                        categoria = CASE
+                            WHEN excluded.categoria IS NOT NULL AND TRIM(excluded.categoria) <> '' THEN excluded.categoria
+                            ELSE COALESCE(clientes.categoria, 'Normal')
+                        END,
                         identificacion = excluded.identificacion,
                         telefono = excluded.telefono,
                         email = excluded.email,
@@ -1692,7 +1725,7 @@ async function syncClientes() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cli.id, cli.nombre, cli.tipo, cli.categoria || 'Normal', cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
+                    [cli.id, cli.nombre, cli.tipo, cli.categoria ? String(cli.categoria).trim() : null, cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
                 );
             }
         }
@@ -1922,7 +1955,7 @@ async function syncPedidosDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [ped.id, ped.sucursal_id, ped.cliente_id, ped.fecha_pedido, ped.fecha_entrega_estimada, ped.fecha_entrega_real, ped.estado, ped.total, ped.notas, ped.venta_id, ped.usuario_creo, ped.cliente_nombre_registro, ped.cliente_identificacion_registro, ped.cliente_telefono_registro, ped.valor_domicilio, ped.updated_at]
+                    [ped.id, ped.sucursal_id, ped.cliente_id, normalizarFechaString(ped.fecha_pedido), normalizarFechaString(ped.fecha_entrega_estimada), normalizarFechaString(ped.fecha_entrega_real), ped.estado, ped.total, ped.notas, ped.venta_id, ped.usuario_creo, ped.cliente_nombre_registro, ped.cliente_identificacion_registro, ped.cliente_telefono_registro, ped.valor_domicilio, normalizarFechaString(ped.updated_at)]
                 );
             }
         }
@@ -2010,7 +2043,7 @@ async function syncAbonosPedido() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [ab.id, ab.pedido_id, ab.monto, ab.fecha, ab.metodo_pago, ab.updated_at]
+                    [ab.id, ab.pedido_id, ab.monto, normalizarFechaString(ab.fecha), ab.metodo_pago, normalizarFechaString(ab.updated_at)]
                 );
             }
         }
@@ -2060,14 +2093,14 @@ async function syncCierresCaja() {
                 rol: c.rol,
                 tipo: c.tipo,
                 nota: c.nota,
-                fecha_desde: c.fecha_desde,
-                fecha_hasta: c.fecha_hasta,
+                fecha_desde: normalizarFechaString(c.fecha_desde),
+                fecha_hasta: normalizarFechaString(c.fecha_hasta),
                 fondo_base: c.fondo_base,
                 efectivo_esperado: c.efectivo_esperado,
                 efectivo_contado: c.efectivo_contado,
                 diferencia: c.diferencia,
-                denominaciones: c.denominaciones ? JSON.parse(c.denominaciones) : null,
-                updated_at: c.updated_at
+                denominaciones: typeof c.denominaciones === 'string' ? c.denominaciones : (c.denominaciones ? JSON.stringify(c.denominaciones) : null),
+                updated_at: normalizarFechaString(c.updated_at)
             });
             if (!gano) {
                 console.log(`[Sincronizador] Cierre de caja ${c.id} no subido: hay una versión más reciente en la nube.`);
@@ -2109,7 +2142,7 @@ async function syncCierresCaja() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [c.id, c.sucursal_id, c.usuario, c.rol, c.tipo, c.nota, c.fecha_desde, c.fecha_hasta, c.fondo_base, c.efectivo_esperado, c.efectivo_contado, c.diferencia, c.denominaciones ? JSON.stringify(c.denominaciones) : null, c.updated_at]
+                    [c.id, c.sucursal_id, c.usuario, c.rol, c.tipo, c.nota, normalizarFechaString(c.fecha_desde), normalizarFechaString(c.fecha_hasta), c.fondo_base, c.efectivo_esperado, c.efectivo_contado, c.diferencia, typeof c.denominaciones === 'string' ? c.denominaciones : (c.denominaciones ? JSON.stringify(c.denominaciones) : null), normalizarFechaString(c.updated_at)]
                 );
             }
         }
@@ -2175,7 +2208,7 @@ async function syncSolicitudesVenta() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [sol.id, sol.tipo, sol.venta_id, sol.sucursal_id, sol.fecha_venta, sol.datos, sol.estado, sol.usuario_solicitante, sol.fecha_solicitud, sol.usuario_revisor, sol.fecha_revision, sol.motivo_rechazo, sol.updated_at]
+                    [sol.id, sol.tipo, sol.venta_id, sol.sucursal_id, normalizarFechaString(sol.fecha_venta), sol.datos, sol.estado, sol.usuario_solicitante, normalizarFechaString(sol.fecha_solicitud), sol.usuario_revisor, normalizarFechaString(sol.fecha_revision), sol.motivo_rechazo, normalizarFechaString(sol.updated_at)]
                 );
             }
             if (solicitudesNube.length > 0) console.log("[Sincronizador] Solicitudes de venta retroactiva sincronizadas con la nube.");
@@ -2239,7 +2272,7 @@ async function syncSolicitudesGasto() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [sol.id, sol.sucursal_id, sol.fecha_gasto, sol.datos, sol.estado, sol.usuario_solicitante, sol.fecha_solicitud, sol.usuario_revisor, sol.fecha_revision, sol.motivo_rechazo, sol.updated_at]
+                    [sol.id, sol.sucursal_id, normalizarFechaString(sol.fecha_gasto), sol.datos, sol.estado, sol.usuario_solicitante, normalizarFechaString(sol.fecha_solicitud), sol.usuario_revisor, normalizarFechaString(sol.fecha_revision), sol.motivo_rechazo, normalizarFechaString(sol.updated_at)]
                 );
             }
             if (solicitudesNube.length > 0) console.log("[Sincronizador] Solicitudes de gasto retroactivo sincronizadas con la nube.");
@@ -2290,7 +2323,10 @@ function notificarVentanasReportes() {
 // específico de Supabase para saber si hay ruta hasta el proyecto.
 const TIMEOUT_CHEQUEO_CONEXION_MS = 6000;
 async function hayConexionConSupabase() {
-    if (!isSyncConfigured || !supabaseUrl) return false;
+    if (!isSyncConfigured || !supabase) return false;
+    if (typeof supabase.testConnection === 'function') {
+        return await supabase.testConnection();
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_CHEQUEO_CONEXION_MS);
     try {

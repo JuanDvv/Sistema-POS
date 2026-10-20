@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const seccionPassword = document.getElementById('section-cambiar-password');
         if (seccionPassword) seccionPassword.style.display = 'none';
     } else {
-        ['section-solicitudes', 'section-solicitudes-gasto', 'section-abonos-eliminados', 'section-sucursales', 'section-usuarios', 'section-categorias', 'section-sugeridos-pasteleria'].forEach(id => {
+        ['section-solicitudes', 'section-solicitudes-gasto', 'section-abonos-eliminados', 'section-sucursales', 'section-usuarios', 'section-categorias', 'section-sugeridos-pasteleria', 'contenedor-asignacion-turnos'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -766,9 +766,12 @@ function renderizarClientes() {
     const filtro = document.getElementById('filtro-clientes')?.value || 'todos';
     const busqueda = (document.getElementById('buscador-clientes')?.value || '').trim().toLowerCase();
 
-    let clientes = filtro === 'todos'
-        ? todosLosClientes
-        : todosLosClientes.filter(cli => (cli.origen || 'Credito') === filtro);
+    let clientes = todosLosClientes;
+    if (filtro === 'Fiscal') {
+        clientes = todosLosClientes.filter(cli => String(cli.categoria || '').trim().toLowerCase() === 'fiscal');
+    } else if (filtro !== 'todos') {
+        clientes = todosLosClientes.filter(cli => (cli.origen || 'Credito') === filtro);
+    }
 
     if (busqueda) {
         clientes = clientes.filter(cli =>
@@ -831,7 +834,7 @@ window.iniciarEdicionCliente = (id, nombre, tipo, categoria, identificacion, tel
 
     document.getElementById('cliente-nombre').value = nombre;
     document.getElementById('cliente-tipo').value = tipo;
-    document.getElementById('cliente-categoria').value = categoria === 'undefined' ? 'Normal' : categoria;
+    document.getElementById('cliente-categoria').value = (!categoria || categoria === 'undefined') ? 'Normal' : categoria;
     document.getElementById('cliente-identificacion').value = identificacion === 'undefined' ? '' : identificacion;
     document.getElementById('cliente-telefono').value = telefono === 'undefined' ? '' : telefono;
     document.getElementById('cliente-email').value = email === 'undefined' ? '' : email;

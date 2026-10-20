@@ -15,6 +15,14 @@ function registerTransferenciasIpc() {
         const fechaActual = new Date().toISOString();
 
         try {
+            // Validar que la transferencia solo se realice desde la sucursal activa emisora
+            const sucursalActiva = await new Promise((resolve) => {
+                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => resolve(row));
+            });
+            if (sucursalActiva && sucursalOrigenId !== sucursalActiva.id && rol !== 'Administrador') {
+                return { success: false, message: `Las transferencias solo pueden ser realizadas desde la sucursal activa (${sucursalActiva.id}).` };
+            }
+
             await runQuery("BEGIN TRANSACTION", []);
 
             // 1. Registrar cabecera de la transferencia
@@ -117,6 +125,14 @@ function registerTransferenciasIpc() {
                 throw new Error("La transferencia no existe.");
             }
 
+            // Validar que solo la sucursal que envía la transferencia pueda anularla
+            const sucursalActiva = await new Promise((resolve) => {
+                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => resolve(row));
+            });
+            if (sucursalActiva && trans.sucursal_origen_id !== sucursalActiva.id && auditoriaRol !== 'Administrador') {
+                throw new Error(`Solo la sucursal que envía la transferencia (${trans.sucursal_origen_id}) puede anularla.`);
+            }
+
             // 2. Obtener los detalles de la transferencia
             const detalles = await allQuery(`SELECT * FROM detalle_transferencias WHERE transferencia_id = ?`, [id]);
 
@@ -191,6 +207,315 @@ function registerTransferenciasIpc() {
         } catch (err) {
             await runQuery("ROLLBACK", []).catch(() => {});
             return { success: false, message: 'Error al eliminar transferencia: ' + err.message };
+        }
+    });
+
+    // Obtener datos y detalles de una transferencia
+    ipcMain.handle('obtener-transferencia', async (event, id) => {
+        try {
+            const trans = await new Promise((resolve, reject) => {
+                db.get(`SELECT * FROM transferencias WHERE id = ?`, [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+            if (!trans) {
+                return { success: false, message: 'La transferencia no existe.' };
+            }
+
+            const items = await allQuery(
+                `SELECT dt.id, dt.producto_id, dt.cantidad, p.nombre, p.precio, COALESCE(inv.stock, 0) AS stock
+                 FROM detalle_transferencias dt
+                 JOIN productos p ON dt.producto_id = p.id
+                 LEFT JOIN inventario_sucursal inv ON inv.producto_id = p.id AND inv.sucursal_id = ?
+                 WHERE dt.transferencia_id = ?`,
+                [trans.sucursal_origen_id, id]
+            );
+
+            return { success: true, data: { ...trans, items } };
+        } catch (err) {
+            return { success: false, message: 'Error al obtener transferencia: ' + err.message };
+        }
+    });
+
+    // Editar transferencia (Ajustar diferencias de stock y detalles)
+    ipcMain.handle('editar-transferencia', async (event, { id, sucursalDestinoId, productos, auditoriaUsuario, auditoriaRol }) => {
+        try {
+            if (!Array.isArray(productos) || productos.length === 0) {
+                return { success: false, message: 'La transferencia debe contener al menos un producto.' };
+            }
+
+            for (const item of productos) {
+                if (!item.cantidad || Number(item.cantidad) <= 0) {
+                    return { success: false, message: 'Todas las cantidades deben ser mayores a cero.' };
+                }
+            }
+
+            await runQuery("BEGIN TRANSACTION", []);
+
+            // 1. Obtener la transferencia original
+            const trans = await new Promise((resolve, reject) => {
+                db.get(`SELECT * FROM transferencias WHERE id = ?`, [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+
+            if (!trans) {
+                throw new Error("La transferencia no existe.");
+            }
+            if (trans.sync_status === 'deleted') {
+                throw new Error("No se puede editar una transferencia que ya ha sido anulada.");
+            }
+
+            // Validar que solo la sucursal que envía la transferencia pueda editarla
+            const sucursalActiva = await new Promise((resolve) => {
+                db.get(`SELECT id FROM config_sucursal WHERE activa = 1 LIMIT 1`, [], (err, row) => resolve(row));
+            });
+            if (sucursalActiva && trans.sucursal_origen_id !== sucursalActiva.id && auditoriaRol !== 'Administrador') {
+                throw new Error(`Solo la sucursal que envía la transferencia (${trans.sucursal_origen_id}) puede editarla.`);
+            }
+
+            const sucursalOrigenId = trans.sucursal_origen_id;
+            const oldDestinoId = trans.sucursal_destino_id;
+            const newDestinoId = sucursalDestinoId || oldDestinoId;
+
+            if (newDestinoId === sucursalOrigenId) {
+                throw new Error("La sucursal de destino no puede ser la misma que la de origen.");
+            }
+
+            // 2. Obtener detalles originales
+            const detallesOriginales = await allQuery(`SELECT * FROM detalle_transferencias WHERE transferencia_id = ?`, [id]);
+            const oldMap = new Map();
+            detallesOriginales.forEach(d => oldMap.set(d.producto_id, { id: d.id, cantidad: Number(d.cantidad) }));
+
+            const newMap = new Map();
+            productos.forEach(p => newMap.set(p.id || p.producto_id, { cantidad: Number(p.cantidad), nombre: p.nombre }));
+
+            // 3. Validación y ajuste de inventario
+            if (oldDestinoId === newDestinoId) {
+                // Mismo destino: calcular delta neto por producto
+                const allProdIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+
+                // Fase de validación
+                for (const prodId of allProdIds) {
+                    const oldQty = oldMap.has(prodId) ? oldMap.get(prodId).cantidad : 0;
+                    const newQty = newMap.has(prodId) ? newMap.get(prodId).cantidad : 0;
+                    const delta = newQty - oldQty;
+
+                    if (delta > 0) {
+                        const stockRow = await new Promise((resolve, reject) => {
+                            db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [prodId, sucursalOrigenId], (err, row) => {
+                                if (err) reject(err); else resolve(row);
+                            });
+                        });
+                        const dispOrigen = stockRow ? Number(stockRow.stock) : 0;
+                        if (dispOrigen < delta) {
+                            const prodName = newMap.get(prodId)?.nombre || prodId;
+                            throw new Error(`Stock insuficiente de "${prodName}" en origen para incrementar el traslado. Disponible: ${dispOrigen}, adicional requerido: ${delta}.`);
+                        }
+                    } else if (delta < 0) {
+                        const absDelta = Math.abs(delta);
+                        const stockRow = await new Promise((resolve, reject) => {
+                            db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [prodId, oldDestinoId], (err, row) => {
+                                if (err) reject(err); else resolve(row);
+                            });
+                        });
+                        const dispDestino = stockRow ? Number(stockRow.stock) : 0;
+                        if (dispDestino < absDelta) {
+                            const prod = await new Promise(res => db.get(`SELECT nombre FROM productos WHERE id = ?`, [prodId], (e, r) => res(r)));
+                            const prodName = prod ? prod.nombre : prodId;
+                            throw new Error(`La sucursal de destino (${oldDestinoId}) no tiene suficiente stock de "${prodName}" para devolver (Stock actual: ${dispDestino}, requerido: ${absDelta}).`);
+                        }
+                    }
+                }
+
+                // Fase de aplicación de movimientos
+                for (const prodId of allProdIds) {
+                    const oldQty = oldMap.has(prodId) ? oldMap.get(prodId).cantidad : 0;
+                    const newQty = newMap.has(prodId) ? newMap.get(prodId).cantidad : 0;
+                    const delta = newQty - oldQty;
+
+                    if (delta > 0) {
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                                stock = stock - excluded.stock,
+                                sync_status = 'pending'`,
+                            [prodId, sucursalOrigenId, delta]
+                        );
+                        await registrarMovimientoInventario({
+                            productoId: prodId, sucursalId: sucursalOrigenId, tipo: 'TRASLADO_SALIDA',
+                            cantidad: -Number(delta), referenciaId: id, usuario: auditoriaUsuario
+                        });
+
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                                stock = stock + excluded.stock,
+                                sync_status = 'pending'`,
+                            [prodId, oldDestinoId, delta]
+                        );
+                        await registrarMovimientoInventario({
+                            productoId: prodId, sucursalId: oldDestinoId, tipo: 'TRASLADO_ENTRADA',
+                            cantidad: Number(delta), referenciaId: id, usuario: auditoriaUsuario
+                        });
+                    } else if (delta < 0) {
+                        const absDelta = Math.abs(delta);
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                                stock = stock + excluded.stock,
+                                sync_status = 'pending'`,
+                            [prodId, sucursalOrigenId, absDelta]
+                        );
+                        await registrarMovimientoInventario({
+                            productoId: prodId, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO',
+                            cantidad: Number(absDelta), referenciaId: id, usuario: auditoriaUsuario
+                        });
+
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                                stock = stock - excluded.stock,
+                                sync_status = 'pending'`,
+                            [prodId, oldDestinoId, absDelta]
+                        );
+                        await registrarMovimientoInventario({
+                            productoId: prodId, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO',
+                            cantidad: -Number(absDelta), referenciaId: id, usuario: auditoriaUsuario
+                        });
+                    }
+                }
+            } else {
+                // Cambio de destino: validar y devolver todo de destino previo y enviar al nuevo destino
+                for (const det of detallesOriginales) {
+                    const stockRow = await new Promise((resolve, reject) => {
+                        db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [det.producto_id, oldDestinoId], (err, row) => {
+                            if (err) reject(err); else resolve(row);
+                        });
+                    });
+                    const dispDestino = stockRow ? Number(stockRow.stock) : 0;
+                    if (dispDestino < det.cantidad) {
+                        const prod = await new Promise(res => db.get(`SELECT nombre FROM productos WHERE id = ?`, [det.producto_id], (e, r) => res(r)));
+                        const prodName = prod ? prod.nombre : det.producto_id;
+                        throw new Error(`La sucursal anterior (${oldDestinoId}) no tiene stock suficiente de "${prodName}" para devolver (Stock: ${dispDestino}, requerido: ${det.cantidad}).`);
+                    }
+                }
+
+                for (const item of productos) {
+                    const pId = item.id || item.producto_id;
+                    const stockRow = await new Promise((resolve, reject) => {
+                        db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [pId, sucursalOrigenId], (err, row) => {
+                            if (err) reject(err); else resolve(row);
+                        });
+                    });
+                    const dispOrigen = stockRow ? Number(stockRow.stock) : 0;
+                    const oldDevuelto = oldMap.has(pId) ? oldMap.get(pId).cantidad : 0;
+                    if ((dispOrigen + oldDevuelto) < Number(item.cantidad)) {
+                        throw new Error(`Stock insuficiente de "${item.nombre || pId}" en origen. Disponible: ${dispOrigen + oldDevuelto}, requerido: ${item.cantidad}.`);
+                    }
+                }
+
+                for (const det of detallesOriginales) {
+                    await runQuery(
+                        `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                         VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                         ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                            stock = stock + excluded.stock,
+                            sync_status = 'pending'`,
+                        [det.producto_id, sucursalOrigenId, det.cantidad]
+                    );
+                    await registrarMovimientoInventario({
+                        productoId: det.producto_id, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO',
+                        cantidad: Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
+                    });
+
+                    await runQuery(
+                        `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                         VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                         ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                            stock = stock - excluded.stock,
+                            sync_status = 'pending'`,
+                        [det.producto_id, oldDestinoId, det.cantidad]
+                    );
+                    await registrarMovimientoInventario({
+                        productoId: det.producto_id, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO',
+                        cantidad: -Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
+                    });
+                }
+
+                for (const item of productos) {
+                    const pId = item.id || item.producto_id;
+                    await runQuery(
+                        `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                         VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                         ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                            stock = stock - excluded.stock,
+                            sync_status = 'pending'`,
+                        [pId, sucursalOrigenId, item.cantidad]
+                    );
+                    await registrarMovimientoInventario({
+                        productoId: pId, sucursalId: sucursalOrigenId, tipo: 'TRASLADO_SALIDA',
+                        cantidad: -Number(item.cantidad), referenciaId: id, usuario: auditoriaUsuario
+                    });
+
+                    await runQuery(
+                        `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                         VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                         ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                            stock = stock + excluded.stock,
+                            sync_status = 'pending'`,
+                        [pId, newDestinoId, item.cantidad]
+                    );
+                    await registrarMovimientoInventario({
+                        productoId: pId, sucursalId: newDestinoId, tipo: 'TRASLADO_ENTRADA',
+                        cantidad: Number(item.cantidad), referenciaId: id, usuario: auditoriaUsuario
+                    });
+                }
+            }
+
+            // 4. Actualizar cabecera
+            await runQuery(
+                `UPDATE transferencias
+                 SET sucursal_destino_id = ?, sync_status = 'pending', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE id = ?`,
+                [newDestinoId, id]
+            );
+
+            // 5. Reemplazar líneas de detalle conservando IDs si coinciden
+            await runQuery(`DELETE FROM detalle_transferencias WHERE transferencia_id = ?`, [id]);
+            for (const item of productos) {
+                const pId = item.id || item.producto_id;
+                const existing = oldMap.get(pId);
+                const detId = existing ? existing.id : ('dt-' + uuidv4().substring(0, 8));
+                await runQuery(
+                    `INSERT INTO detalle_transferencias (id, transferencia_id, producto_id, cantidad, updated_at)
+                     VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                    [detId, id, pId, item.cantidad]
+                );
+            }
+
+            // 6. Auditoría
+            const prodsResumen = productos.map(i => `${i.nombre || i.id} (x${i.cantidad})`).join(', ');
+            await registrarAuditoria(
+                auditoriaUsuario,
+                auditoriaRol,
+                sucursalOrigenId,
+                'Edición de Transferencia',
+                `Transferencia ${id} modificada. Destino: ${newDestinoId}. Items: [${prodsResumen}]`
+            );
+
+            await runQuery("COMMIT", []);
+            solicitarSincronizacion('transferencia editada');
+            return { success: true, message: '¡Transferencia actualizada con éxito!' };
+        } catch (error) {
+            await runQuery("ROLLBACK", []).catch(() => {});
+            return { success: false, message: 'Error al editar transferencia: ' + error.message };
         }
     });
 }

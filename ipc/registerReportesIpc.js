@@ -6,6 +6,14 @@ const { TIPOS_GASTO, ESTADOS_DEVOLUCION } = require('../utils/gastos');
 
 // SRP: reportes de gestión (balance financiero, ranking, filtros de año/mes) y exportación genérica a PDF.
 
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
+
 function registerReportesIpc() {
     // Obtener Balance Financiero para Reportes de Gestión
     ipcMain.handle('obtener-balance-financiero', async (event, { sucursalId, fechaInicio, fechaFin, tipoGasto, conceptoGasto }) => {
@@ -18,11 +26,11 @@ function registerReportesIpc() {
             // abonos (ver consulta de abonos_pedido más abajo).
             let queryVentas = `
                 SELECT
-                    strftime('%Y-%m-%d', fecha, 'localtime') as dia,
+                    ${sqlFechaDia('fecha')} as dia,
                     metodo_pago,
                     SUM(total) as total
                 FROM ventas
-                WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?
+                WHERE ${sqlFechaDia('fecha')} >= ? AND ${sqlFechaDia('fecha')} <= ?
                     AND (sync_status IS NULL OR sync_status <> 'deleted')
                     AND (es_credito IS NULL OR es_credito = 0)
                     AND NOT EXISTS (SELECT 1 FROM pedidos ped WHERE ped.venta_id = ventas.id)
@@ -36,7 +44,7 @@ function registerReportesIpc() {
 
             let queryGastos = `
                 SELECT
-                    strftime('%Y-%m-%d', gastos.fecha, 'localtime') as dia,
+                    ${sqlFechaDia('gastos.fecha')} as dia,
                     tipo,
                     monto,
                     metodo_pago,
@@ -45,7 +53,7 @@ function registerReportesIpc() {
                     COALESCE(config_sucursal.nombre, gastos.sucursal_id) as sucursal_nombre
                 FROM gastos
                 LEFT JOIN config_sucursal ON config_sucursal.id = gastos.sucursal_id
-                WHERE strftime('%Y-%m-%d', gastos.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', gastos.fecha, 'localtime') <= ? AND (gastos.sync_status IS NULL OR gastos.sync_status <> 'deleted')
+                WHERE ${sqlFechaDia('gastos.fecha')} >= ? AND ${sqlFechaDia('gastos.fecha')} <= ? AND (gastos.sync_status IS NULL OR gastos.sync_status <> 'deleted')
             `;
             let paramsGastos = [fechaInicio, fechaFin];
             if (sucursalId) {
@@ -68,11 +76,11 @@ function registerReportesIpc() {
             if (!sucursalId) {
                 const queryAbonos = `
                     SELECT
-                        strftime('%Y-%m-%d', fecha, 'localtime') as dia,
+                        ${sqlFechaDia('fecha')} as dia,
                         metodo_pago,
                         SUM(monto) as total
                     FROM abonos_credito
-                    WHERE strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?
+                    WHERE ${sqlFechaDia('fecha')} >= ? AND ${sqlFechaDia('fecha')} <= ?
                         AND (sync_status IS NULL OR sync_status <> 'deleted')
                     GROUP BY dia, metodo_pago
                     ORDER BY dia DESC
@@ -84,12 +92,12 @@ function registerReportesIpc() {
             // sucursal porque el pedido (a través del cual se llega al abono) sí tiene sucursal_id.
             let queryAbonosPedido = `
                 SELECT
-                    strftime('%Y-%m-%d', ap.fecha, 'localtime') as dia,
+                    ${sqlFechaDia('ap.fecha')} as dia,
                     ap.metodo_pago,
                     SUM(ap.monto) as total
                 FROM abonos_pedido ap
                 JOIN pedidos p ON ap.pedido_id = p.id
-                WHERE strftime('%Y-%m-%d', ap.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', ap.fecha, 'localtime') <= ?
+                WHERE ${sqlFechaDia('ap.fecha')} >= ? AND ${sqlFechaDia('ap.fecha')} <= ?
                     AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
             `;
             let paramsAbonosPedido = [fechaInicio, fechaFin];
@@ -122,7 +130,7 @@ function registerReportesIpc() {
                 JOIN detalle_ventas dv ON v.id = dv.venta_id
                 JOIN productos p ON dv.producto_id = p.id
                 LEFT JOIN categorias c ON p.categoria_id = c.id
-                WHERE strftime('%Y-%m-%d', v.fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') <= ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                WHERE ${sqlFechaDia('v.fecha')} >= ? AND ${sqlFechaDia('v.fecha')} <= ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
             `;
             let paramsRanking = [fechaInicio, fechaFin];
             if (sucursalId) {
@@ -155,7 +163,7 @@ function registerReportesIpc() {
                 SELECT
                     id,
                     sucursal_id,
-                    strftime('%Y-%m-%d', fecha, 'localtime') as dia,
+                    ${sqlFechaDia('fecha')} as dia,
                     fecha,
                     descripcion,
                     monto,
@@ -165,7 +173,7 @@ function registerReportesIpc() {
             `;
             const params = [ESTADOS_DEVOLUCION.PENDIENTE, TIPOS_GASTO.DEVOLUCION];
             if (fechaInicio && fechaFin) {
-                query += ` AND strftime('%Y-%m-%d', fecha, 'localtime') >= ? AND strftime('%Y-%m-%d', fecha, 'localtime') <= ?`;
+                query += ` AND ${sqlFechaDia('fecha')} >= ? AND ${sqlFechaDia('fecha')} <= ?`;
                 params.push(fechaInicio, fechaFin);
             }
             if (sucursalId) {

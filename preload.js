@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('api', {
     forceRefocus: () => ipcRenderer.invoke('force-refocus'),
     realizarTransferencia: (datos) => ipcRenderer.invoke('realizar-transferencia', datos),
     eliminarTransferencia: (datos) => ipcRenderer.invoke('eliminar-transferencia', datos),
+    obtenerTransferencia: (id) => ipcRenderer.invoke('obtener-transferencia', id),
+    editarTransferencia: (datos) => ipcRenderer.invoke('editar-transferencia', datos),
     obtenerBalanceFinanciero: (filtros) => ipcRenderer.invoke('obtener-balance-financiero', filtros),
     obtenerRankingProductos: (filtros) => ipcRenderer.invoke('obtener-ranking-productos', filtros),
     forzarSincronizacion: () => ipcRenderer.invoke('forzar-sincronizacion'),
@@ -123,5 +125,11 @@ contextBridge.exposeInMainWorld('api', {
     guardarSugeridoPasteleria: (datos) => ipcRenderer.invoke('guardar-sugerido-pasteleria', datos),
     exportarExcelSugeridosPasteleria: (sucursalId) => ipcRenderer.invoke('exportar-excel-sugeridos-pasteleria', { sucursalId }),
     obtenerRecomendacionesPedidoExtra: (sucursalId) => ipcRenderer.invoke('obtener-recomendaciones-pedido-extra', { sucursalId }),
-    exportarExcelPedidoExtra: (sucursalId) => ipcRenderer.invoke('exportar-excel-pedido-extra', { sucursalId })
+    exportarExcelPedidoExtra: (sucursalId) => ipcRenderer.invoke('exportar-excel-pedido-extra', { sucursalId }),
+
+    // Configuración del Servidor Local PostgreSQL 17
+    obtenerConfigServidor: () => ipcRenderer.invoke('obtener-config-servidor'),
+    guardarConfigServidor: (datos) => ipcRenderer.invoke('guardar-config-servidor', datos),
+    probarConexionServidor: (datos) => ipcRenderer.invoke('probar-conexion-servidor', datos),
+    marcarDatosLocalesPendientes: () => ipcRenderer.invoke('marcar-datos-locales-pendientes')
 });

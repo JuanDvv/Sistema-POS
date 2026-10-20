@@ -39,16 +39,21 @@ async function cargarClientesFiscales() {
     if (!selectClienteFiscal) return;
 
     const resClientes = await window.api.obtenerClientes();
+    const valorSeleccionado = selectClienteFiscal.value;
     selectClienteFiscal.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
     if (resClientes.success && resClientes.data) {
         resClientes.data
-            .filter(cli => (cli.categoria || 'Normal') === 'Fiscal')
+            .filter(cli => String(cli.categoria || '').trim().toLowerCase() === 'fiscal')
+            .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }))
             .forEach(cli => {
                 const opt = document.createElement('option');
                 opt.value = cli.id;
                 opt.innerText = `${cli.nombre} (${cli.tipo} - ${cli.identificacion || 'Sin ID'})`;
                 selectClienteFiscal.appendChild(opt);
             });
+        if (valorSeleccionado) {
+            selectClienteFiscal.value = valorSeleccionado;
+        }
     }
 }
 let metodoPagoSelected = 'Efectivo';
@@ -104,8 +109,17 @@ const esCategoriaPasteleria = (categoria) => {
 
     return nombres.some(nombre => normalizeStr(nombre).includes('pasteleria') || normalizeStr(nombre).includes('pastel'));
 };
+const redondearACentena = (valor) => Math.round(Number(valor || 0) / 100) * 100;
+const calcularTotalItemConDescuento = (item, porcentaje) => {
+    const itemBase = Number(item.precio || 0) * Number(item.cantidad || 0);
+    if (porcentaje > 0 && esCategoriaPasteleria(item)) {
+        return redondearACentena(itemBase * (1 - porcentaje / 100));
+    }
+    return itemBase;
+};
 const calcularTotalVenta = () => {
-    let subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+    const porcentaje = obtenerPorcentajeDescuento();
+    const subtotalProductos = carrito.reduce((sum, item) => sum + calcularTotalItemConDescuento(item, porcentaje), 0);
     let valorDomicilio = 0;
     const chkDomicilio = document.getElementById('chk-domicilio');
     if (chkDomicilio && chkDomicilio.checked) {
@@ -113,19 +127,7 @@ const calcularTotalVenta = () => {
         if (inputDom) valorDomicilio = parseNumberUI(inputDom.value);
     }
 
-    const porcentaje = obtenerPorcentajeDescuento();
-    if (porcentaje > 0) {
-        const subtotalPasteleria = carrito.reduce((sum, item) => {
-            if (esCategoriaPasteleria(item)) {
-                return sum + (item.precio * item.cantidad);
-            }
-            return sum;
-        }, 0);
-        const descuento = subtotalPasteleria * (porcentaje / 100);
-        subtotalProductos = Math.max(0, subtotalProductos - descuento);
-    }
-
-    return subtotalProductos + valorDomicilio;
+    return Math.max(0, subtotalProductos) + valorDomicilio;
 };
 const guardarCarritoTemporal = () => {
     sessionStorage.setItem('carrito_temporal', JSON.stringify(carrito));
@@ -849,12 +851,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (chkFiscal && selectClienteFiscal && fiscalContainer) {
         await cargarClientesFiscales();
 
-        chkFiscal.addEventListener('change', () => {
+        chkFiscal.addEventListener('change', async () => {
             const chkDom = document.getElementById('chk-domicilio');
             const btnEfectivo = document.getElementById('btn-pay-efectivo');
             const btnMixto = document.getElementById('btn-pay-mixto');
 
             if (chkFiscal.checked) {
+                await cargarClientesFiscales();
                 fiscalContainer.style.display = 'flex';
                 selectClienteFiscal.focus();
 
@@ -980,6 +983,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // El carrito activo (persistido en localStorage) y los inputs del formulario no se tocan.
     window.addEventListener('pos-sincronizacion-completa', () => {
         cargarCatalogo();
+        cargarClientesFiscales();
+    });
+
+    window.addEventListener('focus', () => {
+        const chkFiscalActual = document.getElementById('chk-fiscal');
+        if (chkFiscalActual && chkFiscalActual.checked) {
+            cargarClientesFiscales();
+        }
     });
 
     // Foco inicial en el buscador para poder escribir/escanear sin tener que hacer clic primero.
@@ -1240,7 +1251,7 @@ function renderizarCarrito() {
     carrito.forEach(item => {
         const itemBase = item.precio * item.cantidad;
         const aplicaDescuento = porcentajeDescuento > 0 && esCategoriaPasteleria(item);
-        const itemTotal = aplicaDescuento ? itemBase * (1 - porcentajeDescuento / 100) : itemBase;
+        const itemTotal = calcularTotalItemConDescuento(item, porcentajeDescuento);
         totalAcumulado += itemBase;
 
         const div = document.createElement('div');
@@ -1517,17 +1528,13 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             const carritoProcesado = carrito;
             const subtotalProductosVenta = carritoProcesado.reduce((sum, item) => sum + (Number(item.precio || 0) * Number(item.cantidad || 0)), 0);
             let montoDescTotalVenta = 0;
-            if (descuentoAplicado > 0) {
-                const subPasteleria = carritoProcesado.reduce((sum, item) => {
-                    return esCategoriaPasteleria(item) ? sum + (Number(item.precio || 0) * Number(item.cantidad || 0)) : sum;
-                }, 0);
-                montoDescTotalVenta = Math.round(subPasteleria * (descuentoAplicado / 100));
-            }
 
             const itemsConDescuento = carritoProcesado.map(i => {
                 const itemSub = Number(i.precio || 0) * Number(i.cantidad || 0);
                 const aplica = descuentoAplicado > 0 && esCategoriaPasteleria(i);
-                const itemMontoDesc = aplica ? Math.round(itemSub * (descuentoAplicado / 100)) : 0;
+                const itemTotalConDesc = calcularTotalItemConDescuento(i, descuentoAplicado);
+                const itemMontoDesc = aplica ? Math.max(0, itemSub - itemTotalConDesc) : 0;
+                montoDescTotalVenta += itemMontoDesc;
                 return {
                     nombre: i.nombre,
                     cantidad: i.cantidad,
