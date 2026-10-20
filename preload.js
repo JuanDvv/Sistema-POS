@@ -115,4 +115,10 @@ contextBridge.exposeInMainWorld('api', {
     eliminarCierreCaja: (datos) => ipcRenderer.invoke('eliminar-cierre-caja', datos),
     recalcularCierreCaja: (datos) => ipcRenderer.invoke('recalcular-cierre-caja', datos),
 
+    // Configuración del Servidor Local PostgreSQL 17
+    obtenerConfigServidor: () => ipcRenderer.invoke('obtener-config-servidor'),
+    guardarConfigServidor: (datos) => ipcRenderer.invoke('guardar-config-servidor', datos),
+    probarConexionServidor: (datos) => ipcRenderer.invoke('probar-conexion-servidor', datos),
+    marcarDatosLocalesPendientes: () => ipcRenderer.invoke('marcar-datos-locales-pendientes')
+
 });

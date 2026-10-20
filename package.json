@@ -55,6 +55,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.110.5",
     "exceljs": "^4.4.0",
+    "pg": "^8.20.0",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.1"
   },

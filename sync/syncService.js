@@ -201,6 +201,7 @@ async function syncColaAuditoria() {
             const { error } = await supabaseLogs
                 .from('auditoria')
                 .insert({
+                    id: log.id,
                     fecha: log.fecha,
                     usuario: log.usuario,
                     rol: log.rol,
@@ -971,7 +972,7 @@ async function syncMovimientosInventarioSubir() {
                 // (trg_movimientos_inventario_updated_at) bump-ea updated_at en cualquier UPDATE que no
                 // lo toque explícitamente -- separarlo en dos sentencias dejaría el resultado sujeto a
                 // una carrera de reloj con el pull.
-                await runQuery(`UPDATE movimientos_inventario SET cantidad = ?, sync_status = 'synced' WHERE id = ?`, [deltaReal, mov.id]);
+                await runQuery(`UPDATE movimientos_inventario SET cantidad = COALESCE(?, cantidad), sync_status = 'synced' WHERE id = ?`, [typeof deltaReal === 'number' ? deltaReal : null, mov.id]);
                 await liberarInventarioSiSinPendientes(mov.producto_id, mov.sucursal_id);
                 console.log(`[Sincronizador] Corrección de stock ${mov.id} sincronizada con la nube (delta real aplicado: ${deltaReal}).`);
                 continue;
@@ -1467,6 +1468,7 @@ async function syncClientes() {
                 telefono: cli.telefono,
                 email: cli.email,
                 origen: cli.origen,
+                categoria: cli.categoria || 'Normal',
                 updated_at: cli.updated_at
             });
             if (!gano) {
@@ -1493,11 +1495,15 @@ async function syncClientes() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO clientes (id, nombre, tipo, identificacion, telefono, email, origen, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
+                    `INSERT INTO clientes (id, nombre, tipo, categoria, identificacion, telefono, email, origen, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         tipo = excluded.tipo,
+                        categoria = CASE
+                            WHEN excluded.categoria IS NOT NULL AND TRIM(excluded.categoria) <> '' THEN excluded.categoria
+                            ELSE COALESCE(clientes.categoria, 'Normal')
+                        END,
                         identificacion = excluded.identificacion,
                         telefono = excluded.telefono,
                         email = excluded.email,
@@ -1505,7 +1511,7 @@ async function syncClientes() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cli.id, cli.nombre, cli.tipo, cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
+                    [cli.id, cli.nombre, cli.tipo, cli.categoria ? String(cli.categoria).trim() : null, cli.identificacion, cli.telefono, cli.email, cli.origen, cli.updated_at]
                 );
             }
         }
@@ -1806,7 +1812,7 @@ async function syncCierresCaja() {
                 efectivo_esperado: c.efectivo_esperado,
                 efectivo_contado: c.efectivo_contado,
                 diferencia: c.diferencia,
-                denominaciones: c.denominaciones ? JSON.parse(c.denominaciones) : null,
+                denominaciones: typeof c.denominaciones === 'string' ? c.denominaciones : (c.denominaciones ? JSON.stringify(c.denominaciones) : null),
                 updated_at: c.updated_at
             });
             if (!gano) {
@@ -1849,7 +1855,7 @@ async function syncCierresCaja() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [c.id, c.sucursal_id, c.usuario, c.rol, c.tipo, c.nota, c.fecha_desde, c.fecha_hasta, c.fondo_base, c.efectivo_esperado, c.efectivo_contado, c.diferencia, c.denominaciones ? JSON.stringify(c.denominaciones) : null, c.updated_at]
+                    [c.id, c.sucursal_id, c.usuario, c.rol, c.tipo, c.nota, c.fecha_desde, c.fecha_hasta, c.fondo_base, c.efectivo_esperado, c.efectivo_contado, c.diferencia, typeof c.denominaciones === 'string' ? c.denominaciones : (c.denominaciones ? JSON.stringify(c.denominaciones) : null), c.updated_at]
                 );
             }
         }
@@ -2020,7 +2026,10 @@ function notificarVentanasReportes() {
 // específico de Supabase para saber si hay ruta hasta el proyecto.
 const TIMEOUT_CHEQUEO_CONEXION_MS = 6000;
 async function hayConexionConSupabase() {
-    if (!isSyncConfigured || !supabaseUrl) return false;
+    if (!isSyncConfigured || !supabase) return false;
+    if (typeof supabase.testConnection === 'function') {
+        return await supabase.testConnection();
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_CHEQUEO_CONEXION_MS);
     try {
