@@ -252,6 +252,15 @@
             font-weight: 600;
         }
 
+        #table-ventas-dia th:first-child,
+        #table-ventas-dia td:first-child:not([colspan]),
+        #table-transferencias-dia th:first-child,
+        #table-transferencias-dia td:first-child,
+        #table-cierres-caja-dia th:first-child,
+        #table-cierres-caja-dia td:first-child {
+            white-space: nowrap;
+        }
+
         .btn-export {
             background-color: #10b981;
             color: white;
@@ -690,7 +699,7 @@
                                 <th>Sucursal Destino</th>
                                 <th>Productos</th>
                                 <th>Usuario</th>
-                                <th id="th-trans-acciones" style="display: none; width: 100px;">Acciones</th>
+                                <th id="th-trans-acciones" style="display: none; width: 140px;">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -877,6 +886,48 @@
                 <button class="btn-primary" id="btn-cerrar-preview-ticket"
                     style="flex: 1; justify-content: center; background-color: #6b7280;">Cerrar</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal para editar transferencia -->
+    <div id="modal-transferencia" class="modal">
+        <div class="modal-content"
+            style="width: 500px; max-width: 92vw; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <h3>Editar Transferencia</h3>
+                <button class="close-btn" id="btn-close-trans-modal">&times;</button>
+            </div>
+            <form id="form-transferencia"
+                style="overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 4px 0;">
+                <div style="display: flex; gap: 12px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Sucursal Origen</label>
+                        <input type="text" id="edit-trans-origen" disabled
+                            style="background-color: #f3f4f6; color: #4b5563; font-weight: 600;">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="edit-trans-destino">Sucursal Destino</label>
+                        <select id="edit-trans-destino"></select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Productos del Traslado</label>
+                    <div id="edit-trans-items"
+                        style="border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px; max-height: 220px; overflow-y: auto;">
+                    </div>
+                </div>
+                <div class="form-group" style="display: flex; gap: 8px; align-items: flex-end;">
+                    <div style="flex: 1;">
+                        <label for="edit-trans-input-producto">Agregar producto</label>
+                        <input type="text" id="edit-trans-input-producto" placeholder="Buscar producto..."
+                            autocomplete="off">
+                    </div>
+                    <button type="button" class="btn-primary" onclick="agregarProductoEdicionTransferencia()">➕ Agregar</button>
+                </div>
+                <button type="submit" class="btn-primary"
+                    style="width: 100%; justify-content: center; padding: 12px; flex-shrink: 0; margin-top: 4px;">Guardar
+                    Cambios</button>
+            </form>
         </div>
     </div>
 

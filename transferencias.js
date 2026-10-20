@@ -158,6 +158,10 @@ async function cargarSucursales() {
 
         selectOrigen.value = initialOrigenId;
         sucursalOrigenId = initialOrigenId;
+        selectOrigen.disabled = true;
+        selectOrigen.style.backgroundColor = '#f3f4f6';
+        selectOrigen.style.color = '#4b5563';
+        selectOrigen.style.cursor = 'not-allowed';
         await actualizarDestinosDisponibles();
         await cargarCatalogo();
     } else {

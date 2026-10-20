@@ -27,58 +27,19 @@ console.log(`[supabaseClients] Entorno activo: ${isProd ? 'PRODUCCIÓN' : 'PRUEB
 const isDelipostres = (pkg.name || '').toLowerCase() === 'pos-delipostresturbaco';
 
 // =================================================================
-// CONFIGURACIÓN DE SUPABASE (PROYECTO PRINCIPAL DE DATOS)
+// CLIENTE UNIFICADO DE POSTGRESQL 17 (DOCKER / SERVIDOR LOCAL)
 // =================================================================
-const PROD_DATA = {
-    url: 'https://mkbwfypxupebulwhijgw.supabase.co',
-    key: 'sb_publishable_fVK6Qpm0tyP0eKu38XUEAw_Spq-ccEw'
-};
-const TEST_DATA = {
-    url: 'https://kfcaaiyzdmcdccmhqemf.supabase.co',
-    key: 'sb_publishable_aJj-iuP6UjR-IRDIWt3NWg_jJAEc8kG'
-};
+const { remoteDbClient } = require('./remoteDbClient');
+const { obtenerConfigServidor } = require('../services/serverConfigService');
 
-const defaultDataUrl = isDelipostres ? (isProd ? PROD_DATA.url : TEST_DATA.url) : '';
-const defaultDataKey = isDelipostres ? (isProd ? PROD_DATA.key : TEST_DATA.key) : '';
+const serverConfig = obtenerConfigServidor();
+const supabaseUrl = `postgresql://${serverConfig.host}:${serverConfig.port}/${serverConfig.database}`;
+const supabaseKey = serverConfig.user || 'postgres';
+const isSyncConfigured = Boolean(serverConfig.host && serverConfig.database);
 
-const supabaseUrl = process.env.SUPABASE_URL || defaultDataUrl;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || defaultDataKey;
-const isSyncConfigured = Boolean(supabaseUrl && supabaseKey);
-
-const supabase = isSyncConfigured
-    ? createClient(supabaseUrl, supabaseKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false
-        }
-    })
-    : null;
-
-// =================================================================
-// CONFIGURACIÓN DE SUPABASE (SEGUNDO PROYECTO DE LOGS DE AUDITORÍA)
-// =================================================================
-const PROD_LOGS = {
-    url: 'https://jzeuyerwavkxczgiqgui.supabase.co',
-    key: 'sb_publishable_yWRjMRpOmdx8x6tbDv_T4A_pLkdfGSF'
-};
-const TEST_LOGS = {
-    url: 'https://hkjjqyqsmxupeeuelzny.supabase.co',
-    key: 'sb_publishable_tit8PwB5hKUE5VlMBasOrw_DURbja_w'
-};
-
-const defaultLogsUrl = isDelipostres ? (isProd ? PROD_LOGS.url : TEST_LOGS.url) : '';
-const defaultLogsKey = isDelipostres ? (isProd ? PROD_LOGS.key : TEST_LOGS.key) : '';
-
-const supabaseLogsUrl = process.env.SUPABASE_LOGS_URL || defaultLogsUrl;
-const supabaseLogsKey = process.env.SUPABASE_LOGS_SERVICE_ROLE_KEY || process.env.SUPABASE_LOGS_ANON_KEY || defaultLogsKey;
-
-const supabaseLogs = (supabaseLogsUrl && supabaseLogsKey)
-    ? createClient(supabaseLogsUrl, supabaseLogsKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false
-        }
-    })
-    : null;
+// Ambos clientes convergen en la misma base de datos unificada de PostgreSQL 17
+const supabase = remoteDbClient;
+const supabaseLogs = remoteDbClient;
 
 module.exports = { supabase, supabaseLogs, supabaseUrl, supabaseKey, isProd, isSyncConfigured };
+

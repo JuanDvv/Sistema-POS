@@ -9,6 +9,14 @@ const { solicitarSincronizacion } = require('../sync/syncService');
 // SRP: expone como IPC el ciclo de vida de una venta (día actual, fecha anterior y
 // aprobación de solicitudes). La lógica transaccional vive en services/ventaService.
 
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
+
 // Calcula la fecha/hora real de una venta de fecha anterior: se coloca justo después de la
 // última venta ya registrada ese día en la sucursal (1s más tarde), para que aparezca al final
 // del listado del día en vez de "metida" a mediodía entre ventas reales con hora real. Si no hay
@@ -22,7 +30,7 @@ async function calcularFechaVentaAnterior(fechaDia, sucursalId, excluirVentaId =
     }
     const fila = await new Promise((resolve, reject) => {
         db.get(
-            `SELECT MAX(fecha) as ultima FROM ventas WHERE sucursal_id = ? AND strftime('%Y-%m-%d', fecha, 'localtime') = ? AND (sync_status IS NULL OR sync_status <> 'deleted')${excluirSql}`,
+            `SELECT MAX(fecha) as ultima FROM ventas WHERE sucursal_id = ? AND ${sqlFechaDia('fecha')} = ? AND (sync_status IS NULL OR sync_status <> 'deleted')${excluirSql}`,
             params,
             (err, row) => { if (err) reject(err); else resolve(row); }
         );
@@ -181,14 +189,14 @@ function registerVentasIpc() {
                     COALESCE((
                         SELECT SUM(ap.monto) FROM abonos_pedido ap
                         WHERE ap.pedido_id = ped.id AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
-                          AND strftime('%Y-%m-%d', ap.fecha, 'localtime') = strftime('%Y-%m-%d', v.fecha, 'localtime')
+                          AND ${sqlFechaDia('ap.fecha')} = ${sqlFechaDia('v.fecha')}
                     ), 0) as pedido_abonado_mismo_dia
                  FROM ventas v
                  LEFT JOIN detalle_ventas dv ON v.id = dv.venta_id
                  LEFT JOIN productos p ON dv.producto_id = p.id
                  LEFT JOIN clientes cli ON v.cliente_id = cli.id
                  LEFT JOIN pedidos ped ON ped.venta_id = v.id
-                 WHERE v.sucursal_id = ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                 WHERE v.sucursal_id = ? AND ${sqlFechaDia('v.fecha')} = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                  ${categoryFilterSql}
                  GROUP BY v.id
                  ORDER BY v.fecha DESC`,
@@ -196,7 +204,7 @@ function registerVentasIpc() {
             );
 
             const gastos = await allQuery(
-                `SELECT * FROM gastos WHERE sucursal_id = ? AND strftime('%Y-%m-%d', fecha, 'localtime') = ? AND (sync_status IS NULL OR sync_status <> 'deleted') ORDER BY fecha DESC`,
+                `SELECT * FROM gastos WHERE sucursal_id = ? AND ${sqlFechaDia('fecha')} = ? AND (sync_status IS NULL OR sync_status <> 'deleted') ORDER BY fecha DESC`,
                 [sucursalId, fecha]
             );
 
@@ -208,7 +216,7 @@ function registerVentasIpc() {
                  FROM abonos_pedido ap
                  JOIN pedidos p ON ap.pedido_id = p.id
                  LEFT JOIN clientes cli ON p.cliente_id = cli.id
-                 WHERE p.sucursal_id = ? AND strftime('%Y-%m-%d', ap.fecha, 'localtime') = ? AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
+                 WHERE p.sucursal_id = ? AND ${sqlFechaDia('ap.fecha')} = ? AND (ap.sync_status IS NULL OR ap.sync_status <> 'deleted')
                  ORDER BY ap.fecha DESC`,
                 [sucursalId, fecha]
             );
@@ -236,7 +244,7 @@ function registerVentasIpc() {
                  JOIN productos p ON dv.producto_id = p.id
                  LEFT JOIN categorias c ON p.categoria_id = c.id
                  LEFT JOIN categorias cp ON c.categoria_padre_id = cp.id
-                 WHERE v.sucursal_id = ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                 WHERE v.sucursal_id = ? AND ${sqlFechaDia('v.fecha')} = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                  ${categoryFilterResumenSql}
                  GROUP BY p.categoria_id, c.nombre, c.categoria_padre_id, cp.nombre`,
                 queryParamsResumen
@@ -255,7 +263,7 @@ function registerVentasIpc() {
                  LEFT JOIN detalle_transferencias dt ON t.id = dt.transferencia_id
                  LEFT JOIN productos p ON dt.producto_id = p.id
                  WHERE (t.sucursal_origen_id = ? OR t.sucursal_destino_id = ?)
-                   AND strftime('%Y-%m-%d', t.fecha, 'localtime') = ?
+                   AND ${sqlFechaDia('t.fecha')} = ?
                    AND (t.sync_status IS NULL OR t.sync_status <> 'deleted')
                  GROUP BY t.id`,
                 [sucursalId, sucursalId, fecha]
@@ -277,14 +285,14 @@ function registerVentasIpc() {
                     COALESCE(MAX(inv.stock), 0) - COALESCE((
                         SELECT SUM(mi.cantidad) FROM movimientos_inventario mi
                         WHERE mi.producto_id = dv.producto_id AND mi.sucursal_id = v.sucursal_id
-                          AND strftime('%Y-%m-%d', mi.fecha, 'localtime') > ?
+                          AND ${sqlFechaDia('mi.fecha')} > ?
                     ), 0) as stock_actual
                  FROM ventas v
                  JOIN detalle_ventas dv ON v.id = dv.venta_id
                  JOIN productos p ON dv.producto_id = p.id
                  LEFT JOIN categorias c ON p.categoria_id = c.id
                  LEFT JOIN inventario_sucursal inv ON p.id = inv.producto_id AND v.sucursal_id = inv.sucursal_id
-                 WHERE v.sucursal_id = ? AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                 WHERE v.sucursal_id = ? AND ${sqlFechaDia('v.fecha')} = ? AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                  ${categoryFilterResumenSql}
                  GROUP BY dv.producto_id, p.nombre, c.nombre, c.id
                  ORDER BY c.nombre ASC, total_cantidad DESC`,
@@ -304,7 +312,7 @@ function registerVentasIpc() {
                     COALESCE(inv.stock, 0) - COALESCE((
                         SELECT SUM(mi.cantidad) FROM movimientos_inventario mi
                         WHERE mi.producto_id = p.id AND mi.sucursal_id = inv.sucursal_id
-                          AND strftime('%Y-%m-%d', mi.fecha, 'localtime') > ?
+                          AND ${sqlFechaDia('mi.fecha')} > ?
                     ), 0) as stock_actual
                  FROM inventario_sucursal inv
                  JOIN productos p ON p.id = inv.producto_id
@@ -315,8 +323,8 @@ function registerVentasIpc() {
                        SELECT 1 FROM ventas v
                        JOIN detalle_ventas dv ON dv.venta_id = v.id
                        WHERE dv.producto_id = p.id AND v.sucursal_id = ?
-                         AND strftime('%Y-%m-%d', v.fecha, 'localtime') = ?
-                         AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
+                          AND ${sqlFechaDia('v.fecha')} = ?
+                          AND (v.sync_status IS NULL OR v.sync_status <> 'deleted')
                    )
                    ${categoryFilterResumenSql}
                  ORDER BY c.nombre ASC, p.nombre ASC`,
@@ -463,7 +471,7 @@ function registerVentasIpc() {
 
         try {
             const ventaActual = await new Promise((resolve, reject) => {
-                db.get(`SELECT * FROM ventas WHERE id = ?`, [ventaId], (err, row) => {
+                db.get(`SELECT *, ${sqlFechaDia('fecha')} as fecha_dia FROM ventas WHERE id = ?`, [ventaId], (err, row) => {
                     if (err) reject(err);
                     else resolve(row);
                 });
@@ -480,7 +488,7 @@ function registerVentasIpc() {
 
             const id = uuidv4();
             const ahora = new Date().toISOString();
-            const fechaDia = String(ventaActual.fecha || '').slice(0, 10);
+            const fechaDia = ventaActual.fecha_dia || String(ventaActual.fecha || '').slice(0, 10);
             const snapshotOriginal = { venta: ventaActual, detalle: detalleActual };
             await runQuery(
                 `INSERT INTO solicitudes_venta (id, tipo, venta_id, sucursal_id, fecha_venta, datos, estado, usuario_solicitante, fecha_solicitud, sync_status, updated_at)

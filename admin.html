@@ -221,6 +221,91 @@
             </form>
         </div>
 
+        <!-- Sección de Consulta y Rotación de Turnos (Operadores y Administradores) -->
+        <div class="section-card" id="section-turnos">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--bg-accent); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">📅 Programación y Rotación de Turnos</h3>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" id="btn-turno-anterior" class="btn-primary" style="padding: 6px 12px; font-size: 0.9em;">◀ Anterior</button>
+                    <span id="label-rango-turnos" style="font-weight: 700; color: #1e293b; font-size: 0.9em; background: #e2e8f0; padding: 6px 12px; border-radius: 6px; white-space: nowrap;">Cargando...</span>
+                    <button type="button" id="btn-turno-siguiente" class="btn-primary" style="padding: 6px 12px; font-size: 0.9em;">Siguiente ▶</button>
+                    <button type="button" id="btn-turno-hoy" class="btn-primary" style="padding: 6px 12px; font-size: 0.9em; background-color: #10b981;">📍 Hoy (2 Semanas)</button>
+                    <select id="select-turno-dias" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-weight: bold; background: white; color: #1e293b;">
+                        <option value="14" selected>14 días (2 semanas)</option>
+                        <option value="7">7 días (1 semana)</option>
+                        <option value="21">21 días (3 semanas)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Asignación de Operadores (Rotación) -->
+            <div id="contenedor-asignacion-turnos" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <span style="font-weight: 600; font-size: 0.95em; color: #334155;">🔄 Asignación de Operadores en la Rotación:</span>
+                    <button type="button" id="btn-guardar-operadores-turnos" class="btn-primary" style="padding: 6px 14px; font-size: 0.85em;">💾 Guardar Asignación</button>
+                </div>
+                <div class="form-grid" style="margin-bottom: 0;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 0.85em; color: #64748b;">Operador 1 (Base: San Roque al 10-Oct)</label>
+                        <div style="display: flex; gap: 6px;">
+                            <select id="select-op-1" style="flex: 1; padding: 6px 8px; font-size: 0.9em;"></select>
+                            <input type="text" id="input-op-1" placeholder="Nombre" style="flex: 1; padding: 6px 8px; font-size: 0.9em;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 0.85em; color: #64748b;">Operador 2 (Base: Granja al 10-Oct)</label>
+                        <div style="display: flex; gap: 6px;">
+                            <select id="select-op-2" style="flex: 1; padding: 6px 8px; font-size: 0.9em;"></select>
+                            <input type="text" id="input-op-2" placeholder="Nombre" style="flex: 1; padding: 6px 8px; font-size: 0.9em;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 0.85em; color: #64748b;">Operador 3 (Base: Descanso al 10-Oct)</label>
+                        <div style="display: flex; gap: 6px;">
+                            <select id="select-op-3" style="flex: 1; padding: 6px 8px; font-size: 0.9em;"></select>
+                            <input type="text" id="input-op-3" placeholder="Nombre" style="flex: 1; padding: 6px 8px; font-size: 0.9em;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Turnos Calculada Dinámicamente -->
+            <div class="table-container-scroll" style="max-height: 520px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <table id="table-turnos" style="width: 100%; border-collapse: collapse; text-align: center; font-size: 0.95rem;">
+                    <thead>
+                        <tr style="background-color: #f1f5f9; position: sticky; top: 0; z-index: 10;">
+                            <th style="padding: 10px; border: 1px solid #cbd5e1; width: 120px;">Fecha</th>
+                            <th style="padding: 10px; border: 1px solid #cbd5e1; width: 120px;">Día</th>
+                            <th id="th-op-1" style="padding: 10px; border: 1px solid #cbd5e1;">Liliana</th>
+                            <th id="th-op-2" style="padding: 10px; border: 1px solid #cbd5e1;">Tatiana</th>
+                            <th id="th-op-3" style="padding: 10px; border: 1px solid #cbd5e1;">Danna</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-turnos">
+                        <!-- Insertado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Convenciones de Turnos -->
+            <div style="display: flex; gap: 16px; margin-top: 15px; flex-wrap: wrap; align-items: center; font-size: 0.85em;">
+                <span style="font-weight: 600; color: #475569;">Convenciones:</span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 14px; height: 14px; background: #fef9c3; border: 1px solid #fef08a; border-radius: 3px;"></span> San Roque
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 14px; height: 14px; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 3px;"></span> Granja
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 14px; height: 14px; background: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 3px;"></span> Descanso
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 14px; height: 14px; background: #fef08a; border: 1px solid #ca8a04; border-radius: 3px;"></span> Fin de Semana
+                </span>
+            </div>
+        </div>
+
         <!-- 0. Sección de Solicitudes de Ventas de Fecha Anterior -->
         <div class="section-card" id="section-solicitudes">
             <div
@@ -500,6 +585,7 @@
                     <select id="filtro-clientes"
                         style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;">
                         <option value="todos">Todos</option>
+                        <option value="Fiscal">Solo Fiscales</option>
                         <option value="Credito">Solo Crédito</option>
                         <option value="Pedido">Solo Pedidos</option>
                     </select>
@@ -693,6 +779,7 @@
     </div>
 
     <script src="./sidebar.js"></script>
+    <script src="./turnos.js"></script>
     <script src="./admin.js"></script>
 </body>
 

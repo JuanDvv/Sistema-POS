@@ -9,6 +9,14 @@ const { obtenerFechaHoyYYYYMMDD } = require('../services/fechaService');
 
 // SRP: clientes, créditos, abonos y su cuenta de cobro en PDF.
 
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
+
 function registerClientesIpc() {
     // Módulo de clientes para créditos
     ipcMain.handle('obtener-clientes', async () => {
@@ -89,7 +97,7 @@ function registerClientesIpc() {
         const { id, auditoriaUsuario, auditoriaRol } = datos;
         try {
             const abono = await new Promise((resolve) => {
-                db.get(`SELECT cliente_id, monto, metodo_pago, strftime('%Y-%m-%d', fecha, 'localtime') as fecha_dia FROM abonos_credito WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT cliente_id, monto, metodo_pago, ${sqlFechaDia('fecha')} as fecha_dia FROM abonos_credito WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // Un abono de un día anterior solo lo puede eliminar un Administrador (y queda
             // recuperable desde Administración > Abonos Eliminados) -- mismo criterio que

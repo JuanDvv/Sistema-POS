@@ -13,6 +13,14 @@ const { TIPOS_CIERRE_CAJA } = require('../utils/cierresCaja');
 
 const FONDO_BASE_SUCURSAL = 300000; // Duplicado a propósito frente a arqueo.js (convención del repo: sin util compartido).
 
+const SQL_FILTRO_FECHA_CIERRE = `
+    CASE
+        WHEN fecha_hasta LIKE '%Z%' OR fecha_hasta LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(fecha_hasta, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(fecha_hasta, 'T', ' '), 1, 10)
+    END = ?
+`;
+
 function inicioDeHoyISO() {
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
@@ -75,7 +83,7 @@ async function calcularVentanaYEsperado(sucursalId, fechaHasta = new Date().toIS
     const ultimoCierre = await allQuery(
         `SELECT fecha_hasta FROM cierres_caja
          WHERE sucursal_id = ? AND (sync_status IS NULL OR sync_status <> 'deleted')
-           AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?
+           AND ${SQL_FILTRO_FECHA_CIERRE}
          ORDER BY fecha_hasta DESC LIMIT 1`,
         [sucursalId, hoyStr]
     );
@@ -96,11 +104,12 @@ async function registrarCierreCajaTx({ sucursalId, tipo, nota, denominaciones, a
     // El Cierre de Día es el corte final de la jornada: una vez registrado, no se admite ningún
     // otro cierre (de ningún tipo) el mismo día para esa sucursal. Validado aquí, no solo en la UI,
     // porque el renderer puede tener el formulario ya abierto/desactualizado.
+    const hoyStrCierre = obtenerFechaHoyYYYYMMDD();
     const cierreDiaHoy = await allQuery(
         `SELECT id FROM cierres_caja
          WHERE sucursal_id = ? AND tipo = ? AND (sync_status IS NULL OR sync_status <> 'deleted')
-           AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?`,
-        [sucursalId, TIPOS_CIERRE_CAJA.CIERRE_DIA, obtenerFechaHoyYYYYMMDD()]
+           AND ${SQL_FILTRO_FECHA_CIERRE}`,
+        [sucursalId, TIPOS_CIERRE_CAJA.CIERRE_DIA, hoyStrCierre]
     );
     if (cierreDiaHoy.length > 0) {
         return { success: false, message: 'Ya se realizó el Cierre de Día de hoy. No se pueden registrar más cierres de caja hasta mañana.' };
@@ -143,7 +152,8 @@ async function obtenerCierresCaja({ sucursalId, fecha }) {
     const fechaFiltro = fecha || obtenerFechaHoyYYYYMMDD();
     return allQuery(
         `SELECT * FROM cierres_caja
-         WHERE sucursal_id = ? AND strftime('%Y-%m-%d', fecha_hasta, 'localtime') = ?
+         WHERE sucursal_id = ?
+           AND ${SQL_FILTRO_FECHA_CIERRE}
            AND (sync_status IS NULL OR sync_status <> 'deleted')
          ORDER BY fecha_hasta DESC`,
         [sucursalId, fechaFiltro]

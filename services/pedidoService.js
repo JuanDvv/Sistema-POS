@@ -11,6 +11,14 @@ const { obtenerFechaHoyYYYYMMDD } = require('./fechaService');
 // que se suma/resta SIN tocar inventario_sucursal.stock -- el stock físico real solo se descuenta
 // al entregar el pedido (ver entregarPedidoTx), igual que cualquier venta normal (permite negativo).
 
+function sqlFechaDia(columna) {
+    return `CASE
+        WHEN ${columna} LIKE '%Z%' OR ${columna} LIKE '%+00%'
+            THEN strftime('%Y-%m-%d', replace(replace(replace(${columna}, ' ', 'T'), '+00:00', 'Z'), '+00', 'Z'), '-5 hours')
+        ELSE substr(replace(${columna}, 'T', ' '), 1, 10)
+    END`;
+}
+
 function notificarInventarioActualizado() {
     BrowserWindow.getAllWindows().forEach(win => {
         if (!win.isDestroyed()) {
@@ -240,7 +248,7 @@ async function eliminarAbonoPedidoTx({ id, auditoriaUsuario, auditoriaRol }) {
     try {
         const abono = await new Promise((resolve, reject) => {
             db.get(
-                `SELECT ap.monto, ap.pedido_id, p.sucursal_id, p.estado, strftime('%Y-%m-%d', ap.fecha, 'localtime') as fecha_dia
+                `SELECT ap.monto, ap.pedido_id, p.sucursal_id, p.estado, ${sqlFechaDia('ap.fecha')} as fecha_dia
                  FROM abonos_pedido ap JOIN pedidos p ON ap.pedido_id = p.id WHERE ap.id = ?`,
                 [id],
                 (err, row) => { if (err) reject(err); else resolve(row); }

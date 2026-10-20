@@ -358,7 +358,7 @@ function renderizarTablaVentas() {
             const tr = document.createElement('tr');
             tr.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
             tr.innerHTML = `
-                <td>${hora}</td>
+                <td style="white-space: nowrap;">${hora}</td>
                 <td>💳 Abono de Pedido — ${abono.cliente_nombre || '(Sin nombre)'}</td>
                 <td>${abono.metodo_pago}${checkboxVerificada}</td>
                 <td><strong>${formatCOP(abono.monto)}</strong></td>
@@ -478,7 +478,7 @@ function renderizarTablaVentas() {
             tr.classList.add('fila-venta-fiscal');
         }
         tr.innerHTML = `
-            <td>
+            <td style="white-space: nowrap;">
                 <div>${hora}</div>
                 ${badgeFiscal}
             </td>
@@ -938,6 +938,13 @@ async function cargarReporte(fecha) {
 
         // 2.7. Renderizar Tabla Transferencias
         const tbodyTrans = document.querySelector('#table-transferencias-dia tbody');
+        const thTransAcciones = document.getElementById('th-trans-acciones');
+        const puedeAdministrarTrans = userRole === 'Administrador' || fechaReporteEsHoy;
+
+        if (thTransAcciones) {
+            thTransAcciones.style.display = puedeAdministrarTrans ? '' : 'none';
+        }
+
         if (tbodyTrans) {
             tbodyTrans.innerHTML = '';
             if (datosReporteGlobal.transferencias && datosReporteGlobal.transferencias.length > 0) {
@@ -946,6 +953,26 @@ async function cargarReporte(fecha) {
                     .forEach(trans => {
                     const hora = new Date(trans.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
                     const tr = document.createElement('tr');
+
+                    let celdaAcciones = '';
+                    if (puedeAdministrarTrans) {
+                        const esSucursalEmisora = trans.sucursal_origen_id === sucursalId;
+                        if (esSucursalEmisora || userRole === 'Administrador') {
+                            celdaAcciones = `
+                                <td class="actions-cell" style="white-space: nowrap;">
+                                    <button class="btn-edit" onclick="iniciarEdicionTransferencia('${trans.id}')">✏️ Editar</button>
+                                    <button class="btn-delete" onclick="eliminarTransferenciaConfirm('${trans.id}')">🗑️ Anular</button>
+                                </td>
+                            `;
+                        } else {
+                            celdaAcciones = `
+                                <td style="color: #6b7280; font-size: 0.8em; white-space: nowrap;">
+                                    <span style="background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 500;">Receptor</span>
+                                </td>
+                            `;
+                        }
+                    }
+
                     tr.innerHTML = `
                         <td>${hora}</td>
                         <td><span style="font-weight:600; color:#ef4444;">${trans.sucursal_origen_id}</span></td>
@@ -960,11 +987,12 @@ async function cargarReporte(fecha) {
                                 `).join('')}
                         </td>
                         <td>${trans.usuario}</td>
+                        ${celdaAcciones}
                     `;
                     tbodyTrans.appendChild(tr);
                 });
             } else {
-                tbodyTrans.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#9ca3af;">No hay transferencias hoy.</td></tr>';
+                tbodyTrans.innerHTML = `<tr><td colspan="${puedeAdministrarTrans ? 6 : 5}" style="text-align:center; color:#9ca3af;">No hay transferencias hoy.</td></tr>`;
             }
         }
 
@@ -1296,6 +1324,69 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Controles del modal de transferencias
+    const modalTrans = document.getElementById('modal-transferencia');
+    const btnCloseTrans = document.getElementById('btn-close-trans-modal');
+    const formTrans = document.getElementById('form-transferencia');
+
+    const cerrarModalTrans = () => {
+        if (modalTrans) modalTrans.style.display = 'none';
+        if (formTrans) formTrans.reset();
+        editingTransId = null;
+        editingTransOrigenId = null;
+        editingTransCarrito = [];
+        const inputProd = document.getElementById('edit-trans-input-producto');
+        if (inputProd) {
+            inputProd.value = '';
+            inputProd.blur();
+        }
+        if (buscadorProductoEdicionTrans) buscadorProductoEdicionTrans.cerrar();
+    };
+
+    if (btnCloseTrans) btnCloseTrans.addEventListener('click', cerrarModalTrans);
+
+    if (formTrans) {
+        formTrans.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!editingTransCarrito || editingTransCarrito.length === 0) {
+                alert('La transferencia debe contener al menos un producto.');
+                return;
+            }
+
+            const selectDestino = document.getElementById('edit-trans-destino');
+            const destinoId = selectDestino ? selectDestino.value : '';
+            if (!destinoId) {
+                alert('Selecciona una sucursal de destino válida.');
+                return;
+            }
+
+            if (destinoId === editingTransOrigenId) {
+                alert('La sucursal de destino no puede ser la misma de origen.');
+                return;
+            }
+
+            const user = sessionStorage.getItem('currentUser') || 'Invitado';
+            const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
+
+            const response = await window.api.editarTransferencia({
+                id: editingTransId,
+                sucursalDestinoId: destinoId,
+                productos: editingTransCarrito,
+                auditoriaUsuario: user,
+                auditoriaRol: role
+            });
+
+            if (response.success) {
+                cerrarModalTrans();
+                alert(response.message);
+                const inputFecha = document.getElementById('fecha-filtro');
+                await cargarReporte(inputFecha.value);
+            } else {
+                alert("Error al editar transferencia: " + response.message);
+            }
+        });
+    }
+
     const editGastoMontoInput = document.getElementById('edit-gasto-monto');
     if (editGastoMontoInput) {
         editGastoMontoInput.addEventListener('input', (e) => {
@@ -1314,6 +1405,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (e.target === modalVenta) {
             limpiarEstadoModalVenta();
+        }
+        if (e.target === modalTrans) {
+            cerrarModalTrans();
         }
     });
 
@@ -1584,6 +1678,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             input: inputProductoEdicionVenta,
             obtenerProductos: () => catalogoProductosEdicion,
             detalle: (p) => `$${formatCOP(p.precio)}`
+        });
+    }
+
+    const inputProductoEdicionTrans = document.getElementById('edit-trans-input-producto');
+    if (inputProductoEdicionTrans) {
+        buscadorProductoEdicionTrans = crearBuscadorProducto({
+            input: inputProductoEdicionTrans,
+            obtenerProductos: () => catalogoProductosEdicionTrans,
+            detalle: (p) => `Stock: ${p.stock ?? 0}`
         });
     }
 });
@@ -1906,4 +2009,145 @@ window.eliminarVenta = async function(id) {
             alert(response.message);
         }
     }
+};
+
+// Variables de estado y funciones para edición/anulación de transferencias
+let editingTransId = null;
+let editingTransOrigenId = null;
+let editingTransCarrito = [];
+let catalogoProductosEdicionTrans = [];
+let buscadorProductoEdicionTrans = null;
+
+window.eliminarTransferenciaConfirm = async function(id) {
+    if (!confirm(`¿Estás seguro de anular la transferencia ${id}?\n\nEsta acción revertirá los productos a la sucursal de origen y los descontará de la sucursal de destino.`)) {
+        return;
+    }
+    const user = sessionStorage.getItem('currentUser') || 'Invitado';
+    const role = sessionStorage.getItem('currentRole') || 'Sin Rol';
+    const response = await window.api.eliminarTransferencia({ id, auditoriaUsuario: user, auditoriaRol: role });
+    if (response.success) {
+        alert(response.message);
+        const inputFecha = document.getElementById('fecha-filtro');
+        await cargarReporte(inputFecha.value);
+    } else {
+        alert("Error al anular transferencia: " + response.message);
+    }
+};
+
+window.iniciarEdicionTransferencia = async function(id) {
+    editingTransId = id;
+    const response = await window.api.obtenerTransferencia(id);
+    if (!response.success) {
+        alert('Error al obtener datos de la transferencia: ' + response.message);
+        return;
+    }
+
+    const trans = response.data;
+    editingTransOrigenId = trans.sucursal_origen_id;
+    editingTransCarrito = (trans.items || []).map(i => ({
+        id: i.producto_id,
+        nombre: i.nombre || 'Producto desconocido',
+        cantidad: Number(i.cantidad || 0)
+    }));
+
+    const inputOrigen = document.getElementById('edit-trans-origen');
+    if (inputOrigen) inputOrigen.value = trans.sucursal_origen_id;
+
+    const selectDestino = document.getElementById('edit-trans-destino');
+    if (selectDestino) {
+        selectDestino.innerHTML = '';
+        const resSucursales = await window.api.obtenerTodasSucursales();
+        if (resSucursales.success && resSucursales.data) {
+            const disponibles = resSucursales.data.filter(s => s.id !== trans.sucursal_origen_id);
+            disponibles.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.nombre;
+                if (s.id === trans.sucursal_destino_id) opt.selected = true;
+                selectDestino.appendChild(opt);
+            });
+        }
+    }
+
+    const resInv = await window.api.getInventory(trans.sucursal_origen_id);
+    if (resInv.success && resInv.data) {
+        catalogoProductosEdicionTrans = resInv.data.slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
+    }
+
+    const inputProd = document.getElementById('edit-trans-input-producto');
+    if (inputProd) {
+        inputProd.value = '';
+        inputProd.blur();
+    }
+    if (buscadorProductoEdicionTrans) {
+        buscadorProductoEdicionTrans.cerrar();
+    }
+
+    renderizarItemsEdicionTransferencia();
+
+    const modalTrans = document.getElementById('modal-transferencia');
+    if (modalTrans) {
+        modalTrans.style.display = 'flex';
+        if (window.api?.forceRefocus) {
+            window.api.forceRefocus();
+        }
+    }
+};
+
+function renderizarItemsEdicionTransferencia() {
+    const cont = document.getElementById('edit-trans-items');
+    if (!cont) return;
+
+    if (editingTransCarrito.length === 0) {
+        cont.innerHTML = '<p style="color:#6b7280; text-align:center; margin:10px 0;">No hay productos en la transferencia.</p>';
+        return;
+    }
+
+    cont.innerHTML = editingTransCarrito.map((item, idx) => `
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed #e5e7eb;">
+            <div style="flex:1; font-size:0.85em; font-weight:600; color:#1f2937;">
+                ${item.nombre}
+            </div>
+            <button type="button" class="btn-edit" style="padding:2px 8px;" onclick="cambiarCantidadEdicionTransferencia(${idx}, -1)">-</button>
+            <span style="font-weight:700; min-width:24px; text-align:center; font-size:0.9em;">${item.cantidad}</span>
+            <button type="button" class="btn-edit" style="padding:2px 8px;" onclick="cambiarCantidadEdicionTransferencia(${idx}, 1)">+</button>
+            <button type="button" class="btn-delete" style="padding:4px 8px; margin-left:4px;" onclick="eliminarItemEdicionTransferencia(${idx})">✕</button>
+        </div>
+    `).join('');
+}
+
+window.cambiarCantidadEdicionTransferencia = function(idx, delta) {
+    const item = editingTransCarrito[idx];
+    if (!item) return;
+    item.cantidad += delta;
+    if (item.cantidad <= 0) {
+        editingTransCarrito.splice(idx, 1);
+    }
+    renderizarItemsEdicionTransferencia();
+};
+
+window.eliminarItemEdicionTransferencia = function(idx) {
+    editingTransCarrito.splice(idx, 1);
+    renderizarItemsEdicionTransferencia();
+};
+
+window.agregarProductoEdicionTransferencia = function() {
+    const input = document.getElementById('edit-trans-input-producto');
+    if (!input || !input.value.trim()) return;
+    const texto = normalizeStr(input.value.trim());
+    const prod = catalogoProductosEdicionTrans.find(p => normalizeStr(p.nombre) === texto);
+    if (!prod) {
+        alert('Selecciona un producto válido de la lista.');
+        return;
+    }
+    const existente = editingTransCarrito.find(i => i.id === prod.id);
+    if (existente) {
+        existente.cantidad += 1;
+    } else {
+        editingTransCarrito.push({ id: prod.id, nombre: prod.nombre, cantidad: 1 });
+    }
+    input.value = '';
+    input.blur();
+    if (buscadorProductoEdicionTrans) buscadorProductoEdicionTrans.cerrar();
+    renderizarItemsEdicionTransferencia();
 };
