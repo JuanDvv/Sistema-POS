@@ -1,0 +1,386 @@
+{
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/admin-audit-logs.js": {
+    "mtime": 1792698528501.1387,
+    "hash": "9da7a496762773f8b8233b392928a678"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/admin.js": {
+    "mtime": 1792698528822.8594,
+    "hash": "2314f62d37dbbbd3f9a26f88ab86b684"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/arqueo.js": {
+    "mtime": 1792698528894.3262,
+    "hash": "34dd1da8c7d5d1ebbda5692f0650910c"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/categoriaFiltro.js": {
+    "mtime": 1784927520210.544,
+    "hash": "d848e929460a5f81c61aff470b714ba4"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/dashboard.js": {
+    "mtime": 1792698529361.071,
+    "hash": "c6e9cd3a8577e1c945e92d73dd5717b8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/db/connection.js": {
+    "mtime": 1792698529397.9102,
+    "hash": "0e8fe0be9a776ef5a62e9f2b9de355b9"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/db/schema.js": {
+    "mtime": 1792698529455.6006,
+    "hash": "ddb224b7a25a8af2482909326146a947"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/diagnostico_sync_cierre.js": {
+    "mtime": 1792698529560.7463,
+    "hash": "7c709d0e001d9933e6fac69001cbada2"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/gastos.js": {
+    "mtime": 1792698529615.995,
+    "hash": "4c7107c33c8f691473717af454c8be44"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/gestion.js": {
+    "mtime": 1792698529806.3354,
+    "hash": "c72f8660e6cdcc7eed306eb0841ed689"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerAbonosIpc.js": {
+    "mtime": 1787413877283.111,
+    "hash": "16f488212b7b173f7685eb3a00974602"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerAuditoriaIpc.js": {
+    "mtime": 1788039518246.301,
+    "hash": "4790f34c244e2f3c0a3c26d94860941f"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerCierresCajaIpc.js": {
+    "mtime": 1787413877309.587,
+    "hash": "19105070e5d569d8e7f97cc296d0a13c"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerClientesIpc.js": {
+    "mtime": 1792698529984.437,
+    "hash": "4ea6295ee634da7a96a576146c972948"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerGastosIpc.js": {
+    "mtime": 1792698530052.4055,
+    "hash": "5c89ce0d0d75cb6777e81a81b5b5be29"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerImpresionIpc.js": {
+    "mtime": 1785358278935.008,
+    "hash": "0a51972b6e4c981f439c9abcdd7e221f"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerPedidoSugeridoIpc.js": {
+    "mtime": 1792698530071.2058,
+    "hash": "080ce9160e1c4f6b6d9fae3f531e243a"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerPedidosIpc.js": {
+    "mtime": 1792698530183.252,
+    "hash": "7b0190a2e36f75f559b4660f5526bdef"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerProductosIpc.js": {
+    "mtime": 1792698530284.4214,
+    "hash": "df72d9855d4c72255e0d3c848bc64fc1"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerReportesIpc.js": {
+    "mtime": 1792698530336.6133,
+    "hash": "08089b98da369879e53d5e04f9cbb2fa"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerSistemaIpc.js": {
+    "mtime": 1792698530393.3386,
+    "hash": "cb7f8cf714685f19430cd89be1d21a3f"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerSucursalesIpc.js": {
+    "mtime": 1792698530426.951,
+    "hash": "582465a921ba91a7990c7c78443013e8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerTransferenciasIpc.js": {
+    "mtime": 1792698530484.093,
+    "hash": "e7085c90fc3e5e9d11e27532f8629271"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerUsuariosIpc.js": {
+    "mtime": 1792698530522.227,
+    "hash": "7cf948df0afdf2920ac73c20a4834a71"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ipc/registerVentasIpc.js": {
+    "mtime": 1792698530571.8303,
+    "hash": "94011bd906e5ae293534e5fa38f61ce8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/main.js": {
+    "mtime": 1792698530615.6973,
+    "hash": "ea0072d169cb96d720713115e61af0c8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/pedidos.js": {
+    "mtime": 1792698530817.0056,
+    "hash": "fecd671c353b27b2db690af5b7e11162"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/preload.js": {
+    "mtime": 1792698530863.805,
+    "hash": "96ced91d9999862af15f1e5b14f6a3ba"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/productoBuscador.js": {
+    "mtime": 1792698530968.3274,
+    "hash": "e9e67ebc2546000701a4398407c32ceb"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/renderer.js": {
+    "mtime": 1792698530995.7456,
+    "hash": "e8e4871d5cf7ad58e03fd98e0fe003da"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/reportes.js": {
+    "mtime": 1792698531550.1238,
+    "hash": "e807a39c6746513ab81dec6e0c26e553"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/abonoRecoveryService.js": {
+    "mtime": 1792698531714.8105,
+    "hash": "30b637b667f6ad7da8ca102ae21c34d0"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/auditService.js": {
+    "mtime": 1792698531982.7366,
+    "hash": "a759cd63ae417a6f5aa1380ea0cafb9e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/cierreCajaService.js": {
+    "mtime": 1792698532203.9434,
+    "hash": "4051cf6f086f022edd75430cada5e605"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/fechaService.js": {
+    "mtime": 1784566334687.779,
+    "hash": "a5064bf1c3f796684a1a4648053eb251"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/gastoService.js": {
+    "mtime": 1787413877647.3396,
+    "hash": "6456154803fea007f366f93199dda567"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/imagenService.js": {
+    "mtime": 1784566356669.7168,
+    "hash": "944dcb32b3c4105b6e9ca010f5801452"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/inventarioMovimientoService.js": {
+    "mtime": 1785176251641.1477,
+    "hash": "1a0abb56960fc9f75df812d24a3107a7"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/pdfHelpers.js": {
+    "mtime": 1792698532356.319,
+    "hash": "949778fffa77ea9813453abb3bf384b8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/pedidoService.js": {
+    "mtime": 1792698532425.6028,
+    "hash": "d2b4e29cbd97d07507cd853744c4795a"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/pedidoSugeridoPasteleriaService.js": {
+    "mtime": 1792698532579.3667,
+    "hash": "9ffd92d62375f3b3788450ac1f55e9ed"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/printService.js": {
+    "mtime": 1785358267705.0625,
+    "hash": "af3d5ead7b7ff8b2b84a4de4f67c233a"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/serverConfigService.js": {
+    "mtime": 1792698532765.5254,
+    "hash": "d7df6ef3752c388dc397a4b649183f89"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/ticketEscPos.js": {
+    "mtime": 1792698533074.8167,
+    "hash": "103935541f44195b0e98bba14c32c85d"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/services/ventaService.js": {
+    "mtime": 1787413877727.298,
+    "hash": "c8a5c417b9ce945894910b641ae90631"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sidebar.js": {
+    "mtime": 1792698533297.7903,
+    "hash": "cd9ccc2c70f89a1f5914033bbe122b11"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/conciliar_saldo_apertura.js": {
+    "mtime": 1785182589302.4978,
+    "hash": "6ccc42b8da70ef343b0540866333b122"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/diagnostico_stock_vs_kardex.js": {
+    "mtime": 1785181433484.723,
+    "hash": "775697e93bbb9465239d0979ddd328ae"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/diagnostico_sync_seq.js": {
+    "mtime": 1785179991957.1836,
+    "hash": "2177b1eb6e1149a650c0cee581c0bac9"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_auditoria_busqueda_insensible.sql": {
+    "mtime": 1787413877774.5244,
+    "hash": "b9bf6131a59800667cc09892a0cbea4e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_cierres_caja.sql": {
+    "mtime": 1787413877785.545,
+    "hash": "cb8a214fd2fa295e0230ae47a90e7651"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_clientes_categoria.sql": {
+    "mtime": 1792698533611.3525,
+    "hash": "215c03846350c70bd4c2487212389642"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_correccion_stock.sql": {
+    "mtime": 1785176285908.0662,
+    "hash": "1fcb45ec2206d11cf1838c19b9ef64db"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_incremental_pull.sql": {
+    "mtime": 1785179962263.9358,
+    "hash": "a1521922d8a81fae90d6e18501037f71"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_kardex_retention.sql": {
+    "mtime": 1785181370221.2483,
+    "hash": "ada7d9cf81053eef94132c9f7e521f62"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_monto_recibido_venta.sql": {
+    "mtime": 1787413877796.9165,
+    "hash": "2f4e510f4a1a807447d7d50ac5a318a8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_pedidos_domicilio.sql": {
+    "mtime": 1787413877805.3296,
+    "hash": "82504a1b3299636e713983e0755cd39f"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_purgar_abonos_eliminados.sql": {
+    "mtime": 1792698533694.536,
+    "hash": "46ee148bb27e23ccea7f28f307453861"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_solicitudes_gasto.sql": {
+    "mtime": 1787413877815.4363,
+    "hash": "4e96dcea717ecc7990860c1915a930e9"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_stock_delta_sync.sql": {
+    "mtime": 1785033365954.7246,
+    "hash": "af708c5a9ae5001279c2016048105843"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/migrate_sugeridos_pasteleria.sql": {
+    "mtime": 1787413877824.806,
+    "hash": "786cd34991c6ed879257c728f2328858"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/remoteDbClient.js": {
+    "mtime": 1792698533795.557,
+    "hash": "b19eacd3017cdb1b91345b5c197da1bd"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/repararFechasSQLite.js": {
+    "mtime": 1792698533843.725,
+    "hash": "57f994579133d0a3c969299995cf9fe0"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/reset_and_seed_test.js": {
+    "mtime": 1787413877834.1592,
+    "hash": "377c31dffc930afb291a2674ccf17e7b"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/schema_postgres17_completo.sql": {
+    "mtime": 1792698533869.3718,
+    "hash": "2c588b43fe3464bb0e3d47f4065a9224"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/schema_test_data.sql": {
+    "mtime": 1785029656433.3396,
+    "hash": "c0f4d2e83e7e1aca4423ec7d4fc9a40e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/schema_test_logs.sql": {
+    "mtime": 1785029661259.4802,
+    "hash": "552bc39fb8da0da39d0fe1ef2a235c12"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/seed_test_from_prod.js": {
+    "mtime": 1787413877847.5154,
+    "hash": "82fbe4a7d3c443935349d92409872fd6"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/supabaseClients.js": {
+    "mtime": 1792698533950.2173,
+    "hash": "8abb746bb7904bbf16caa29f918d43dd"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/sync/syncService.js": {
+    "mtime": 1792698533991.0737,
+    "hash": "e58d5f7bbb922bb3a3e14fe760cb2cea"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/transferencias.js": {
+    "mtime": 1792698534275.9043,
+    "hash": "2ee54fd779c545249154ac21c67197be"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/turnos.js": {
+    "mtime": 1792698534430.4343,
+    "hash": "0077404d3dc4b3d34a18e7aa1a0b9fea"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/utils/cierresCaja.js": {
+    "mtime": 1787413877903.5884,
+    "hash": "1f944f76740bc25467aa1eb12bad8be8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/utils/excelAbastecimiento.js": {
+    "mtime": 1784738499627.978,
+    "hash": "f517cfa017a4ff721fdaa3087f952a50"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/utils/excelPedidoExtra.js": {
+    "mtime": 1792698534522.11,
+    "hash": "829e6149f0d2693092d489cfea41842e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/utils/excelSugeridosPasteleria.js": {
+    "mtime": 1792698534564.6487,
+    "hash": "f886552cc66d5b9d9f6932382424ce43"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/utils/gastos.js": {
+    "mtime": 1784730368624.256,
+    "hash": "19eaf4a554405c1330027b5147f76c9d"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ventas-anteriores.js": {
+    "mtime": 1792698534691.334,
+    "hash": "7cb238565af6bfb8d94c4e5f0bbdcea3"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ventas.js": {
+    "mtime": 1792698534776.9624,
+    "hash": "e91739d107027a86f21b91d754ee5ed8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/.agents/rules/versioning.md": {
+    "mtime": 1792698528409.5164,
+    "hash": "f62a7e112beebd203a09db47dbdddd34"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/INSTRUCCIONES_INSTALACION.txt": {
+    "mtime": 1784320992129,
+    "hash": "9d71b93661ddbcb020f407d3943152c1"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/admin-audit-logs.html": {
+    "mtime": 1785416893590.7268,
+    "hash": "3805a5f60bc123d89674f08bc98671f8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/admin.html": {
+    "mtime": 1792698528676.5837,
+    "hash": "77fcd3c743c965401b26403b90496bef"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/arqueo.html": {
+    "mtime": 1792698528855.6858,
+    "hash": "14c043b7e59670ff32bd13b2a04112f9"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/dashboard.html": {
+    "mtime": 1788639589769.745,
+    "hash": "9ae140a193f8f2e7bcd6e143cb0e02ba"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/gastos.html": {
+    "mtime": 1787413877240.1438,
+    "hash": "6bdb54af22be4df6dea44b116c5428c8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/gestion.html": {
+    "mtime": 1792698529660.6199,
+    "hash": "20d556bc757922a5e6037823119e1584"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/index.html": {
+    "mtime": 1792698529862.2554,
+    "hash": "05f032b7279bd61e20c8f2ec11e77d5e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/pedidos.html": {
+    "mtime": 1792698530765.2888,
+    "hash": "e9bc7f3ab9ef0944c5aa6ee459699bd8"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/reportes.html": {
+    "mtime": 1792698531468.0977,
+    "hash": "b4475d245a0b37a81324d5b254d640ae"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/transferencias.html": {
+    "mtime": 1792698534076.4197,
+    "hash": "6260cd33d79ba830b7c800dafa39947e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ventas-anteriores.html": {
+    "mtime": 1792698534642.48,
+    "hash": "3ba2fcbe3b9c82c25dcfbb19075fe65d"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/ventas.html": {
+    "mtime": 1792698534738.3472,
+    "hash": "f9c53c0b41c777b14eb59a7d965ce350"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/build/Firma Karina.jpg": {
+    "mtime": 1787413877211.4004,
+    "hash": "27c6ca6d7745e85546bb48e8fdd8dc58"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/build/icon.png": {
+    "mtime": 1792698528960.129,
+    "hash": "186b655df5bddd0f9681ce9c3a8ad83e"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/build/icon_mac.png": {
+    "mtime": 1784383936406,
+    "hash": "501868254db071679762fdfb0a1b1aaf"
+  }
+}
