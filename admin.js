@@ -10,6 +10,14 @@ let editingCategoriaId = null; // ID de la categoría en edición (null si es cr
 let editingClienteId = null; // ID del cliente en edición (null si es creación)
 let activeUserSession = ''; // Guardará el username de quien está logueado para no auto-eliminarse
 
+async function abrirModalConFoco(modal, inputId) {
+    if (!modal) return;
+    modal.style.display = 'flex';
+    await window.api.forceRefocus();
+    const input = document.getElementById(inputId);
+    if (input) input.focus();
+}
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Validar Rol: Administrador ve el panel completo; Operador ve Cambiar Contraseña,
@@ -102,11 +110,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const formCliente = document.getElementById('form-cliente');
 
     if (btnNuevoCliente) {
-        btnNuevoCliente.addEventListener('click', () => {
+        btnNuevoCliente.addEventListener('click', async () => {
             editingClienteId = null;
             document.getElementById('modal-cliente-title').innerText = "Agregar Cliente";
             formCliente.reset();
-            modalCliente.style.display = 'flex';
+            await abrirModalConFoco(modalCliente, 'cliente-nombre');
         });
     }
 
@@ -190,11 +198,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Botones Abrir/Cerrar modales de Usuarios
     if (btnNuevoUsuario) {
-        btnNuevoUsuario.addEventListener('click', () => {
+        btnNuevoUsuario.addEventListener('click', async () => {
             editingUserId = null;
             document.getElementById('modal-title').innerText = "Agregar Nuevo Usuario";
             formUsuario.reset();
-            modalUsuario.style.display = 'flex';
+            await abrirModalConFoco(modalUsuario, 'user-name');
         });
     }
 
@@ -208,14 +216,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Botones Abrir/Cerrar modales de Sucursales
     if (btnNuevaSucursal) {
-        btnNuevaSucursal.addEventListener('click', () => {
+        btnNuevaSucursal.addEventListener('click', async () => {
             editingSucursalId = null;
             document.getElementById('modal-sucursal-title').innerText = "Agregar Nueva Sucursal";
             document.getElementById('sucursal-id-input').disabled = false;
             formSucursal.reset();
             document.getElementById('sucursal-caja-base').value = Number(200000).toLocaleString('es-CO');
-            document.getElementById('sucursal-descuento-mayorista').value = '25';
-            modalSucursal.style.display = 'flex';
+            document.getElementById('sucursal-descuento-escala-1').value = Number(1000).toLocaleString('es-CO');
+            document.getElementById('sucursal-descuento-escala-2').value = Number(2000).toLocaleString('es-CO');
+            await abrirModalConFoco(modalSucursal, 'sucursal-id-input');
         });
     }
 
@@ -241,8 +250,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const inputCajaBase = document.getElementById('sucursal-caja-base');
-    if (inputCajaBase) {
-        inputCajaBase.addEventListener('input', (e) => {
+    const inputDescEscala1 = document.getElementById('sucursal-descuento-escala-1');
+    const inputDescEscala2 = document.getElementById('sucursal-descuento-escala-2');
+    [inputCajaBase, inputDescEscala1, inputDescEscala2].forEach((inp) => {
+        if (!inp) return;
+        inp.addEventListener('input', (e) => {
             let valor = e.target.value.replace(/\D/g, '');
             if (valor) {
                 e.target.value = Number(valor).toLocaleString('es-CO');
@@ -250,7 +262,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 e.target.value = '';
             }
         });
-    }
+    });
 
     // Guardar / Crear Sucursal
     if (formSucursal) {
@@ -261,7 +273,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const direccion = document.getElementById('sucursal-direccion').value.trim();
             const telefono = document.getElementById('sucursal-telefono').value.trim();
             const caja_base = document.getElementById('sucursal-caja-base').value.replace(/\D/g, '');
-            const descuento_mayorista = document.getElementById('sucursal-descuento-mayorista').value;
+            const descuento_escala_1 = document.getElementById('sucursal-descuento-escala-1').value.replace(/\D/g, '');
+            const descuento_escala_2 = document.getElementById('sucursal-descuento-escala-2').value.replace(/\D/g, '');
 
             if (!newId || !nombre) {
                 alert("Por favor ingrese el ID y el Nombre de la sucursal.");
@@ -275,7 +288,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 direccion,
                 telefono,
                 caja_base,
-                descuento_mayorista,
+                descuento_escala_1,
+                descuento_escala_2,
                 auditoriaUsuario: activeUserSession,
                 auditoriaRol: 'Administrador'
             });
@@ -340,8 +354,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             editingCategoriaId = null;
             document.getElementById('modal-categoria-title').innerText = "Agregar Categoría/Subcategoría";
             formCategoria.reset();
+            const selectTipoDesc = document.getElementById('categoria-tipo-descuento');
+            if (selectTipoDesc) selectTipoDesc.value = '0';
             await rellenarCategoriasPadreSelect();
-            modalCategoria.style.display = 'flex';
+            await abrirModalConFoco(modalCategoria, 'categoria-nombre');
         });
     }
 
@@ -366,6 +382,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             e.preventDefault();
             const nombre = document.getElementById('categoria-nombre').value.trim();
             const categoriaPadreId = document.getElementById('categoria-padre-select').value;
+            const tipoDescuentoMayorista = Number(document.getElementById('categoria-tipo-descuento')?.value || 0);
 
             if (!nombre) {
                 alert("Por favor ingrese el Nombre de la categoría.");
@@ -376,6 +393,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 id: editingCategoriaId,
                 nombre,
                 categoriaPadreId,
+                tipoDescuentoMayorista,
                 auditoriaUsuario: activeUserSession,
                 auditoriaRol: 'Administrador'
             });
@@ -457,16 +475,19 @@ async function cargarSucursales() {
             const escDireccion = (suc.direccion || '').replace(/'/g, "\\'");
             const escTelefono = (suc.telefono || '').replace(/'/g, "\\'");
 
+            const esc1 = suc.descuento_escala_1 ?? 1000;
+            const esc2 = suc.descuento_escala_2 ?? 2000;
+
             tr.innerHTML = `
                 <td><code>${suc.id}</code></td>
-                <td><strong>${suc.nombre}</strong><br><span style="font-size:0.8em; color:var(--text-secondary);">Desc. Mayorista: ${suc.descuento_mayorista || 25}%</span></td>
+                <td><strong>${suc.nombre}</strong><br><span style="font-size:0.8em; color:var(--text-secondary);">Desc. 6–11: -$${Number(esc1).toLocaleString('es-CO')} | 12+/May.: -$${Number(esc2).toLocaleString('es-CO')}</span></td>
                 <td>${suc.direccion || '<span style="color:#9ca3af;">Sin Dirección</span>'}</td>
                 <td>${suc.telefono || '<span style="color:#9ca3af;">Sin Teléfono</span>'}</td>
                 <td>${badge}</td>
                 <td>
                     <div class="actions-cell">
                         ${activateBtn}
-                        <button class="btn-edit" onclick="iniciarEdicionSucursal('${escId}', '${escNombre}', '${escDireccion}', '${escTelefono}', ${suc.caja_base || 200000}, ${suc.descuento_mayorista || 25})">✏️ Editar</button>
+                        <button class="btn-edit" onclick="iniciarEdicionSucursal('${escId}', '${escNombre}', '${escDireccion}', '${escTelefono}', ${suc.caja_base || 200000}, ${esc1}, ${esc2})">✏️ Editar</button>
                         <button class="btn-delete" onclick="eliminarSucursal('${escId}')">🗑️ Borrar</button>
                     </div>
                 </td>
@@ -520,7 +541,7 @@ async function cargarUsuarios() {
 }
 
 // Métodos Globales para Sucursales
-window.iniciarEdicionSucursal = (id, nombre, direccion, telefono, cajaBase, descuentoMayorista) => {
+window.iniciarEdicionSucursal = async (id, nombre, direccion, telefono, cajaBase, descuentoEscala1, descuentoEscala2) => {
     editingSucursalId = id;
     const modalSucursal = document.getElementById('modal-sucursal');
     document.getElementById('modal-sucursal-title').innerText = "Editar Sucursal";
@@ -531,9 +552,10 @@ window.iniciarEdicionSucursal = (id, nombre, direccion, telefono, cajaBase, desc
     document.getElementById('sucursal-direccion').value = direccion === 'undefined' ? '' : direccion;
     document.getElementById('sucursal-telefono').value = telefono === 'undefined' ? '' : telefono;
     document.getElementById('sucursal-caja-base').value = Number(cajaBase || 200000).toLocaleString('es-CO');
-    document.getElementById('sucursal-descuento-mayorista').value = descuentoMayorista || '25';
+    document.getElementById('sucursal-descuento-escala-1').value = Number(descuentoEscala1 ?? 1000).toLocaleString('es-CO');
+    document.getElementById('sucursal-descuento-escala-2').value = Number(descuentoEscala2 ?? 2000).toLocaleString('es-CO');
 
-    modalSucursal.style.display = 'flex';
+    await abrirModalConFoco(modalSucursal, 'sucursal-nombre');
 };
 
 window.activarSucursal = async (id) => {
@@ -609,7 +631,7 @@ window.togglePasswordCell = (btn) => {
 };
 
 // Métodos Globales para Usuarios
-window.iniciarEdicionUsuario = (id, username, password, rol) => {
+window.iniciarEdicionUsuario = async (id, username, password, rol) => {
     editingUserId = id;
     const modal = document.getElementById('modal-usuario');
     document.getElementById('modal-title').innerText = "Editar Usuario";
@@ -618,7 +640,7 @@ window.iniciarEdicionUsuario = (id, username, password, rol) => {
     document.getElementById('user-password').value = password;
     document.getElementById('user-rol').value = rol;
 
-    modal.style.display = 'flex';
+    await abrirModalConFoco(modal, 'user-password');
 };
 
 window.eliminarUsuario = async (id, username) => {
@@ -674,16 +696,23 @@ async function cargarCategorias() {
                 ? `<span style="color:#d97706; font-weight: 500;">Subcategoría de: </span><strong>${cat.padre_nombre || cat.categoria_padre_id}</strong>`
                 : `<span style="color:#10b981; font-weight: bold;">Categoría Principal</span>`;
 
+            const tipoDesc = Number(cat.tipo_descuento_mayorista ?? 0);
+            const badgeDesc = tipoDesc === 2
+                ? `<div style="margin-top:4px;"><span style="background:#dbeafe; color:#1d4ed8; padding:2px 7px; border-radius:10px; font-size:0.78em; font-weight:600;">🏷️ Escala 1 y 2 (6–11 / 12+ uds)</span></div>`
+                : tipoDesc === 1
+                    ? `<div style="margin-top:4px;"><span style="background:#fef3c7; color:#b45309; padding:2px 7px; border-radius:10px; font-size:0.78em; font-weight:600;">🏷️ Solo Escala 1 (6+ uds)</span></div>`
+                    : `<div style="margin-top:4px;"><span style="background:#f3f4f6; color:#6b7280; padding:2px 7px; border-radius:10px; font-size:0.78em;">Sin desc. mayorista</span></div>`;
+
             const escId = (cat.id || '').replace(/'/g, "\\'");
             const escNombre = (cat.nombre || '').replace(/'/g, "\\'");
             const escPadre = (cat.categoria_padre_id || '').replace(/'/g, "\\'");
 
             tr.innerHTML = `
                 <td style="${indentStyle}"><strong>${bullet}${cat.nombre}</strong></td>
-                <td>${tipoText}</td>
+                <td>${tipoText}${badgeDesc}</td>
                 <td>
                     <div class="actions-cell">
-                        <button class="btn-edit" onclick="iniciarEdicionCategoria('${escId}', '${escNombre}', '${escPadre}')">✏️ Editar</button>
+                        <button class="btn-edit" onclick="iniciarEdicionCategoria('${escId}', '${escNombre}', '${escPadre}', ${tipoDesc})">✏️ Editar</button>
                         <button class="btn-delete" onclick="eliminarCategoria('${escId}', '${escNombre}')">🗑️ Borrar</button>
                     </div>
                 </td>
@@ -716,15 +745,17 @@ async function rellenarCategoriasPadreSelect(selectedPadreId = '') {
 }
 
 // Funciones globales expuestas para categorías
-window.iniciarEdicionCategoria = async (id, nombre, padreId) => {
+window.iniciarEdicionCategoria = async (id, nombre, padreId, tipoDescuento = 0) => {
     editingCategoriaId = id;
     const modalCategoria = document.getElementById('modal-categoria');
     document.getElementById('modal-categoria-title').innerText = "Editar Categoría/Subcategoría";
 
     document.getElementById('categoria-nombre').value = nombre;
     await rellenarCategoriasPadreSelect(padreId === 'undefined' ? '' : padreId);
+    const selectTipoDesc = document.getElementById('categoria-tipo-descuento');
+    if (selectTipoDesc) selectTipoDesc.value = String(tipoDescuento ?? 0);
 
-    modalCategoria.style.display = 'flex';
+    await abrirModalConFoco(modalCategoria, 'categoria-nombre');
 };
 
 window.eliminarCategoria = async (id, nombre) => {
@@ -827,7 +858,7 @@ function renderizarClientes() {
     });
 }
 
-window.iniciarEdicionCliente = (id, nombre, tipo, categoria, identificacion, telefono, email) => {
+window.iniciarEdicionCliente = async (id, nombre, tipo, categoria, identificacion, telefono, email) => {
     editingClienteId = id;
     const modalCliente = document.getElementById('modal-cliente');
     document.getElementById('modal-cliente-title').innerText = "Editar Cliente";
@@ -839,7 +870,7 @@ window.iniciarEdicionCliente = (id, nombre, tipo, categoria, identificacion, tel
     document.getElementById('cliente-telefono').value = telefono === 'undefined' ? '' : telefono;
     document.getElementById('cliente-email').value = email === 'undefined' ? '' : email;
 
-    modalCliente.style.display = 'flex';
+    await abrirModalConFoco(modalCliente, 'cliente-nombre');
 };
 
 window.eliminarCliente = async (id, nombre) => {
@@ -1279,6 +1310,7 @@ async function cargarSeccionImpresora() {
         estado.innerText = guardada
             ? `Impresora guardada en este equipo: "${guardada}"`
             : 'Sin impresora guardada todavía en este equipo (se usará la sugerida automáticamente).';
+        await window.api.forceRefocus();
     }
 
     if (btnRecargar) {
@@ -1309,6 +1341,7 @@ async function cargarSeccionImpresora() {
         select.appendChild(opt);
         select.value = guardadaActual;
         estado.innerText = `Impresora guardada en este equipo: "${guardadaActual}"`;
+        await window.api.forceRefocus();
     } else {
         await refrescarListaImpresoras();
     }

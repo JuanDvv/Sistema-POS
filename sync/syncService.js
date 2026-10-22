@@ -787,6 +787,7 @@ async function syncCategoriasSubir() {
                 id: cat.id,
                 nombre: cat.nombre,
                 categoria_padre_id: cat.categoria_padre_id,
+                tipo_descuento_mayorista: Number(cat.tipo_descuento_mayorista ?? 0),
                 updated_at: cat.updated_at
             });
 
@@ -810,7 +811,25 @@ async function syncCategoriasEliminaciones() {
         for (const cat of categoriasEliminadas) {
             const gano = await softDeleteConLWW('categorias', { id: cat.id });
             if (!gano) {
-                console.log(`[Sincronizador] Eliminación de categoría ${cat.id} pospuesta: hay una versión más reciente en la nube.`);
+                const { data: filaNube, error: errFilaNube } = await supabase
+                    .from('categorias')
+                    .select('*')
+                    .eq('id', cat.id)
+                    .maybeSingle();
+
+                if (errFilaNube) {
+                    console.log(`[Sincronizador] Eliminación de categoría ${cat.id} pospuesta: no se pudo confirmar el estado en la nube. Se deja de reintentar.`);
+                    await runQuery(`UPDATE categorias SET sync_status = 'synced' WHERE id = ?`, [cat.id]);
+                } else if (!filaNube || filaNube.deleted_at) {
+                    await runQuery(`DELETE FROM categorias WHERE id = ?`, [cat.id]);
+                    console.log(`[Sincronizador] Eliminación de categoría ${cat.id} confirmada con la nube.`);
+                } else {
+                    await runQuery(
+                        `UPDATE categorias SET nombre = ?, categoria_padre_id = ?, tipo_descuento_mayorista = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
+                        [filaNube.nombre, filaNube.categoria_padre_id, Number(filaNube.tipo_descuento_mayorista ?? 0), filaNube.updated_at, cat.id]
+                    );
+                    console.log(`[Sincronizador] Eliminación de categoría ${cat.id} pospuesta: se adoptó la versión más reciente de la nube en vez de reintentar indefinidamente.`);
+                }
                 continue;
             }
             await runQuery(`DELETE FROM categorias WHERE id = ?`, [cat.id]);
@@ -1088,15 +1107,16 @@ async function syncCategoriasDescargar() {
                     continue;
                 }
                 await runQuery(
-                    `INSERT INTO categorias (id, nombre, categoria_padre_id, sync_status, updated_at)
-                     VALUES (?, ?, ?, 'synced', ?)
+                    `INSERT INTO categorias (id, nombre, categoria_padre_id, tipo_descuento_mayorista, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         categoria_padre_id = excluded.categoria_padre_id,
+                        tipo_descuento_mayorista = excluded.tipo_descuento_mayorista,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cat.id, cat.nombre, cat.categoria_padre_id, cat.updated_at]
+                    [cat.id, cat.nombre, cat.categoria_padre_id, Number(cat.tipo_descuento_mayorista ?? 0), cat.updated_at]
                 );
             }
             if (categoriasNube.length > 0) console.log("[Sincronizador] Categorías actualizadas desde la nube.");
@@ -1313,7 +1333,7 @@ async function syncSucursales() {
     // A. Subir cambios locales pendientes a la nube
     try {
         const sucursalesPendientes = await allQuery(
-            `SELECT id, nombre, direccion, telefono, caja_base, descuento_mayorista, updated_at FROM config_sucursal WHERE sync_status = 'pending'`, []
+            `SELECT id, nombre, direccion, telefono, caja_base, descuento_mayorista, descuento_escala_1, descuento_escala_2, updated_at FROM config_sucursal WHERE sync_status = 'pending'`, []
         );
         for (const suc of sucursalesPendientes) {
             const gano = await upsertConLWW('config_sucursal', {
@@ -1323,6 +1343,8 @@ async function syncSucursales() {
                 telefono: suc.telefono,
                 caja_base: suc.caja_base,
                 descuento_mayorista: suc.descuento_mayorista,
+                descuento_escala_1: suc.descuento_escala_1 ?? 1000,
+                descuento_escala_2: suc.descuento_escala_2 ?? 2000,
                 updated_at: suc.updated_at
             });
             if (!gano) {
@@ -1348,18 +1370,20 @@ async function syncSucursales() {
                 }
                 // 'activa' es un flag local por terminal: nunca se sobrescribe con la nube.
                 await runQuery(
-                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, caja_base, descuento_mayorista, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, 0, ?, ?, 'synced', ?)
+                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, caja_base, descuento_mayorista, descuento_escala_1, descuento_escala_2, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 'synced', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         direccion = excluded.direccion,
                         telefono = excluded.telefono,
                         caja_base = excluded.caja_base,
                         descuento_mayorista = excluded.descuento_mayorista,
+                        descuento_escala_1 = excluded.descuento_escala_1,
+                        descuento_escala_2 = excluded.descuento_escala_2,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [suc.id, suc.nombre, suc.direccion, suc.telefono, suc.caja_base || 200000, suc.descuento_mayorista || 25, suc.updated_at]
+                    [suc.id, suc.nombre, suc.direccion, suc.telefono, suc.caja_base || 200000, suc.descuento_mayorista || 25, suc.descuento_escala_1 ?? 1000, suc.descuento_escala_2 ?? 2000, suc.updated_at]
                 );
             }
             if (sucursalesNube.length > 0) console.log("[Sincronizador] Configuración de sucursales sincronizada con la nube.");

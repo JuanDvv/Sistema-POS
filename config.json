@@ -1,9 +1,0 @@
-{
-    "host": "100.100.163.62",
-    "port": 5432,
-    "database": "TiendaKary",
-    "user": "adminj",
-    "password": "Admin1.12893",
-    "ssl": false
-}
-

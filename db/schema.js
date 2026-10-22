@@ -92,13 +92,19 @@ function initDB(db) {
             id TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
             categoria_padre_id TEXT,
+            tipo_descuento_mayorista INTEGER DEFAULT 0,
             sync_status TEXT DEFAULT 'pending',
             updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             deleted_at TEXT,
             FOREIGN KEY (categoria_padre_id) REFERENCES categorias(id) ON DELETE SET NULL
         )`, [], () => {
             // Seed categoría por defecto
-            db.run(`INSERT OR IGNORE INTO categorias (id, nombre, sync_status) VALUES ('cat-general', 'General', 'synced')`);
+            db.run(`INSERT OR IGNORE INTO categorias (id, nombre, sync_status) SELECT 'cat-general', 'General', 'synced' WHERE NOT EXISTS (SELECT 1 FROM categorias LIMIT 1)`);
+            db.run(`ALTER TABLE categorias ADD COLUMN tipo_descuento_mayorista INTEGER DEFAULT 0`, [], (err) => {
+                if (!err) {
+                    db.run(`UPDATE categorias SET tipo_descuento_mayorista = 2, sync_status = 'pending' WHERE LOWER(id) LIKE '%cam%' OR LOWER(nombre) LIKE '%cam%' OR LOWER(nombre) LIKE '%viscosa%' OR LOWER(nombre) LIKE '%dama%' OR LOWER(nombre) LIKE '%unisex%' OR LOWER(nombre) LIKE '%nin%' OR LOWER(nombre) LIKE '%niñ%'`, [], () => { });
+                }
+            });
             agregarSoporteLWW(db, 'categorias', ['id']);
         });
 
@@ -176,6 +182,8 @@ function initDB(db) {
             activa INTEGER DEFAULT 0,
             caja_base INTEGER DEFAULT 200000,
             descuento_mayorista INTEGER DEFAULT 25,
+            descuento_escala_1 INTEGER DEFAULT 1000,
+            descuento_escala_2 INTEGER DEFAULT 2000,
             sync_status TEXT DEFAULT 'pending',
             updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             deleted_at TEXT
@@ -184,6 +192,8 @@ function initDB(db) {
             db.run(`ALTER TABLE config_sucursal ADD COLUMN activa INTEGER DEFAULT 0`, [], () => { });
             db.run(`ALTER TABLE config_sucursal ADD COLUMN caja_base INTEGER DEFAULT 200000`, [], () => { });
             db.run(`ALTER TABLE config_sucursal ADD COLUMN descuento_mayorista INTEGER DEFAULT 25`, [], () => { });
+            db.run(`ALTER TABLE config_sucursal ADD COLUMN descuento_escala_1 INTEGER DEFAULT 1000`, [], () => { });
+            db.run(`ALTER TABLE config_sucursal ADD COLUMN descuento_escala_2 INTEGER DEFAULT 2000`, [], () => { });
             // sync_status no existía: sin ella, la descarga de la nube sobrescribía
             // ediciones locales recién guardadas. El DEFAULT 'pending' fuerza su re-subida.
             db.run(`ALTER TABLE config_sucursal ADD COLUMN sync_status TEXT DEFAULT 'pending'`, [], () => { });
