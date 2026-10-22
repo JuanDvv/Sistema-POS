@@ -96,19 +96,21 @@ function registerSucursalesIpc() {
 
     // Guardar/Crear información de la sucursal (Soporta modificación de ID)
     ipcMain.handle('guardar-sucursal', async (event, datos) => {
-        const { oldId, newId, nombre, direccion, telefono, caja_base, descuento_mayorista, auditoriaUsuario, auditoriaRol } = datos;
+        const { oldId, newId, nombre, direccion, telefono, caja_base, descuento_mayorista, descuento_escala_1, descuento_escala_2, auditoriaUsuario, auditoriaRol } = datos;
         const ahora = new Date().toISOString();
         const valCajaBase = Number(caja_base) || 200000;
         const valDescuento = Number(descuento_mayorista) || 25;
+        const valDescEscala1 = descuento_escala_1 !== undefined && descuento_escala_1 !== '' ? Number(descuento_escala_1) : 1000;
+        const valDescEscala2 = descuento_escala_2 !== undefined && descuento_escala_2 !== '' ? Number(descuento_escala_2) : 2000;
         try {
             await runQuery("BEGIN TRANSACTION", []);
 
             if (oldId && oldId !== newId) {
                 // Registrar nueva sucursal copiando el estado 'activa' de la anterior
                 await runQuery(
-                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, caja_base, descuento_mayorista, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, (SELECT activa FROM config_sucursal WHERE id = ?), ?, ?, 'pending', ?)`,
-                    [newId, nombre, direccion, telefono, oldId, valCajaBase, valDescuento, ahora]
+                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, activa, caja_base, descuento_mayorista, descuento_escala_1, descuento_escala_2, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, (SELECT activa FROM config_sucursal WHERE id = ?), ?, ?, ?, ?, 'pending', ?)`,
+                    [newId, nombre, direccion, telefono, oldId, valCajaBase, valDescuento, valDescEscala1, valDescEscala2, ahora]
                 );
                 // Eliminar anterior
                 await runQuery(`DELETE FROM config_sucursal WHERE id = ?`, [oldId]);
@@ -119,17 +121,19 @@ function registerSucursalesIpc() {
             } else {
                 // Si es nueva sucursal, se crea por defecto como inactiva (activa = 0)
                 await runQuery(
-                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, caja_base, descuento_mayorista, sync_status, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                    `INSERT INTO config_sucursal (id, nombre, direccion, telefono, caja_base, descuento_mayorista, descuento_escala_1, descuento_escala_2, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
                      ON CONFLICT(id) DO UPDATE SET
                         nombre = excluded.nombre,
                         direccion = excluded.direccion,
                         telefono = excluded.telefono,
                         caja_base = excluded.caja_base,
                         descuento_mayorista = excluded.descuento_mayorista,
+                        descuento_escala_1 = excluded.descuento_escala_1,
+                        descuento_escala_2 = excluded.descuento_escala_2,
                         sync_status = 'pending',
                         updated_at = excluded.updated_at`,
-                    [newId, nombre, direccion, telefono, valCajaBase, valDescuento, ahora]
+                    [newId, nombre, direccion, telefono, valCajaBase, valDescuento, valDescEscala1, valDescEscala2, ahora]
                 );
             }
             await runQuery("COMMIT", []);
@@ -151,7 +155,7 @@ function registerSucursalesIpc() {
                     }
                     const { data: filasActualizadas, error: errorUpsert } = await supabase
                         .from('config_sucursal')
-                        .upsert({ id: newId, nombre, direccion, telefono, caja_base: valCajaBase, descuento_mayorista: valDescuento, updated_at: ahora })
+                        .upsert({ id: newId, nombre, direccion, telefono, caja_base: valCajaBase, descuento_mayorista: valDescuento, descuento_escala_1: valDescEscala1, descuento_escala_2: valDescEscala2, updated_at: ahora })
                         .select('id');
                     if (errorUpsert) throw errorUpsert;
                     if (!filasActualizadas || filasActualizadas.length === 0) {

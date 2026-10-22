@@ -44,7 +44,9 @@
     },
     "files": [
       "**/*",
-      "!node_modules/*"
+      "!node_modules/*",
+      "!config.json",
+      "!.env*"
     ],
     "asar": true
   },

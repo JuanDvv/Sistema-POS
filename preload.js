@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('api', {
     onSincronizacionCompleta: (callback) => ipcRenderer.on('sincronizacion-completa', () => callback()),
     onSincronizacionEstado: (callback) => ipcRenderer.on('sincronizacion-estado', (event, enCurso) => callback(enCurso)),
     isSincronizando: () => ipcRenderer.invoke('is-sincronizando'),
+    forzarSincronizacion: () => ipcRenderer.invoke('forzar-sincronizacion'),
     onSincronizacionConexion: (callback) => ipcRenderer.on('sincronizacion-conexion', (event, conectado) => callback(conectado)),
     obtenerEstadoConexion: () => ipcRenderer.invoke('obtener-estado-conexion'),
     onTransferenciaEntrante: (callback) => ipcRenderer.on('transferencia-entrante', (event, traslado) => callback(traslado)),

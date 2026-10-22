@@ -86,8 +86,12 @@ function registerSistemaIpc() {
                 if (win.isMinimized()) {
                     win.restore();
                 }
-                // Evitamos win.blur() ya que en Windows puede causar que la ventana se minimice o se envíe al fondo
+                const wasAlwaysOnTop = win.isAlwaysOnTop();
+                win.setAlwaysOnTop(true);
+                win.blur();
                 win.focus();
+                win.setAlwaysOnTop(wasAlwaysOnTop);
+                win.webContents.focus();
             }
             return { success: true };
         } catch (err) {

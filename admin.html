@@ -483,8 +483,12 @@
                     <input type="text" id="sucursal-caja-base" required placeholder="Ej. 200.000">
                 </div>
                 <div class="form-group">
-                    <label for="sucursal-descuento-mayorista">Descuento Mayorista (%) *</label>
-                    <input type="number" id="sucursal-descuento-mayorista" required min="0" max="100" placeholder="Ej. 25">
+                    <label for="sucursal-descuento-escala-1">Descuento 6 a 11 uds ($ por unidad) *</label>
+                    <input type="text" id="sucursal-descuento-escala-1" required placeholder="Ej. 1.000">
+                </div>
+                <div class="form-group">
+                    <label for="sucursal-descuento-escala-2">Descuento 12+ uds / Mayorista ($ por unidad) *</label>
+                    <input type="text" id="sucursal-descuento-escala-2" required placeholder="Ej. 2.000">
                 </div>
                 <button type="submit" class="btn-primary"
                     style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px;">Guardar
@@ -540,6 +544,14 @@
                         Principal)</label>
                     <select id="categoria-padre-select">
                         <!-- Llenado dinámicamente -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="categoria-tipo-descuento">Descuento por Volumen / Mayorista *</label>
+                    <select id="categoria-tipo-descuento" required>
+                        <option value="0">Sin descuento mayorista</option>
+                        <option value="1">Solo Escala 1 (6+ uds o Mayorista: rebaja Escala 1)</option>
+                        <option value="2">Escala Completa (6–11 uds: Escala 1 | 12+ uds o Mayorista: Escala 2)</option>
                     </select>
                 </div>
                 <button type="submit" class="btn-primary"

@@ -24,7 +24,7 @@ function registerProductosIpc() {
     ipcMain.handle('get-inventory', async (event, sucursalId) => {
         try {
             const rows = await allQuery(
-                `SELECT p.*, COALESCE(i.stock, 0) as stock, COALESCE(i.stock_reservado, 0) as stock_reservado, c.nombre as categoria_nombre,
+                `SELECT p.*, COALESCE(i.stock, 0) as stock, COALESCE(i.stock_reservado, 0) as stock_reservado, c.nombre as categoria_nombre, c.tipo_descuento_mayorista as categoria_tipo_descuento,
                         COALESCE((SELECT SUM(cantidad) FROM detalle_ventas WHERE producto_id = p.id), 0) as ventas_historicas
                  FROM productos p
                  LEFT JOIN inventario_sucursal i ON p.id = i.producto_id AND i.sucursal_id = ?
@@ -56,13 +56,14 @@ function registerProductosIpc() {
 
     // Guardar Categoría
     ipcMain.handle('guardar-categoria', async (event, datos) => {
-        const { id, nombre, categoriaPadreId, auditoriaUsuario, auditoriaRol } = datos;
+        const { id, nombre, categoriaPadreId, tipoDescuentoMayorista, auditoriaUsuario, auditoriaRol } = datos;
+        const valTipoDesc = tipoDescuentoMayorista !== undefined && tipoDescuentoMayorista !== null && tipoDescuentoMayorista !== '' ? Number(tipoDescuentoMayorista) : 0;
         try {
             if (id) {
                 // Edición
                 await runQuery(
-                    `UPDATE categorias SET nombre = ?, categoria_padre_id = ?, sync_status = 'pending' WHERE id = ?`,
-                    [nombre, categoriaPadreId || null, id]
+                    `UPDATE categorias SET nombre = ?, categoria_padre_id = ?, tipo_descuento_mayorista = ?, sync_status = 'pending' WHERE id = ?`,
+                    [nombre, categoriaPadreId || null, valTipoDesc, id]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Editar Categoría', `Nombre: ${nombre} - ID: ${id}`);
                 solicitarSincronizacion('categoría editada');
@@ -71,8 +72,8 @@ function registerProductosIpc() {
                 // Creación
                 const nuevoId = 'cat-' + uuidv4().substring(0, 8);
                 await runQuery(
-                    `INSERT INTO categorias (id, nombre, categoria_padre_id, sync_status, updated_at) VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                    [nuevoId, nombre, categoriaPadreId || null]
+                    `INSERT INTO categorias (id, nombre, categoria_padre_id, tipo_descuento_mayorista, sync_status, updated_at) VALUES (?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                    [nuevoId, nombre, categoriaPadreId || null, valTipoDesc]
                 );
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, 'Catálogo', 'Crear Categoría', `Nombre: ${nombre} - ID: ${nuevoId}`);
                 solicitarSincronizacion('categoría creada');
