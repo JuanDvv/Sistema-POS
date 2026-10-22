@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Delipostres POS · Móvil</title>
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-dot" id="db-indicator"></span>
+            <div>
+                <h1>Delipostres Móvil</h1>
+                <small id="db-status-text">Verificando conexión...</small>
+            </div>
+        </div>
+        <button id="btn-logout" class="btn-ghost hidden" type="button">Salir</button>
+    </header>
+
+    <main class="container">
+        <section id="view-login" class="card">
+            <h2>Acceso Rápido POS</h2>
+            <p class="subtitle">Ingresa con tu usuario del sistema POS para modificar datos sincronizados.</p>
+            <form id="form-login" autocomplete="on">
+                <label class="field">
+                    <span>Usuario</span>
+                    <input type="text" id="login-username" name="username" placeholder="Ej. admin" required autocomplete="username" />
+                </label>
+                <label class="field">
+                    <span>Contraseña</span>
+                    <input type="password" id="login-password" name="password" placeholder="••••••••" required autocomplete="current-password" />
+                </label>
+                <div id="login-error" class="alert-error hidden"></div>
+                <button type="submit" class="btn-primary" id="btn-submit-login">Iniciar Sesión</button>
+            </form>
+        </section>
+
+        <section id="view-app" class="hidden">
+            <div class="card context-bar">
+                <div class="context-user">
+                    <strong id="user-display-name">-</strong>
+                    <span class="badge" id="user-display-role">-</span>
+                </div>
+                <label class="field compact">
+                    <span>Sucursal activa para modificaciones</span>
+                    <select id="select-sucursal"></select>
+                </label>
+            </div>
+
+            <div class="card" id="module-placeholder">
+                <h3>Fase 1 Activa: Base y Sincronización PostgreSQL 17</h3>
+                <p class="subtitle">
+                    La conexión con <strong>PostgreSQL 17</strong>, la sesión del usuario y el selector de sucursal están operativos bajo el estándar Wall-Clock Time.
+                </p>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span>Base de Datos</span>
+                        <strong id="info-db-name">-</strong>
+                    </div>
+                    <div class="status-item">
+                        <span>Hora Planta (Wall-Clock)</span>
+                        <strong id="info-plant-time">-</strong>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+</html>
+
