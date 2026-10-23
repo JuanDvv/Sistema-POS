@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Delipostres POS · Móvil</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
 </head>
 <body>
     <header class="topbar">
@@ -15,11 +15,16 @@
                 <small id="db-status-text">Verificando conexión...</small>
             </div>
         </div>
-        <button id="btn-logout" class="btn-ghost hidden" type="button">Salir</button>
+        <div class="topbar-actions">
+            <button id="btn-ver-auditoria" class="btn-ghost-subtle hidden" type="button" title="Logs de Auditoría" aria-label="Ver Logs de Auditoría">📜 Logs</button>
+            <button id="btn-logout" class="btn-ghost hidden" type="button">Salir</button>
+        </div>
     </header>
 
+    <div id="toast" class="toast hidden"></div>
+
     <main class="container">
-        <section id="view-login" class="card">
+        <section id="view-login" class="card hidden">
             <h2>Acceso Rápido POS</h2>
             <p class="subtitle">Ingresa con tu usuario del sistema POS para modificar datos sincronizados.</p>
             <form id="form-login" autocomplete="on">
@@ -39,35 +44,336 @@
         <section id="view-app" class="hidden">
             <div class="card context-bar">
                 <div class="context-user">
-                    <strong id="user-display-name">-</strong>
-                    <span class="badge" id="user-display-role">-</span>
+                    <div>
+                        <strong id="user-display-name">-</strong>
+                        <span class="badge" id="user-display-role">-</span>
+                    </div>
+                    <small id="info-plant-time" class="clock-text">-</small>
                 </div>
                 <label class="field compact">
-                    <span>Sucursal activa para modificaciones</span>
+                    <span>Sucursal activa para inventario</span>
                     <select id="select-sucursal"></select>
                 </label>
             </div>
 
-            <div class="card" id="module-placeholder">
-                <h3>Fase 1 Activa: Base y Sincronización PostgreSQL 17</h3>
-                <p class="subtitle">
-                    La conexión con <strong>PostgreSQL 17</strong>, la sesión del usuario y el selector de sucursal están operativos bajo el estándar Wall-Clock Time.
-                </p>
-                <div class="status-grid">
-                    <div class="status-item">
-                        <span>Base de Datos</span>
-                        <strong id="info-db-name">-</strong>
-                    </div>
-                    <div class="status-item">
-                        <span>Hora Planta (Wall-Clock)</span>
-                        <strong id="info-plant-time">-</strong>
+            <div class="tabs-bar">
+                <button type="button" class="tab-btn active" data-tab="reporte">Reporte Diario</button>
+                <button type="button" class="tab-btn active" data-tab="productos">Productos y Stock</button>
+                <button type="button" class="tab-btn hidden" data-tab="categorias">Categorías</button>
+            </div>
+
+            <div id="tab-reporte">
+                <div class="card filter-card">
+                    <div class="toolbar-actions">
+                        <input type="date" id="reporte-fecha" />
+                        <div class="date-quick-actions">
+                            <button type="button" class="chip-btn" id="btn-fecha-ayer">Ayer</button>
+                            <button type="button" class="chip-btn" id="btn-fecha-hoy">Hoy</button>
+                            <button type="button" class="btn-link" id="btn-refresh-reporte">Actualizar</button>
+                        </div>
                     </div>
                 </div>
+
+                <div class="card resumen-card" id="card-resumen-financiero">
+                    <div class="resumen-grid-hero">
+                        <div class="resumen-hero-item">
+                            <span>Efectivo en Caja</span>
+                            <strong id="res-efectivo-caja" class="highlight-green">$ 0</strong>
+                            <small id="res-desglose-efectivo">Ventas Ef: $0 - Gastos Ef: $0</small>
+                        </div>
+                        <div class="resumen-hero-item">
+                            <span>Total Recibido</span>
+                            <strong id="res-total-recibido" class="highlight-amber">$ 0</strong>
+                            <small id="res-desglose-ingresos">Ef: $0 · Tr: $0</small>
+                        </div>
+                    </div>
+                    <div class="resumen-subgrid">
+                        <div class="resumen-mini-item">
+                            <span>Gastos de Caja</span>
+                            <strong id="res-total-gastos">$ 0</strong>
+                        </div>
+                        <div class="resumen-mini-item">
+                            <span>Ventas a Crédito</span>
+                            <strong id="res-ventas-credito">$ 0</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card filter-card">
+                    <div class="toolbar-actions">
+                        <div class="subtabs-bar">
+                            <button type="button" class="subtab-btn active" data-subtab="ventas">Ventas (<span id="count-ventas">0</span>)</button>
+                            <button type="button" class="subtab-btn" data-subtab="gastos">Gastos (<span id="count-gastos">0</span>)</button>
+                        </div>
+                        <button type="button" class="btn-primary btn-inline hidden" id="btn-nuevo-gasto">+ Gasto</button>
+                    </div>
+                </div>
+
+                <div id="lista-ventas" class="product-list"></div>
+                <div id="lista-gastos" class="product-list hidden"></div>
+            </div>
+
+            <div id="tab-productos" class="hidden">
+                <div class="card filter-card">
+                    <div class="toolbar-actions">
+                        <input type="search" id="search-producto" placeholder="Buscar producto por nombre..." />
+                        <button type="button" class="btn-primary btn-inline" id="btn-nuevo-producto">+ Producto</button>
+                    </div>
+                    <div class="filter-row">
+                        <select id="filter-categoria">
+                            <option value="">Todas las categorías</option>
+                        </select>
+                        <button type="button" id="btn-filter-bajo-stock" class="chip-btn">Bajo Stock</button>
+                    </div>
+                    <div class="summary-strip">
+                        <span id="productos-count-label">0 productos</span>
+                        <button type="button" id="btn-refresh-catalogo" class="btn-link">Actualizar</button>
+                    </div>
+                </div>
+
+                <div id="lista-productos" class="product-list"></div>
+            </div>
+
+            <div id="tab-categorias" class="hidden">
+                <div class="card filter-card">
+                    <div class="toolbar-actions">
+                        <h3>Categorías del Catálogo</h3>
+                        <button type="button" class="btn-primary btn-inline" id="btn-nueva-categoria">+ Categoría</button>
+                    </div>
+                </div>
+                <div id="lista-categorias" class="product-list"></div>
             </div>
         </section>
     </main>
 
-    <script src="/app.js"></script>
+    <div id="modal-producto" class="modal-backdrop hidden">
+        <div class="modal-sheet">
+            <div class="modal-header">
+                <h3 id="modal-producto-titulo">Editar Producto</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-producto">&times;</button>
+            </div>
+            <form id="form-producto">
+                <input type="hidden" id="prod-id" />
+                <label class="field">
+                    <span>Nombre del Producto *</span>
+                    <input type="text" id="prod-nombre" required placeholder="Ej. Tres Leches Personal" />
+                </label>
+                <div class="grid-2">
+                    <label class="field">
+                        <span>Precio ($) *</span>
+                        <input type="number" id="prod-precio" required min="0" step="any" placeholder="0" />
+                    </label>
+                    <label class="field">
+                        <span>Stock en Sucursal</span>
+                        <input type="number" id="prod-stock" required min="0" step="1" placeholder="0" />
+                    </label>
+                </div>
+                <div class="grid-2">
+                    <label class="field">
+                        <span>Categoría</span>
+                        <select id="prod-categoria"></select>
+                    </label>
+                    <label class="field">
+                        <span>Stock Mínimo</span>
+                        <input type="number" id="prod-stock-minimo" required min="0" step="1" value="5" />
+                    </label>
+                </div>
+                <label class="field">
+                    <span>Descripción (opcional)</span>
+                    <input type="text" id="prod-descripcion" placeholder="Detalle corto..." />
+                </label>
+                <div id="prod-error" class="alert-error hidden"></div>
+                <div class="modal-actions">
+                    <button type="button" id="btn-eliminar-producto" class="btn-danger-outline hidden">Eliminar</button>
+                    <button type="submit" class="btn-primary" id="btn-guardar-producto">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-abastecer" class="modal-backdrop hidden">
+        <div class="modal-sheet">
+            <div class="modal-header">
+                <h3>Abastecer Stock</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-abastecer">&times;</button>
+            </div>
+            <form id="form-abastecer">
+                <input type="hidden" id="abast-prod-id" />
+                <p class="subtitle" id="abast-prod-nombre">-</p>
+                <div class="quick-deltas">
+                    <button type="button" class="chip-btn quick-add" data-add="1">+1</button>
+                    <button type="button" class="chip-btn quick-add" data-add="5">+5</button>
+                    <button type="button" class="chip-btn quick-add" data-add="10">+10</button>
+                    <button type="button" class="chip-btn quick-add" data-add="20">+20</button>
+                </div>
+                <label class="field">
+                    <span>Unidades a sumar al stock actual *</span>
+                    <input type="number" id="abast-cantidad" required min="1" step="1" placeholder="Ej. 10" />
+                </label>
+                <div id="abast-error" class="alert-error hidden"></div>
+                <button type="submit" class="btn-primary" id="btn-confirmar-abastecer">Sumar al Inventario</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-categoria" class="modal-backdrop hidden">
+        <div class="modal-sheet">
+            <div class="modal-header">
+                <h3 id="modal-categoria-titulo">Categoría</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-categoria">&times;</button>
+            </div>
+            <form id="form-categoria">
+                <input type="hidden" id="cat-id" />
+                <label class="field">
+                    <span>Nombre *</span>
+                    <input type="text" id="cat-nombre" required placeholder="Ej. Postres Fríos" />
+                </label>
+                <label class="field">
+                    <span>Categoría Padre (opcional)</span>
+                    <select id="cat-padre"></select>
+                </label>
+                <div id="cat-error" class="alert-error hidden"></div>
+                <div class="modal-actions">
+                    <button type="button" id="btn-eliminar-categoria" class="btn-danger-outline hidden">Eliminar</button>
+                    <button type="submit" class="btn-primary">Guardar Categoría</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-editar-venta" class="modal-backdrop hidden">
+        <div class="modal-sheet">
+            <div class="modal-header">
+                <h3>Editar Venta</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-venta">&times;</button>
+            </div>
+            <form id="form-editar-venta">
+                <input type="hidden" id="edit-venta-id" />
+                <div class="meta-strip">
+                    <span id="edit-venta-hora">-</span>
+                    <span id="edit-venta-cliente" class="badge-subtle">-</span>
+                </div>
+
+                <div class="grid-2">
+                    <label class="field">
+                        <span>Método de Pago *</span>
+                        <select id="edit-venta-metodo-pago">
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Mixto">Mixto (Ef + Tr)</option>
+                            <option value="Crédito">Crédito</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Domicilio ($)</span>
+                        <input type="number" id="edit-venta-domicilio" min="0" step="any" value="0" />
+                    </label>
+                </div>
+
+                <div id="wrapper-mixto" class="grid-2 hidden">
+                    <label class="field">
+                        <span>Monto en Efectivo *</span>
+                        <input type="number" id="edit-venta-efectivo" min="0" step="any" placeholder="0" />
+                    </label>
+                    <label class="field">
+                        <span>Monto en Transferencia *</span>
+                        <input type="number" id="edit-venta-transferencia" min="0" step="any" placeholder="0" />
+                    </label>
+                </div>
+
+                <div class="section-divider">
+                    <span>Productos de la Venta</span>
+                </div>
+
+                <div id="edit-venta-items-list" class="edit-items-container"></div>
+
+                <div class="add-item-row">
+                    <select id="edit-venta-add-prod-select"></select>
+                    <input type="number" id="edit-venta-add-cant" min="1" step="1" value="1" style="max-width: 65px;" />
+                    <button type="button" class="btn-primary btn-inline" id="btn-edit-venta-add-item">+ Añadir</button>
+                </div>
+
+                <div class="total-calc-box">
+                    <span>Total Recalculado:</span>
+                    <strong id="edit-venta-total-calc">$ 0</strong>
+                </div>
+
+                <div id="edit-venta-error" class="alert-error hidden"></div>
+
+                <div class="modal-actions">
+                    <button type="button" id="btn-anular-venta" class="btn-danger-outline">Anular Venta</button>
+                    <button type="submit" class="btn-primary">Guardar Venta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-gasto" class="modal-backdrop hidden">
+        <div class="modal-sheet">
+            <div class="modal-header">
+                <h3 id="modal-gasto-titulo">Registrar Gasto</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-gasto">&times;</button>
+            </div>
+            <form id="form-gasto">
+                <input type="hidden" id="gasto-id" />
+                <label class="field">
+                    <span>Tipo de Gasto *</span>
+                    <select id="gasto-tipo">
+                        <option value="Operativo">Operativo (Caja)</option>
+                        <option value="Gastos Administrativos">Gastos Administrativos</option>
+                        <option value="Gasto de Inventario">Gasto de Inventario (No financiero)</option>
+                        <option value="Devolución de Producto">Devolución de Producto</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Descripción *</span>
+                    <input type="text" id="gasto-descripcion" required placeholder="Ej. Bolsas plásticas, hielo, etc." />
+                </label>
+                <div class="grid-2">
+                    <label class="field">
+                        <span>Monto ($) *</span>
+                        <input type="number" id="gasto-monto" required min="0" step="any" placeholder="0" />
+                    </label>
+                    <label class="field">
+                        <span>Método de Pago</span>
+                        <select id="gasto-metodo-pago">
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="gasto-error" class="alert-error hidden"></div>
+                <div class="modal-actions">
+                    <button type="button" id="btn-eliminar-gasto" class="btn-danger-outline hidden">Eliminar</button>
+                    <button type="submit" class="btn-primary">Guardar Gasto</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-auditoria" class="modal-backdrop hidden">
+        <div class="modal-sheet modal-sheet-large">
+            <div class="modal-header">
+                <div>
+                    <h3 id="modal-auditoria-titulo">📜 Logs de Auditoría</h3>
+                    <small class="clock-text">Historial de operaciones del sistema</small>
+                </div>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-auditoria">&times;</button>
+            </div>
+            <div class="card filter-card audit-filters">
+                <div class="toolbar-actions">
+                    <input type="search" id="search-auditoria" placeholder="Buscar por usuario, acción o detalle..." />
+                    <button type="button" class="btn-link" id="btn-refresh-auditoria">Actualizar</button>
+                </div>
+                <div class="summary-strip">
+                    <span id="auditoria-count-label">0 registros</span>
+                    <small id="auditoria-status-info" class="clock-text">Solo Administradores</small>
+                </div>
+            </div>
+            <div id="lista-auditoria" class="audit-list"></div>
+        </div>
+    </div>
+
+    <script src="/app.js?v=2"></script>
 </body>
 </html>
-

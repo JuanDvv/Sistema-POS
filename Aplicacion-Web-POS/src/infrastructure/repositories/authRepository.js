@@ -13,11 +13,16 @@ async function buscarUsuarioPorUsername(username) {
     return res.rows[0] || null;
 }
 
+const TAG_ORIGEN_WEB = '[Realizado desde la aplicación web]';
+
 async function registrarAuditoriaRemota({ usuario, rol, sucursalId, accion, detalles }) {
     try {
         const id = uuidv4();
         const fecha = obtenerFechaWallClock();
-        const detallesTexto = typeof detalles === 'object' ? JSON.stringify(detalles) : String(detalles || '');
+        let detallesTexto = typeof detalles === 'object' ? JSON.stringify(detalles) : String(detalles || '').trim();
+        if (!detallesTexto.includes(TAG_ORIGEN_WEB)) {
+            detallesTexto = detallesTexto ? `${detallesTexto} ${TAG_ORIGEN_WEB}` : TAG_ORIGEN_WEB;
+        }
         await ejecutarQuery(
             `INSERT INTO "auditoria" (id, fecha, usuario, rol, sucursal_id, accion, detalles)
              VALUES ($1, $2, $3, $4, $5, $6, $7)

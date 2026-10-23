@@ -19,7 +19,7 @@ function obtenerPool() {
         user: db.user,
         password: db.password,
         ssl: db.ssl ? { rejectUnauthorized: false } : false,
-        connectionTimeoutMillis: 4000,
+        connectionTimeoutMillis: 8000,
         idleTimeoutMillis: 15000,
         max: 10
     });

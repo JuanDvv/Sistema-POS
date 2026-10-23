@@ -1,6 +1,6 @@
 {
   "name": "aplicacion-web-pos-delipostres",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Portal web móvil ligero conectado a PostgreSQL 17 para gestión ágil vía Tailscale",
   "main": "src/presentation/http/server.js",
   "scripts": {
