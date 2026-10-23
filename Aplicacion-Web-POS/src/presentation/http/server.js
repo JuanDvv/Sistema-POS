@@ -7,6 +7,12 @@ const { buscarUsuarioPorUsername, registrarAuditoriaRemota } = require('../../in
 const { listarLogsAuditoria } = require('../../infrastructure/repositories/auditoriaRepository');
 const { listarSucursalesVigentes } = require('../../infrastructure/repositories/sucursalRepository');
 const {
+    listarSolicitudesVenta,
+    listarSolicitudesGasto,
+    listarOperadores
+} = require('../../infrastructure/repositories/solicitudesRepository');
+const { calcularTurnosRango } = require('../../domain/admin/turnosDomain');
+const {
     listarCatalogoPorSucursal,
     crearProductoConInventario,
     editarProductoConInventario,
@@ -217,6 +223,45 @@ const server = http.createServer(async (req, res) => {
 
                 const resultado = await listarLogsAuditoria({ limite, offset, busqueda, accion, usuario });
                 return enviarJson(res, 200, { ok: true, ...resultado });
+            }
+
+            if (req.method === 'GET' && pathname === '/api/admin/turnos') {
+                const fechaInicioParam = urlObj.searchParams.get('fechaInicio') || obtenerSoloFechaWallClock();
+                const diasParam = Number(urlObj.searchParams.get('dias')) || 14;
+                const operadoresRaw = urlObj.searchParams.get('operadores');
+                const operadores = operadoresRaw ? operadoresRaw.split(',').map(s => decodeURIComponent(s).trim()) : undefined;
+
+                const turnosData = calcularTurnosRango({
+                    fechaInicio: fechaInicioParam,
+                    dias: diasParam,
+                    operadores
+                });
+                return enviarJson(res, 200, { ok: true, ...turnosData });
+            }
+
+            if (req.method === 'GET' && pathname === '/api/admin/solicitudes-venta') {
+                const estado = urlObj.searchParams.get('estado') || '';
+                const usuario = urlObj.searchParams.get('usuario') || '';
+                const limite = Number(urlObj.searchParams.get('limite')) || 50;
+                const offset = Number(urlObj.searchParams.get('offset')) || 0;
+
+                const resultado = await listarSolicitudesVenta({ estado, usuario, limite, offset });
+                return enviarJson(res, 200, { ok: true, ...resultado });
+            }
+
+            if (req.method === 'GET' && pathname === '/api/admin/solicitudes-gasto') {
+                const estado = urlObj.searchParams.get('estado') || '';
+                const usuario = urlObj.searchParams.get('usuario') || '';
+                const limite = Number(urlObj.searchParams.get('limite')) || 50;
+                const offset = Number(urlObj.searchParams.get('offset')) || 0;
+
+                const resultado = await listarSolicitudesGasto({ estado, usuario, limite, offset });
+                return enviarJson(res, 200, { ok: true, ...resultado });
+            }
+
+            if (req.method === 'GET' && pathname === '/api/admin/operadores') {
+                const operadores = await listarOperadores();
+                return enviarJson(res, 200, { ok: true, operadores });
             }
 
             if (req.method === 'GET' && pathname === '/api/catalogo') {

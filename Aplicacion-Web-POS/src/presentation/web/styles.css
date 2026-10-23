@@ -1025,6 +1025,247 @@ select {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 }
 
+/* Subtabs Administración */
+.subtab-admin-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.subtab-admin-btn:active {
+    opacity: 0.8;
+}
+
+.subtab-admin-btn.active {
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    font-weight: 700;
+}
+
+/* Tabla de Turnos Responsiva */
+.turnos-table-wrap {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 0.5px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 520px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.turnos-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    text-align: center;
+}
+
+.turnos-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #0d131f;
+    color: var(--text);
+    padding: 9px 8px;
+    border-bottom: 0.5px solid var(--border-strong);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.turnos-table td {
+    padding: 8px 6px;
+    border-bottom: 0.5px solid var(--border);
+    vertical-align: middle;
+}
+
+.turnos-table tr.fila-hoy {
+    background-color: rgba(59, 130, 246, 0.1);
+    outline: 1.5px solid #3b82f6;
+    outline-offset: -1px;
+}
+
+.turnos-table tr.fila-fin-semana td.col-fecha {
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.col-fecha {
+    font-family: monospace;
+    font-size: 0.76rem;
+    color: var(--muted-light);
+    white-space: nowrap;
+    text-align: left;
+    padding-left: 10px !important;
+}
+
+.badge-hoy {
+    background: #3b82f6;
+    color: white;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: bold;
+    margin-left: 3px;
+}
+
+/* Badges de Turnos */
+.badge-turno {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.badge-san-roque {
+    background: #fef9c3;
+    color: #713f12;
+    border: 1px solid #fef08a;
+}
+
+.badge-granja {
+    background: #dcfce7;
+    color: #14532d;
+    border: 1px solid #bbf7d0;
+}
+
+.badge-descanso {
+    background: #e0e7ff;
+    color: #312e81;
+    border: 1px solid #c7d2fe;
+}
+
+/* Leyenda y Controles de Turnos */
+.turnos-legend {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.range-badge {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.76rem;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 5px 9px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+}
+
+.select-compact {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    border: 0.5px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.wrap {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Badges y Tarjetas de Solicitudes */
+.badge-sol-estado {
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: capitalize;
+    display: inline-block;
+}
+
+.badge-sol-pendiente {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.badge-sol-aprobada {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-sol-rechazada {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.badge-sol-tipo {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted-light);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.modal-body-scroll {
+    overflow-y: auto;
+    max-height: calc(88vh - 140px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 0;
+}
+
+.sol-modal-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8rem;
+    color: var(--muted-light);
+    background: var(--surface-2);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    border: 0.5px solid var(--border);
+}
+
+.sol-modal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    margin-top: 6px;
+}
+
+.sol-modal-table th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 0.5px solid var(--border-strong);
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.sol-modal-table td {
+    padding: 6px 8px;
+    border-bottom: 0.5px solid var(--border);
+}
+
+.sol-modal-total {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+    font-size: 0.85rem;
+}
+
 .hidden {
     display: none !important;
 }

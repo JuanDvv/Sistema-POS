@@ -13,7 +13,15 @@ const state = {
     subtabReporte: 'ventas',
     reporte: null,
     editingVenta: null,
-    editingVentaItems: []
+    editingVentaItems: [],
+    subtabAdmin: 'turnos',
+    fechaInicioTurnos: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()),
+    diasTurnos: 14,
+    operadoresTurnos: ['Liliana', 'Tatiana', 'Danna'],
+    filtroSolVentas: 'pendiente',
+    filtroSolGastos: 'pendiente',
+    solicitudesVentasCache: {},
+    solicitudesGastosCache: {}
 };
 
 const els = {
@@ -122,7 +130,36 @@ const els = {
     searchAuditoria: document.getElementById('search-auditoria'),
     btnRefreshAuditoria: document.getElementById('btn-refresh-auditoria'),
     auditoriaCountLabel: document.getElementById('auditoria-count-label'),
-    listaAuditoria: document.getElementById('lista-auditoria')
+    listaAuditoria: document.getElementById('lista-auditoria'),
+    tabAdmin: document.getElementById('tab-admin'),
+    adminSubtabTurnos: document.getElementById('admin-subtab-turnos'),
+    adminSubtabSolVentas: document.getElementById('admin-subtab-sol-ventas'),
+    adminSubtabSolGastos: document.getElementById('admin-subtab-sol-gastos'),
+    countAdminSolVentas: document.getElementById('count-admin-sol-ventas'),
+    countAdminSolGastos: document.getElementById('count-admin-sol-gastos'),
+    btnAdminTurnoAnt: document.getElementById('btn-admin-turno-ant'),
+    btnAdminTurnoSig: document.getElementById('btn-admin-turno-sig'),
+    btnAdminTurnoHoy: document.getElementById('btn-admin-turno-hoy'),
+    labelAdminRangoTurnos: document.getElementById('label-admin-rango-turnos'),
+    selectAdminTurnoDias: document.getElementById('select-admin-turno-dias'),
+    thAdminOp1: document.getElementById('th-admin-op-1'),
+    thAdminOp2: document.getElementById('th-admin-op-2'),
+    thAdminOp3: document.getElementById('th-admin-op-3'),
+    tbodyAdminTurnos: document.getElementById('tbody-admin-turnos'),
+    filtroAdminSolVentas: document.getElementById('filtro-admin-sol-ventas'),
+    btnRefreshSolVentas: document.getElementById('btn-refresh-sol-ventas'),
+    listaAdminSolVentas: document.getElementById('lista-admin-sol-ventas'),
+    filtroAdminSolGastos: document.getElementById('filtro-admin-sol-gastos'),
+    btnRefreshSolGastos: document.getElementById('btn-refresh-sol-gastos'),
+    listaAdminSolGastos: document.getElementById('lista-admin-sol-gastos'),
+    modalAdminSolVenta: document.getElementById('modal-admin-sol-venta'),
+    btnCerrarModalAdminSolVenta: document.getElementById('btn-cerrar-modal-admin-sol-venta'),
+    btnCerrarModalAdminSolVentaPie: document.getElementById('btn-cerrar-modal-admin-sol-venta-pie'),
+    modalAdminSolVentaBody: document.getElementById('modal-admin-sol-venta-body'),
+    modalAdminSolGasto: document.getElementById('modal-admin-sol-gasto'),
+    btnCerrarModalAdminSolGasto: document.getElementById('btn-cerrar-modal-admin-sol-gasto'),
+    btnCerrarModalAdminSolGastoPie: document.getElementById('btn-cerrar-modal-admin-sol-gasto-pie'),
+    modalAdminSolGastoBody: document.getElementById('modal-admin-sol-gasto-body')
 };
 
 const formatoMoneda = new Intl.NumberFormat('es-CO', {
@@ -457,8 +494,16 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         els.tabReporte.classList.toggle('hidden', tab !== 'reporte');
         els.tabProductos.classList.toggle('hidden', tab !== 'productos');
         els.tabCategorias.classList.toggle('hidden', tab !== 'categorias');
+        if (els.tabAdmin) {
+            els.tabAdmin.classList.toggle('hidden', tab !== 'admin');
+        }
         if (tab === 'reporte' && !state.reporte) {
             cargarReporteDiario();
+        }
+        if (tab === 'admin') {
+            if (state.subtabAdmin === 'turnos') cargarTurnosAdmin();
+            else if (state.subtabAdmin === 'sol-ventas') cargarSolicitudesVentasAdmin();
+            else if (state.subtabAdmin === 'sol-gastos') cargarSolicitudesGastosAdmin();
         }
     });
 });
@@ -1191,6 +1236,415 @@ if (els.searchAuditoria) {
         }, 350);
     });
 }
+
+// ------------------------------------------
+// MÓDULO ADMINISTRACIÓN (SOLO VISUALIZACIÓN)
+// ------------------------------------------
+
+const OPERADORES_STORAGE_KEY = 'pos_turnos_operadores_v1';
+
+function cargarOperadoresTurnosStorage() {
+    try {
+        const raw = localStorage.getItem(OPERADORES_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length === 3) {
+                state.operadoresTurnos = parsed.map(n => String(n || '').trim()).map((n, i) => n || ['Liliana', 'Tatiana', 'Danna'][i]);
+            }
+        }
+    } catch (_) {}
+}
+
+function badgeTurnoHtml(turno) {
+    if (turno === 'San Roque') return '<span class="badge-turno badge-san-roque">San Roque</span>';
+    if (turno === 'Granja') return '<span class="badge-turno badge-granja">Granja</span>';
+    return '<span class="badge-turno badge-descanso">Descanso</span>';
+}
+
+function cambiarFechaInicioTurnos(deltaDias) {
+    const [y, m, d] = state.fechaInicioTurnos.split('-').map(Number);
+    const dateUtc = Date.UTC(y, m - 1, d) + (deltaDias * 86400000);
+    const nueva = new Date(dateUtc);
+    const nuevoY = nueva.getUTCFullYear();
+    const nuevoM = String(nueva.getUTCMonth() + 1).padStart(2, '0');
+    const nuevoD = String(nueva.getUTCDate()).padStart(2, '0');
+    state.fechaInicioTurnos = `${nuevoY}-${nuevoM}-${nuevoD}`;
+    cargarTurnosAdmin();
+}
+
+async function cargarTurnosAdmin() {
+    if (!els.tbodyAdminTurnos) return;
+    els.tbodyAdminTurnos.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--muted);">Cargando programación de turnos...</td></tr>';
+
+    cargarOperadoresTurnosStorage();
+    const opsParam = encodeURIComponent(state.operadoresTurnos.join(','));
+    const url = `/api/admin/turnos?fechaInicio=${encodeURIComponent(state.fechaInicioTurnos)}&dias=${state.diasTurnos}&operadores=${opsParam}`;
+    const { status, data } = await apiFetch(url);
+
+    if (status !== 200 || !data.ok) {
+        els.tbodyAdminTurnos.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--danger);">${data.error || 'No se pudieron calcular los turnos.'}</td></tr>`;
+        return;
+    }
+
+    if (els.thAdminOp1) els.thAdminOp1.textContent = state.operadoresTurnos[0];
+    if (els.thAdminOp2) els.thAdminOp2.textContent = state.operadoresTurnos[1];
+    if (els.thAdminOp3) els.thAdminOp3.textContent = state.operadoresTurnos[2];
+
+    const turnos = data.turnos || [];
+    if (turnos.length > 0 && els.labelAdminRangoTurnos) {
+        const primera = turnos[0].fecha;
+        const ultima = turnos[turnos.length - 1].fecha;
+        els.labelAdminRangoTurnos.textContent = `${primera.slice(5)} al ${ultima.slice(5)} (${data.dias}d)`;
+    }
+
+    els.tbodyAdminTurnos.innerHTML = '';
+    const hoyStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+
+    for (const t of turnos) {
+        const esHoy = t.fecha === hoyStr;
+        const tr = document.createElement('tr');
+        if (esHoy) tr.className = 'fila-hoy';
+        else if (t.esFinSemana) tr.className = 'fila-fin-semana';
+
+        tr.innerHTML = `
+            <td class="col-fecha">
+                ${t.fecha} <small>(${t.diaSemana.slice(0, 3)})</small>
+                ${esHoy ? '<span class="badge-hoy">HOY</span>' : ''}
+            </td>
+            <td>${badgeTurnoHtml(t.asignaciones[0]?.turno)}</td>
+            <td>${badgeTurnoHtml(t.asignaciones[1]?.turno)}</td>
+            <td>${badgeTurnoHtml(t.asignaciones[2]?.turno)}</td>
+        `;
+        els.tbodyAdminTurnos.appendChild(tr);
+    }
+}
+
+function resumenSolicitudVentaWeb(sol) {
+    try {
+        const datos = typeof sol.datos === 'string' ? JSON.parse(sol.datos || '{}') : (sol.datos || {});
+        if (sol.tipo === 'nueva' || sol.tipo === 'edicion') {
+            const p = datos.propuesta || {};
+            const carrito = Array.isArray(p.carrito) ? p.carrito : [];
+            const prods = carrito.slice(0, 3).map(i => `${i.nombre} (x${i.cantidad})`).join(', ') + (carrito.length > 3 ? ` (+${carrito.length - 3} más)` : '');
+            return `${prods || 'Sin productos'} · Total: ${formatoMoneda.format(p.total || 0)} · ${p.metodoPago || ''}`;
+        }
+        if (sol.tipo === 'eliminacion') {
+            const snap = datos.snapshotOriginal || {};
+            return `Venta original · Total: ${formatoMoneda.format(snap.venta?.total || 0)} · ${snap.venta?.metodo_pago || ''}`;
+        }
+    } catch (_) {}
+    return '-';
+}
+
+async function cargarSolicitudesVentasAdmin() {
+    if (!els.listaAdminSolVentas) return;
+    els.listaAdminSolVentas.innerHTML = '<div class="card empty-state">Cargando solicitudes de venta...</div>';
+
+    const estado = state.filtroSolVentas || '';
+    const url = `/api/admin/solicitudes-venta${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`;
+    const { status, data } = await apiFetch(url);
+
+    if (status !== 200 || !data.ok) {
+        els.listaAdminSolVentas.innerHTML = `<div class="card empty-state">${data.error || 'Error al cargar solicitudes de venta.'}</div>`;
+        return;
+    }
+
+    const solicitudes = data.solicitudes || [];
+    state.solicitudesVentasCache = {};
+    if (els.countAdminSolVentas) els.countAdminSolVentas.textContent = data.total || 0;
+
+    els.listaAdminSolVentas.innerHTML = '';
+    if (solicitudes.length === 0) {
+        els.listaAdminSolVentas.innerHTML = `<div class="card empty-state">No hay solicitudes ${estado === 'pendiente' ? 'pendientes' : 'registradas'}.</div>`;
+        return;
+    }
+
+    const etiquetasTipo = { nueva: 'Nueva venta', edicion: 'Edición', eliminacion: 'Eliminación' };
+
+    for (const sol of solicitudes) {
+        state.solicitudesVentasCache[sol.id] = sol;
+        const item = document.createElement('div');
+        item.className = 'product-item';
+        const tipoLabel = etiquetasTipo[sol.tipo] || sol.tipo;
+        const fechaSolStr = formatearFechaAuditoria(sol.fecha_solicitud);
+        const resumen = resumenSolicitudVentaWeb(sol);
+
+        item.innerHTML = `
+            <div class="product-top">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="badge-sol-tipo">${tipoLabel}</span>
+                    <span class="badge-sol-estado badge-sol-${sol.estado}">${sol.estado}</span>
+                </div>
+                <small class="audit-fecha">${fechaSolStr}</small>
+            </div>
+            <div class="audit-user-row">
+                <strong>${sol.usuario_solicitante}</strong>
+                <span class="badge-subtle">Venta: ${sol.fecha_venta}</span>
+                <span class="badge-subtle">${sol.sucursal_id}</span>
+            </div>
+            <div class="audit-detalles">${resumen}</div>
+            ${sol.motivo_rechazo ? `<div style="font-size:0.74rem; color:var(--danger); margin-top:2px;">Motivo rechazo: ${sol.motivo_rechazo}</div>` : ''}
+            <div class="product-bottom" style="margin-top:6px;">
+                <span></span>
+                <button type="button" class="btn-action" data-action="ver-sol-venta">👁️ Ver Detalle</button>
+            </div>
+        `;
+
+        item.querySelector('[data-action="ver-sol-venta"]').addEventListener('click', () => abrirModalDetalleSolVenta(sol.id));
+        els.listaAdminSolVentas.appendChild(item);
+    }
+}
+
+function abrirModalDetalleSolVenta(id) {
+    const sol = state.solicitudesVentasCache[id];
+    if (!sol || !els.modalAdminSolVenta) return;
+
+    let datos = {};
+    try { datos = typeof sol.datos === 'string' ? JSON.parse(sol.datos || '{}') : (sol.datos || {}); } catch (_) {}
+
+    const tablaItems = (carrito) => {
+        if (!Array.isArray(carrito) || carrito.length === 0) return '<p style="color:var(--muted); font-size:0.78rem;">Sin productos.</p>';
+        const filas = carrito.map(i => `
+            <tr>
+                <td>${i.nombre || 'Producto'}</td>
+                <td style="text-align:center;">${i.cantidad}</td>
+                <td style="text-align:right;">${formatoMoneda.format(Number(i.precio_unitario ?? i.precio ?? 0))}</td>
+            </tr>
+        `).join('');
+        return `
+            <table class="sol-modal-table">
+                <thead><tr><th>Producto</th><th style="text-align:center;">Cant.</th><th style="text-align:right;">Unit.</th></tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        `;
+    };
+
+    let contenidoHtml = `
+        <div class="sol-modal-info">
+            <div><strong>Solicitante:</strong> ${sol.usuario_solicitante}</div>
+            <div><strong>Fecha de la venta:</strong> ${sol.fecha_venta}</div>
+            <div><strong>Sucursal:</strong> ${sol.sucursal_id}</div>
+            <div><strong>Estado:</strong> ${sol.estado} ${sol.motivo_rechazo ? `(${sol.motivo_rechazo})` : ''}</div>
+            ${sol.usuario_revisor ? `<div><strong>Revisado por:</strong> ${sol.usuario_revisor} el ${formatearFechaAuditoria(sol.fecha_revision)}</div>` : ''}
+        </div>
+    `;
+
+    if (sol.tipo === 'nueva') {
+        const p = datos.propuesta || {};
+        contenidoHtml += `
+            <div style="font-weight:700; font-size:0.85rem; margin-top:8px;">Venta Propuesta a Registrar:</div>
+            ${tablaItems(p.carrito)}
+            <div class="sol-modal-total">
+                <span>Total: ${formatoMoneda.format(p.total || 0)}</span>
+                <span class="badge-subtle">${p.metodoPago || ''}</span>
+            </div>
+        `;
+    } else if (sol.tipo === 'eliminacion') {
+        const snap = datos.snapshotOriginal || {};
+        contenidoHtml += `
+            <div style="font-weight:700; font-size:0.85rem; color:var(--danger); margin-top:8px;">Venta a Eliminar:</div>
+            ${tablaItems(snap.detalle)}
+            <div class="sol-modal-total">
+                <span>Total: ${formatoMoneda.format(snap.venta?.total || 0)}</span>
+                <span class="badge-subtle">${snap.venta?.metodo_pago || ''}</span>
+            </div>
+        `;
+    } else {
+        const antes = datos.snapshotOriginal || {};
+        const despues = datos.propuesta || {};
+        contenidoHtml += `
+            <div style="font-weight:700; font-size:0.85rem; color:var(--primary); margin-top:8px;">Antes (Original):</div>
+            ${tablaItems(antes.detalle)}
+            <div class="sol-modal-total"><span>Total Original: ${formatoMoneda.format(antes.venta?.total || 0)}</span></div>
+
+            <div style="font-weight:700; font-size:0.85rem; color:var(--success); margin-top:12px;">Después (Propuesta):</div>
+            ${tablaItems(despues.carrito)}
+            <div class="sol-modal-total"><span>Nuevo Total: ${formatoMoneda.format(despues.total || 0)}</span></div>
+        `;
+    }
+
+    els.modalAdminSolVentaBody.innerHTML = contenidoHtml;
+    els.modalAdminSolVenta.classList.remove('hidden');
+}
+
+function resumenSolicitudGastoWeb(sol) {
+    try {
+        const datos = typeof sol.datos === 'string' ? JSON.parse(sol.datos || '{}') : (sol.datos || {});
+        const p = datos.propuesta || {};
+        if (Array.isArray(p.productosVencidos) && p.productosVencidos.length > 0) {
+            const prods = p.productosVencidos.slice(0, 3).map(i => `${i.nombre} (x${i.cantidad})`).join(', ') + (p.productosVencidos.length > 3 ? ` (+${p.productosVencidos.length - 3} más)` : '');
+            return `${p.tipo || 'Inventario'} · ${prods}`;
+        }
+        return `${p.tipo || 'Operativo'} · ${formatoMoneda.format(p.monto || 0)} · ${p.descripcion || ''}`;
+    } catch (_) {}
+    return '-';
+}
+
+async function cargarSolicitudesGastosAdmin() {
+    if (!els.listaAdminSolGastos) return;
+    els.listaAdminSolGastos.innerHTML = '<div class="card empty-state">Cargando solicitudes de gasto...</div>';
+
+    const estado = state.filtroSolGastos || '';
+    const url = `/api/admin/solicitudes-gasto${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`;
+    const { status, data } = await apiFetch(url);
+
+    if (status !== 200 || !data.ok) {
+        els.listaAdminSolGastos.innerHTML = `<div class="card empty-state">${data.error || 'Error al cargar solicitudes de gasto.'}</div>`;
+        return;
+    }
+
+    const solicitudes = data.solicitudes || [];
+    state.solicitudesGastosCache = {};
+    if (els.countAdminSolGastos) els.countAdminSolGastos.textContent = data.total || 0;
+
+    els.listaAdminSolGastos.innerHTML = '';
+    if (solicitudes.length === 0) {
+        els.listaAdminSolGastos.innerHTML = `<div class="card empty-state">No hay solicitudes ${estado === 'pendiente' ? 'pendientes' : 'registradas'}.</div>`;
+        return;
+    }
+
+    for (const sol of solicitudes) {
+        state.solicitudesGastosCache[sol.id] = sol;
+        const item = document.createElement('div');
+        item.className = 'product-item';
+        const fechaSolStr = formatearFechaAuditoria(sol.fecha_solicitud);
+        const resumen = resumenSolicitudGastoWeb(sol);
+
+        item.innerHTML = `
+            <div class="product-top">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="badge-sol-tipo">Gasto</span>
+                    <span class="badge-sol-estado badge-sol-${sol.estado}">${sol.estado}</span>
+                </div>
+                <small class="audit-fecha">${fechaSolStr}</small>
+            </div>
+            <div class="audit-user-row">
+                <strong>${sol.usuario_solicitante}</strong>
+                <span class="badge-subtle">Fecha Gasto: ${sol.fecha_gasto}</span>
+                <span class="badge-subtle">${sol.sucursal_id}</span>
+            </div>
+            <div class="audit-detalles">${resumen}</div>
+            ${sol.motivo_rechazo ? `<div style="font-size:0.74rem; color:var(--danger); margin-top:2px;">Motivo rechazo: ${sol.motivo_rechazo}</div>` : ''}
+            <div class="product-bottom" style="margin-top:6px;">
+                <span></span>
+                <button type="button" class="btn-action" data-action="ver-sol-gasto">👁️ Ver Detalle</button>
+            </div>
+        `;
+
+        item.querySelector('[data-action="ver-sol-gasto"]').addEventListener('click', () => abrirModalDetalleSolGasto(sol.id));
+        els.listaAdminSolGastos.appendChild(item);
+    }
+}
+
+function abrirModalDetalleSolGasto(id) {
+    const sol = state.solicitudesGastosCache[id];
+    if (!sol || !els.modalAdminSolGasto) return;
+
+    let datos = {};
+    try { datos = typeof sol.datos === 'string' ? JSON.parse(sol.datos || '{}') : (sol.datos || {}); } catch (_) {}
+    const p = datos.propuesta || {};
+
+    let filasProductos = '';
+    if (Array.isArray(p.productosVencidos) && p.productosVencidos.length > 0) {
+        const filas = p.productosVencidos.map(i => `
+            <tr>
+                <td>${i.nombre || 'Producto'}</td>
+                <td style="text-align:center;">${i.cantidad}</td>
+                <td style="text-align:right;">${formatoMoneda.format(Number(i.valor || 0))}</td>
+            </tr>
+        `).join('');
+        filasProductos = `
+            <div style="font-weight:700; font-size:0.85rem; margin-top:10px;">Productos Afectados:</div>
+            <table class="sol-modal-table">
+                <thead><tr><th>Producto</th><th style="text-align:center;">Cant.</th><th style="text-align:right;">Valor</th></tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        `;
+    }
+
+    const contenidoHtml = `
+        <div class="sol-modal-info">
+            <div><strong>Solicitante:</strong> ${sol.usuario_solicitante}</div>
+            <div><strong>Fecha del gasto:</strong> ${sol.fecha_gasto}</div>
+            <div><strong>Sucursal:</strong> ${sol.sucursal_id}</div>
+            <div><strong>Estado:</strong> ${sol.estado} ${sol.motivo_rechazo ? `(${sol.motivo_rechazo})` : ''}</div>
+            ${sol.usuario_revisor ? `<div><strong>Revisado por:</strong> ${sol.usuario_revisor} el ${formatearFechaAuditoria(sol.fecha_revision)}</div>` : ''}
+        </div>
+        <div style="font-weight:700; font-size:0.85rem; margin-top:8px;">Gasto Solicitado:</div>
+        <div class="sol-modal-total">
+            <span>${p.tipo || 'Operativo'}</span>
+            <span>${formatoMoneda.format(Number(p.monto || 0))}</span>
+        </div>
+        <div style="font-size:0.8rem; color:var(--muted-light); margin-top:4px;"><strong>Concepto:</strong> ${p.descripcion || '-'}</div>
+        ${p.metodoPago ? `<div style="font-size:0.8rem; color:var(--muted); margin-top:2px;"><strong>Método de Pago:</strong> ${p.metodoPago}</div>` : ''}
+        ${filasProductos}
+    `;
+
+    els.modalAdminSolGastoBody.innerHTML = contenidoHtml;
+    els.modalAdminSolGasto.classList.remove('hidden');
+}
+
+// Listeners de navegación de Administración
+document.querySelectorAll('.subtab-admin-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.subtab-admin-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const sub = btn.dataset.subtabAdmin;
+        state.subtabAdmin = sub;
+        els.adminSubtabTurnos.classList.toggle('hidden', sub !== 'turnos');
+        els.adminSubtabSolVentas.classList.toggle('hidden', sub !== 'sol-ventas');
+        els.adminSubtabSolGastos.classList.toggle('hidden', sub !== 'sol-gastos');
+        if (sub === 'turnos') cargarTurnosAdmin();
+        else if (sub === 'sol-ventas') cargarSolicitudesVentasAdmin();
+        else if (sub === 'sol-gastos') cargarSolicitudesGastosAdmin();
+    });
+});
+
+if (els.btnAdminTurnoAnt) els.btnAdminTurnoAnt.addEventListener('click', () => cambiarFechaInicioTurnos(-state.diasTurnos));
+if (els.btnAdminTurnoSig) els.btnAdminTurnoSig.addEventListener('click', () => cambiarFechaInicioTurnos(state.diasTurnos));
+if (els.btnAdminTurnoHoy) els.btnAdminTurnoHoy.addEventListener('click', () => {
+    state.fechaInicioTurnos = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+    cargarTurnosAdmin();
+});
+
+if (els.selectAdminTurnoDias) {
+    els.selectAdminTurnoDias.addEventListener('change', (e) => {
+        state.diasTurnos = Number(e.target.value) || 14;
+        cargarTurnosAdmin();
+    });
+}
+
+if (els.filtroAdminSolVentas) {
+    els.filtroAdminSolVentas.addEventListener('change', (e) => {
+        state.filtroSolVentas = e.target.value;
+        cargarSolicitudesVentasAdmin();
+    });
+}
+if (els.btnRefreshSolVentas) {
+    els.btnRefreshSolVentas.addEventListener('click', async () => {
+        await cargarSolicitudesVentasAdmin();
+        mostrarToast('Solicitudes de venta actualizadas');
+    });
+}
+
+if (els.filtroAdminSolGastos) {
+    els.filtroAdminSolGastos.addEventListener('change', (e) => {
+        state.filtroSolGastos = e.target.value;
+        cargarSolicitudesGastosAdmin();
+    });
+}
+if (els.btnRefreshSolGastos) {
+    els.btnRefreshSolGastos.addEventListener('click', async () => {
+        await cargarSolicitudesGastosAdmin();
+        mostrarToast('Solicitudes de gasto actualizadas');
+    });
+}
+
+if (els.btnCerrarModalAdminSolVenta) els.btnCerrarModalAdminSolVenta.addEventListener('click', () => els.modalAdminSolVenta.classList.add('hidden'));
+if (els.btnCerrarModalAdminSolVentaPie) els.btnCerrarModalAdminSolVentaPie.addEventListener('click', () => els.modalAdminSolVenta.classList.add('hidden'));
+
+if (els.btnCerrarModalAdminSolGasto) els.btnCerrarModalAdminSolGasto.addEventListener('click', () => els.modalAdminSolGasto.classList.add('hidden'));
+if (els.btnCerrarModalAdminSolGastoPie) els.btnCerrarModalAdminSolGastoPie.addEventListener('click', () => els.modalAdminSolGasto.classList.add('hidden'));
 
 verificarSaludServidor();
 restaurarSesion();

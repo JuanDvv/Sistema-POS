@@ -58,8 +58,9 @@
 
             <div class="tabs-bar">
                 <button type="button" class="tab-btn active" data-tab="reporte">Reporte Diario</button>
-                <button type="button" class="tab-btn active" data-tab="productos">Productos y Stock</button>
+                <button type="button" class="tab-btn" data-tab="productos">Productos y Stock</button>
                 <button type="button" class="tab-btn hidden" data-tab="categorias">Categorías</button>
+                <button type="button" class="tab-btn" data-tab="admin">Administración</button>
             </div>
 
             <div id="tab-reporte">
@@ -142,6 +143,84 @@
                     </div>
                 </div>
                 <div id="lista-categorias" class="product-list"></div>
+            </div>
+
+            <div id="tab-admin" class="hidden">
+                <div class="card filter-card">
+                    <div class="toolbar-actions">
+                        <div class="subtabs-bar">
+                            <button type="button" class="subtab-admin-btn active" data-subtab-admin="turnos">Turnos</button>
+                            <button type="button" class="subtab-admin-btn" data-subtab-admin="sol-ventas">Solicitudes Ventas (<span id="count-admin-sol-ventas">0</span>)</button>
+                            <button type="button" class="subtab-admin-btn" data-subtab-admin="sol-gastos">Solicitudes Gastos (<span id="count-admin-sol-gastos">0</span>)</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Subsección 1: Turnos (solo lectura) -->
+                <div id="admin-subtab-turnos">
+                    <div class="card filter-card">
+                        <div class="toolbar-actions wrap">
+                            <div class="date-quick-actions">
+                                <button type="button" class="chip-btn" id="btn-admin-turno-ant">◀ Anterior</button>
+                                <span id="label-admin-rango-turnos" class="range-badge">Cargando...</span>
+                                <button type="button" class="chip-btn" id="btn-admin-turno-sig">Siguiente ▶</button>
+                                <button type="button" class="chip-btn" id="btn-admin-turno-hoy">📍 Hoy</button>
+                            </div>
+                            <select id="select-admin-turno-dias" class="select-compact">
+                                <option value="14" selected>14 días (2 sem)</option>
+                                <option value="7">7 días (1 sem)</option>
+                                <option value="21">21 días (3 sem)</option>
+                            </select>
+                        </div>
+                        <div class="turnos-legend">
+                            <span class="legend-item"><span class="badge-turno badge-san-roque">San Roque</span></span>
+                            <span class="legend-item"><span class="badge-turno badge-granja">Granja</span></span>
+                            <span class="legend-item"><span class="badge-turno badge-descanso">Descanso</span></span>
+                        </div>
+                    </div>
+
+                    <div class="turnos-table-wrap">
+                        <table class="turnos-table" id="tabla-admin-turnos">
+                            <thead>
+                                <tr>
+                                    <th style="width: 110px;">Fecha</th>
+                                    <th id="th-admin-op-1">Liliana</th>
+                                    <th id="th-admin-op-2">Tatiana</th>
+                                    <th id="th-admin-op-3">Danna</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-admin-turnos"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Subsección 2: Solicitudes Ventas (solo lectura) -->
+                <div id="admin-subtab-sol-ventas" class="hidden">
+                    <div class="card filter-card">
+                        <div class="toolbar-actions">
+                            <select id="filtro-admin-sol-ventas">
+                                <option value="pendiente" selected>Solo Pendientes</option>
+                                <option value="">Todas</option>
+                            </select>
+                            <button type="button" class="btn-link" id="btn-refresh-sol-ventas">Actualizar</button>
+                        </div>
+                    </div>
+                    <div id="lista-admin-sol-ventas" class="product-list"></div>
+                </div>
+
+                <!-- Subsección 3: Solicitudes Gastos (solo lectura) -->
+                <div id="admin-subtab-sol-gastos" class="hidden">
+                    <div class="card filter-card">
+                        <div class="toolbar-actions">
+                            <select id="filtro-admin-sol-gastos">
+                                <option value="pendiente" selected>Solo Pendientes</option>
+                                <option value="">Todas</option>
+                            </select>
+                            <button type="button" class="btn-link" id="btn-refresh-sol-gastos">Actualizar</button>
+                        </div>
+                    </div>
+                    <div id="lista-admin-sol-gastos" class="product-list"></div>
+                </div>
             </div>
         </section>
     </main>
@@ -371,6 +450,32 @@
                 </div>
             </div>
             <div id="lista-auditoria" class="audit-list"></div>
+        </div>
+    </div>
+
+    <div id="modal-admin-sol-venta" class="modal-backdrop hidden">
+        <div class="modal-sheet modal-sheet-large">
+            <div class="modal-header">
+                <h3 id="modal-admin-sol-venta-title">Detalle Solicitud Venta</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-admin-sol-venta">&times;</button>
+            </div>
+            <div id="modal-admin-sol-venta-body" class="modal-body-scroll"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-primary" id="btn-cerrar-modal-admin-sol-venta-pie">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-admin-sol-gasto" class="modal-backdrop hidden">
+        <div class="modal-sheet modal-sheet-large">
+            <div class="modal-header">
+                <h3 id="modal-admin-sol-gasto-title">Detalle Solicitud Gasto</h3>
+                <button type="button" class="btn-close" id="btn-cerrar-modal-admin-sol-gasto">&times;</button>
+            </div>
+            <div id="modal-admin-sol-gasto-body" class="modal-body-scroll"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-primary" id="btn-cerrar-modal-admin-sol-gasto-pie">Cerrar</button>
+            </div>
         </div>
     </div>
 
