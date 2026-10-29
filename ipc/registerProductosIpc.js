@@ -144,7 +144,7 @@ function registerProductosIpc() {
 
     // Editar Producto
     ipcMain.handle('editar-producto', async (event, datosProducto) => {
-        const { id, nombre, descripcion, precio, stock, stockMinimo, sucursalId, fotoPath, categoriaId, auditoriaUsuario, auditoriaRol } = datosProducto;
+        const { id, nombre, descripcion, precio, stock, stockModificado, stockMinimo, sucursalId, fotoPath, categoriaId, auditoriaUsuario, auditoriaRol } = datosProducto;
         try {
             await runQuery("BEGIN TRANSACTION", []);
             const finalFotoPath = processLocalProductImage(id, fotoPath);
@@ -161,26 +161,40 @@ function registerProductosIpc() {
             if (sucursalId) {
                 const filasPrevias = await allQuery(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [id, sucursalId]);
                 stockAnterior = Number(filasPrevias[0]?.stock || 0);
-                delta = Number(stock) - stockAnterior;
 
-                await runQuery(
-                    `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
-                     VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-                     ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
-                        stock = excluded.stock,
-                        sync_status = 'pending'`,
-                    [id, sucursalId, stock]
-                );
+                if (stockModificado === false) {
+                    if (filasPrevias.length === 0) {
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'synced', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO NOTHING`,
+                            [id, sucursalId, stock]
+                        );
+                    }
+                } else {
+                    delta = Number(stock) - stockAnterior;
 
-                // Deja rastro en el kardex del ajuste manual de stock, para que los reportes históricos
-                // (ej. stock al cierre del día en el Reporte BiBI) puedan reconstruir el stock correctamente.
-                if (delta !== 0) {
-                    // stockObjetivo (valor absoluto tecleado) viaja junto al delta local para que la nube
-                    // recalcule el delta real contra el stock vigente al sincronizar -- ver aplicar_correccion_stock.
-                    await registrarMovimientoInventario({
-                        productoId: id, sucursalId, tipo: 'AJUSTE_EDICION_PRODUCTO',
-                        cantidad: delta, referenciaId: id, usuario: auditoriaUsuario, stockObjetivo: Number(stock)
-                    });
+                    if (filasPrevias.length === 0 || delta !== 0) {
+                        await runQuery(
+                            `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                             VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                             ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                                stock = excluded.stock,
+                                sync_status = 'pending'`,
+                            [id, sucursalId, stock]
+                        );
+                    }
+
+                    // Deja rastro en el kardex del ajuste manual de stock, para que los reportes históricos
+                    // (ej. stock al cierre del día en el Reporte BiBI) puedan reconstruir el stock correctamente.
+                    if (delta !== 0) {
+                        // stockObjetivo (valor absoluto tecleado) viaja junto al delta local para que la nube
+                        // recalcule el delta real contra el stock vigente al sincronizar -- ver aplicar_correccion_stock.
+                        await registrarMovimientoInventario({
+                            productoId: id, sucursalId, tipo: 'AJUSTE_EDICION_PRODUCTO',
+                            cantidad: delta, referenciaId: id, usuario: auditoriaUsuario, stockObjetivo: Number(stock)
+                        });
+                    }
                 }
             }
 

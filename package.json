@@ -1,7 +1,7 @@
 {
   "name": "pos-delipostresturbaco",
 
-  "version": "4.6.1",
+  "version": "4.9.6",
   "description": "Sistema POS offline-first para Delipostres Turbaco",
   "main": "main.js",
   "scripts": {

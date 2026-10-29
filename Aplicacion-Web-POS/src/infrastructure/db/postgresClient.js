@@ -4,7 +4,10 @@ const { obtenerConfiguracionEntorno } = require('../config/envConfig');
 if (pg && pg.types) {
     pg.types.setTypeParser(1082, str => str);
     pg.types.setTypeParser(1114, str => str);
-    pg.types.setTypeParser(1184, str => str);
+    pg.types.setTypeParser(1184, str => {
+        if (!str) return str;
+        return /[+-]\d{2}$/.test(str) ? str.replace(' ', 'T') + ':00' : str;
+    });
 }
 
 let pool = null;
@@ -19,6 +22,7 @@ function obtenerPool() {
         user: db.user,
         password: db.password,
         ssl: db.ssl ? { rejectUnauthorized: false } : false,
+        options: '-c timezone=America/Bogota',
         connectionTimeoutMillis: 8000,
         idleTimeoutMillis: 15000,
         max: 10

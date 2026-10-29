@@ -5,11 +5,11 @@ const { runQuery } = require('../db/connection');
 // aplicado a inventario_sucursal.stock (positivo = entrada, negativo = salida); `tipo` solo
 // clasifica el motivo para reportes. Debe invocarse dentro de la misma transacción que modifica
 // el stock, para que ambas escrituras se confirmen o reviertan juntas.
-async function registrarMovimientoInventario({ productoId, sucursalId, tipo, cantidad, referenciaId, usuario, stockObjetivo }) {
+async function registrarMovimientoInventario({ productoId, sucursalId, tipo, cantidad, referenciaId, usuario, stockObjetivo, fecha }) {
     await runQuery(
         `INSERT INTO movimientos_inventario (id, producto_id, sucursal_id, tipo, cantidad, referencia_id, usuario, fecha, stock_objetivo, sync_status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-        [uuidv4(), productoId, sucursalId, tipo, cantidad, referenciaId || null, usuario || null, stockObjetivo === undefined ? null : stockObjetivo]
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')), ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+        [uuidv4(), productoId, sucursalId, tipo, cantidad, referenciaId || null, usuario || null, fecha || null, stockObjetivo === undefined ? null : stockObjetivo]
     );
 }
 
@@ -17,11 +17,11 @@ async function registrarMovimientoInventario({ productoId, sucursalId, tipo, can
 // Apartados (inventario_sucursal.stock_reservado en vez de stock). Debe invocarse dentro de la
 // misma transacción que modifica stock_reservado, por la misma razón: ambas escrituras deben
 // confirmarse o revertirse juntas.
-async function registrarMovimientoReserva({ productoId, sucursalId, tipo, cantidad, referenciaId, usuario }) {
+async function registrarMovimientoReserva({ productoId, sucursalId, tipo, cantidad, referenciaId, usuario, fecha }) {
     await runQuery(
         `INSERT INTO movimientos_reserva_inventario (id, producto_id, sucursal_id, tipo, cantidad, referencia_id, usuario, fecha, sync_status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-        [uuidv4(), productoId, sucursalId, tipo, cantidad, referenciaId || null, usuario || null]
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')), 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+        [uuidv4(), productoId, sucursalId, tipo, cantidad, referenciaId || null, usuario || null, fecha || null]
     );
 }
 

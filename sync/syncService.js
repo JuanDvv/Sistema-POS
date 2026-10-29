@@ -1,6 +1,7 @@
 const { BrowserWindow } = require('electron');
 const { runQuery, allQuery } = require('../db/connection');
 const { obtenerMensajeSync } = require('../services/auditService');
+const { registrarErrorSistema } = require('../services/errorLogService');
 const { supabase, supabaseLogs, supabaseUrl, supabaseKey, isProd, isSyncConfigured } = require('./supabaseClients');
 
 // Todos los console.log/console.error de este archivo usan el tag "[Sincronizador]" a mano.
@@ -115,7 +116,7 @@ async function actualizarCursor(tabla, valor) {
     await runQuery(
         `INSERT INTO sync_cursores (tabla, cursor) VALUES (?, ?)
          ON CONFLICT(tabla) DO UPDATE SET cursor = excluded.cursor WHERE excluded.cursor > cursor`,
-        [tabla, valor]
+        [tabla, Number(valor)]
     );
 }
 
@@ -272,6 +273,64 @@ async function syncColaAuditoria() {
         }
     })();
     return syncAuditoriaPromesa;
+}
+
+let syncErroresPromesa = null;
+
+async function syncColaErrores() {
+    if (syncErroresPromesa) return syncErroresPromesa;
+    syncErroresPromesa = (async () => {
+        try {
+            if (!supabaseLogs) return;
+            const erroresPendientes = await allQuery(`SELECT * FROM cola_errores WHERE sync_status = 'pending'`, []);
+            if (erroresPendientes && erroresPendientes.length > 0) {
+                const ids = erroresPendientes.map(e => e.id);
+                const placeholders = ids.map(() => '?').join(',');
+                await runQuery(`UPDATE cola_errores SET sync_status = 'uploading' WHERE id IN (${placeholders})`, ids);
+
+                for (const errRow of erroresPendientes) {
+                    const { error } = await supabaseLogs
+                        .from('errores_sistema')
+                        .upsert({
+                            id: errRow.id,
+                            fecha: errRow.fecha,
+                            usuario: errRow.usuario,
+                            rol: errRow.rol,
+                            sucursal_id: errRow.sucursal_id,
+                            modulo: errRow.modulo,
+                            intento_usuario: errRow.intento_usuario,
+                            mensaje_amigable: errRow.mensaje_amigable,
+                            error_tecnico: errRow.error_tecnico
+                        }, { onConflict: 'id' });
+
+                    if (error) {
+                        await runQuery(`UPDATE cola_errores SET sync_status = 'pending' WHERE id = ?`, [errRow.id]);
+                        throw error;
+                    }
+
+                    await runQuery(`UPDATE cola_errores SET sync_status = 'synced' WHERE id = ?`, [errRow.id]);
+                }
+            }
+
+            await runQuery(
+                `DELETE FROM cola_errores WHERE sync_status = 'synced' AND fecha < strftime('%Y-%m-%d %H:%M:%S', 'now', '-5 hours', '-60 days')`,
+                []
+            );
+
+            const filaLimite = await allQuery(`SELECT strftime('%Y-%m-%d %H:%M:%S', 'now', '-5 hours', '-90 days') AS limite`, []);
+            if (filaLimite && filaLimite[0]?.limite) {
+                await supabaseLogs
+                    .from('errores_sistema')
+                    .delete()
+                    .lt('fecha', filaLimite[0].limite);
+            }
+        } catch (err) {
+            console.log("[Sincronizador] Logs de errores no subidos:", err.message);
+        } finally {
+            syncErroresPromesa = null;
+        }
+    })();
+    return syncErroresPromesa;
 }
 
 // --- 1. SUBIR VENTAS LOCALES A LA NUBE (Local -> Supabase, con LWW) ---
@@ -1127,6 +1186,7 @@ async function syncCategoriasDescargar() {
                     await runQuery(`DELETE FROM categorias WHERE id = ? AND sync_status <> 'pending'`, [cat.id]);
                     continue;
                 }
+                const fechaActualizacion = normalizarFechaString(cat.updated_at) || nowISO();
                 await runQuery(
                     `INSERT INTO categorias (id, nombre, categoria_padre_id, sync_status, updated_at)
                      VALUES (?, ?, ?, 'synced', ?)
@@ -1136,7 +1196,7 @@ async function syncCategoriasDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [cat.id, cat.nombre, cat.categoria_padre_id, cat.updated_at]
+                    [cat.id, cat.nombre, cat.categoria_padre_id, fechaActualizacion]
                 );
             }
             if (categoriasNube.length > 0) console.log("[Sincronizador] Categorías actualizadas desde la nube.");
@@ -1159,6 +1219,7 @@ async function syncProductosDescargar() {
                     await runQuery(`DELETE FROM productos WHERE id = ? AND sync_status <> 'pending'`, [prod.id]);
                     continue;
                 }
+                const fechaActualizacion = normalizarFechaString(prod.updated_at) || nowISO();
                 await runQuery(
                     `INSERT INTO productos (id, nombre, descripcion, precio, stock_minimo, foto_path, categoria_id, sync_status, updated_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)
@@ -1172,7 +1233,7 @@ async function syncProductosDescargar() {
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
                      WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [prod.id, prod.nombre, prod.descripcion, prod.precio, prod.stock_minimo, prod.foto_path, prod.categoria_id, prod.updated_at]
+                    [prod.id, prod.nombre, prod.descripcion, prod.precio, prod.stock_minimo, prod.foto_path, prod.categoria_id, fechaActualizacion]
                 );
             }
             if (productosNube.length > 0) console.log("[Sincronizador] Catálogo de inventario actualizado desde la nube.");
@@ -1197,6 +1258,7 @@ async function syncInventarioDescargar() {
                     );
                     continue;
                 }
+                const fechaActualizacion = normalizarFechaString(inv.updated_at) || nowISO();
                 await runQuery(
                     `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, stock_reservado, sync_status, updated_at)
                      VALUES (?, ?, ?, ?, 'synced', ?)
@@ -1205,8 +1267,8 @@ async function syncInventarioDescargar() {
                         stock_reservado = excluded.stock_reservado,
                         sync_status = 'synced',
                         updated_at = excluded.updated_at
-                     WHERE sync_status <> 'pending' AND excluded.updated_at > updated_at`,
-                    [inv.producto_id, inv.sucursal_id, inv.stock, inv.stock_reservado || 0, inv.updated_at]
+                     WHERE sync_status <> 'pending' AND (updated_at IS NULL OR excluded.updated_at >= updated_at)`,
+                    [inv.producto_id, inv.sucursal_id, inv.stock, inv.stock_reservado || 0, fechaActualizacion]
                 );
             }
             if (invNube.length > 0) console.log("[Sincronizador] Existencias por sucursal actualizadas desde la nube.");
@@ -2412,6 +2474,7 @@ async function procesarSincronizacion() {
 
     try {
         await syncColaAuditoria();
+        await syncColaErrores();
         const resVentasSubir = await syncVentasSubir();
         if (!resVentasSubir.ok) falloSyncReportes = `subida de ventas: ${resVentasSubir.message}`;
         await syncVentasEliminaciones();
@@ -2454,6 +2517,15 @@ async function procesarSincronizacion() {
         await syncSolicitudesVenta();
         await syncSolicitudesGasto();
         await syncSugeridosPasteleria();
+        if (falloSyncReportes) {
+            await registrarErrorSistema({
+                modulo: 'Sincronización',
+                origen: 'procesarSincronizacion',
+                intentoUsuario: 'Sincronización automática o manual de datos con el servidor central',
+                error: new Error(`Fallo de sincronización (${falloSyncReportes})`)
+            });
+        }
+        await syncColaErrores();
     } finally {
         estaSincronizando = false;
         notificarEstadoSincronizacion(false);
@@ -2469,4 +2541,4 @@ async function procesarSincronizacion() {
     }
 }
 
-module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion, hayConexionConocida, syncColaAuditoria, notificarVentanasReportes };
+module.exports = { procesarSincronizacion, isSincronizando, solicitarSincronizacion, hayConexionConocida, syncColaAuditoria, syncColaErrores, notificarVentanasReportes };

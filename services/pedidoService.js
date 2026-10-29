@@ -122,7 +122,7 @@ async function ajustarStockReservado(items, sucursalId, { tipo, referenciaId, us
         `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock_reservado, sync_status, updated_at)
          VALUES ${placeholders}
          ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
-            stock_reservado = stock_reservado + excluded.stock_reservado,
+            stock_reservado = MAX(0, COALESCE(stock_reservado, 0) + excluded.stock_reservado),
             sync_status = 'pending'`,
         values
     );
@@ -436,6 +436,7 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
         );
 
         const ventaId = uuidv4();
+        const fechaEntrega = new Date().toISOString();
 
         await runQuery("BEGIN TRANSACTION", []);
 
@@ -462,8 +463,8 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
         }
 
         await runQuery(
-            `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, sync_status, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 0, NULL, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-            [ventaId, pedido.sucursal_id, pedido.total, metodoPago]
+            `INSERT INTO ventas (id, sucursal_id, total, metodo_pago, fecha, es_credito, cliente_id, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, 0, NULL, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+            [ventaId, pedido.sucursal_id, pedido.total, metodoPago, fechaEntrega]
         );
 
         // Genera la salida de caja para el mensajero justo ahora (momento real de la entrega),
@@ -471,8 +472,8 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
         // para que editar-gasto/eliminar-gasto la bloqueen igual (ver descripcion en registerGastosIpc.js).
         if (valorDomicilio > 0) {
             await runQuery(
-                `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, venta_id, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
-                [uuidv4(), pedido.sucursal_id, 'Operativo', 'Domicilio (Descuento de Caja)', valorDomicilio, 'Efectivo', ventaId]
+                `INSERT INTO gastos (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, venta_id, sync_status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                [uuidv4(), pedido.sucursal_id, 'Operativo', 'Domicilio (Descuento de Caja)', valorDomicilio, fechaEntrega, 'Efectivo', ventaId]
             );
         }
 
@@ -486,23 +487,28 @@ async function entregarPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRol }) {
 
             for (const item of detalle) {
                 await runQuery(
-                    `UPDATE inventario_sucursal SET stock = stock - ?, stock_reservado = stock_reservado - ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
-                    [item.cantidad, item.cantidad, item.producto_id, pedido.sucursal_id]
+                    `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, stock_reservado, sync_status, updated_at)
+                     VALUES (?, ?, ?, 0, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                     ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                        stock = stock + excluded.stock,
+                        stock_reservado = MAX(0, COALESCE(stock_reservado, 0) - ?),
+                        sync_status = 'pending'`,
+                    [item.producto_id, pedido.sucursal_id, -Number(item.cantidad), Number(item.cantidad)]
                 );
                 await registrarMovimientoInventario({
                     productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'VENTA',
-                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario, fecha: fechaEntrega
                 });
                 await registrarMovimientoReserva({
                     productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'ENTREGA_PEDIDO',
-                    cantidad: -Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario
+                    cantidad: -Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario, fecha: fechaEntrega
                 });
             }
         }
 
         await runQuery(
-            `UPDATE pedidos SET estado = 'entregado', venta_id = ?, fecha_entrega_real = strftime('%Y-%m-%dT%H:%M:%fZ','now'), sync_status = 'pending' WHERE id = ?`,
-            [ventaId, pedidoId]
+            `UPDATE pedidos SET estado = 'entregado', venta_id = ?, fecha_entrega_real = ?, sync_status = 'pending' WHERE id = ?`,
+            [ventaId, fechaEntrega, pedidoId]
         );
 
         await registrarAuditoria(auditoriaUsuario, auditoriaRol, pedido.sucursal_id, 'Entregar Pedido', `Pedido ID: ${pedidoId} - Venta ID: ${ventaId} - Total: $${pedido.total} - Método: ${metodoPago}`);
@@ -546,6 +552,7 @@ async function revertirEntregaPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRo
         }
 
         const ventaId = pedido.venta_id;
+        const fechaReversa = new Date().toISOString();
 
         await runQuery("BEGIN TRANSACTION", []);
 
@@ -560,16 +567,21 @@ async function revertirEntregaPedidoTx({ pedidoId, auditoriaUsuario, auditoriaRo
         if (detalle.length > 0) {
             for (const item of detalle) {
                 await runQuery(
-                    `UPDATE inventario_sucursal SET stock = stock + ?, stock_reservado = stock_reservado + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
-                    [item.cantidad, item.cantidad, item.producto_id, pedido.sucursal_id]
+                    `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, stock_reservado, sync_status, updated_at)
+                     VALUES (?, ?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                     ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                        stock = stock + excluded.stock,
+                        stock_reservado = stock_reservado + excluded.stock_reservado,
+                        sync_status = 'pending'`,
+                    [item.producto_id, pedido.sucursal_id, Number(item.cantidad), Number(item.cantidad)]
                 );
                 await registrarMovimientoInventario({
                     productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'ANULACION_VENTA',
-                    cantidad: Number(item.cantidad), referenciaId: ventaId || pedidoId, usuario: auditoriaUsuario
+                    cantidad: Number(item.cantidad), referenciaId: ventaId || pedidoId, usuario: auditoriaUsuario, fecha: fechaReversa
                 });
                 await registrarMovimientoReserva({
                     productoId: item.producto_id, sucursalId: pedido.sucursal_id, tipo: 'REVERSA_ENTREGA_PEDIDO',
-                    cantidad: Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario
+                    cantidad: Number(item.cantidad), referenciaId: pedidoId, usuario: auditoriaUsuario, fecha: fechaReversa
                 });
             }
         }

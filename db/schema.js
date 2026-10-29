@@ -15,14 +15,18 @@
 // sync/syncService.js). Mientras el trigger esté ausente, ningún UPDATE toca updated_at.
 function crearTriggerUpdatedAt(db, tabla, columnasPk) {
     const condicion = columnasPk.map(c => `${c} = NEW.${c}`).join(' AND ');
-    db.run(`
-        CREATE TRIGGER IF NOT EXISTS trg_${tabla}_updated_at
-        AFTER UPDATE ON ${tabla}
-        FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at
-        BEGIN
-            UPDATE ${tabla} SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE ${condicion};
-        END;
-    `, [], () => { });
+    const tieneSyncStatus = !tabla.startsWith('detalle_');
+    const condicionSync = tieneSyncStatus ? ` AND NOT (OLD.sync_status IS 'pending' AND NEW.sync_status IS 'synced')` : '';
+    db.run(`DROP TRIGGER IF EXISTS trg_${tabla}_updated_at`, [], () => {
+        db.run(`
+            CREATE TRIGGER IF NOT EXISTS trg_${tabla}_updated_at
+            AFTER UPDATE ON ${tabla}
+            FOR EACH ROW WHEN NEW.updated_at IS OLD.updated_at${condicionSync}
+            BEGIN
+                UPDATE ${tabla} SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE ${condicion};
+            END;
+        `, [], () => { });
+    });
 }
 
 function agregarSoporteLWW(db, tabla, columnasPk) {
@@ -194,6 +198,19 @@ function initDB(db) {
             accion TEXT NOT NULL,
             detalles TEXT,
             fecha TEXT,
+            sync_status TEXT DEFAULT 'pending'
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS cola_errores (
+            id TEXT PRIMARY KEY,
+            fecha TEXT NOT NULL,
+            usuario TEXT NOT NULL,
+            rol TEXT NOT NULL,
+            sucursal_id TEXT NOT NULL,
+            modulo TEXT NOT NULL,
+            intento_usuario TEXT NOT NULL,
+            mensaje_amigable TEXT NOT NULL,
+            error_tecnico TEXT NOT NULL,
             sync_status TEXT DEFAULT 'pending'
         )`);
 
@@ -558,7 +575,7 @@ function initDB(db) {
                 WHERE fecha_hasta LIKE '%+00%' OR fecha_desde LIKE '%+00%'
                    OR fecha_hasta LIKE '% %' OR fecha_desde LIKE '% %'
                    OR fecha_hasta LIKE '%Z:00' OR fecha_desde LIKE '%Z:00'`, [], () => { });
-            db.run(`DELETE FROM sync_cursores WHERE tabla = 'cierres_caja'`, [], () => { });
+
         });
         db.run(`CREATE INDEX IF NOT EXISTS idx_cierres_caja_sucursal_fecha ON cierres_caja(sucursal_id, fecha_hasta)`);
 

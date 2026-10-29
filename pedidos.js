@@ -422,9 +422,9 @@ async function registrarPedido() {
         return;
     }
 
-    const excedidos = carrito.filter(item => item.disponible > 0 && item.cantidad > item.disponible);
+    const excedidos = carrito.filter(item => item.cantidad > Math.max(0, item.disponible));
     if (excedidos.length > 0) {
-        const listado = excedidos.map(i => `• ${i.nombre} (x${i.cantidad}, disponible: ${i.disponible})`).join('\n');
+        const listado = excedidos.map(i => `• ${i.nombre} (x${i.cantidad}, disponible: ${Math.max(0, i.disponible)})`).join('\n');
         if (!confirm(`Los siguientes productos no tienen suficiente inventario disponible (ya considerando otros apartados):\n\n${listado}\n\n¿Deseas continuar de todas formas?`)) {
             return;
         }

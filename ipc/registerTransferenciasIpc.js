@@ -4,6 +4,7 @@ const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('../services/auditService');
 const { registrarMovimientoInventario } = require('../services/inventarioMovimientoService');
 const { solicitarSincronizacion } = require('../sync/syncService');
+const { notificarInventarioActualizado } = require('../services/gastoService');
 
 // SRP: traslados de inventario entre sucursales.
 
@@ -43,14 +44,14 @@ function registerTransferenciasIpc() {
                 // 2. Validar que el origen tenga stock suficiente antes de descontar: sin este
                 //    chequeo el UPDATE de abajo resta a ciegas y puede dejar el origen en negativo.
                 const stockOrigen = await new Promise((resolve, reject) => {
-                    db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [item.id, sucursalOrigenId], (err, row) => {
+                    db.get(`SELECT stock, stock_reservado FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [item.id, sucursalOrigenId], (err, row) => {
                         if (err) reject(err);
                         else resolve(row);
                     });
                 });
-                const disponibleOrigen = stockOrigen ? Number(stockOrigen.stock) : 0;
+                const disponibleOrigen = stockOrigen ? (Number(stockOrigen.stock) - Number(stockOrigen.stock_reservado || 0)) : 0;
                 if (Number(item.cantidad) > disponibleOrigen) {
-                    throw new Error(`Stock insuficiente de "${item.nombre || item.id}" en la sucursal de origen. Disponible: ${disponibleOrigen}, solicitado: ${item.cantidad}.`);
+                    throw new Error(`Stock disponible insuficiente de "${item.nombre || item.id}" en origen. Físico: ${stockOrigen ? stockOrigen.stock : 0}, Reservado: ${stockOrigen ? (stockOrigen.stock_reservado || 0) : 0}, Solicitado: ${item.cantidad}.`);
                 }
 
                 // 3. Registrar detalle de la transferencia
@@ -100,6 +101,7 @@ function registerTransferenciasIpc() {
             );
 
             await runQuery("COMMIT", []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('transferencia registrada');
             return { success: true, message: '¡Transferencia registrada y procesada con éxito!' };
         } catch (error) {
@@ -170,7 +172,7 @@ function registerTransferenciasIpc() {
                     [det.producto_id, trans.sucursal_origen_id, det.cantidad]
                 );
                 await registrarMovimientoInventario({
-                    productoId: det.producto_id, sucursalId: trans.sucursal_origen_id, tipo: 'ANULACION_TRASLADO',
+                    productoId: det.producto_id, sucursalId: trans.sucursal_origen_id, tipo: 'ANULACION_TRASLADO_ENTRADA',
                     cantidad: Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
                 });
 
@@ -184,7 +186,7 @@ function registerTransferenciasIpc() {
                     [det.producto_id, trans.sucursal_destino_id, det.cantidad]
                 );
                 await registrarMovimientoInventario({
-                    productoId: det.producto_id, sucursalId: trans.sucursal_destino_id, tipo: 'ANULACION_TRASLADO',
+                    productoId: det.producto_id, sucursalId: trans.sucursal_destino_id, tipo: 'ANULACION_TRASLADO_SALIDA',
                     cantidad: -Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
                 });
             }
@@ -202,6 +204,7 @@ function registerTransferenciasIpc() {
             );
 
             await runQuery("COMMIT", []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('transferencia eliminada');
             return { success: true, message: 'Transferencia eliminada y stock revertido con éxito.' };
         } catch (err) {
@@ -305,14 +308,14 @@ function registerTransferenciasIpc() {
 
                     if (delta > 0) {
                         const stockRow = await new Promise((resolve, reject) => {
-                            db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [prodId, sucursalOrigenId], (err, row) => {
+                            db.get(`SELECT stock, stock_reservado FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [prodId, sucursalOrigenId], (err, row) => {
                                 if (err) reject(err); else resolve(row);
                             });
                         });
-                        const dispOrigen = stockRow ? Number(stockRow.stock) : 0;
+                        const dispOrigen = stockRow ? (Number(stockRow.stock) - Number(stockRow.stock_reservado || 0)) : 0;
                         if (dispOrigen < delta) {
                             const prodName = newMap.get(prodId)?.nombre || prodId;
-                            throw new Error(`Stock insuficiente de "${prodName}" en origen para incrementar el traslado. Disponible: ${dispOrigen}, adicional requerido: ${delta}.`);
+                            throw new Error(`Stock disponible insuficiente de "${prodName}" en origen para incrementar el traslado. Físico: ${stockRow ? stockRow.stock : 0}, Reservado: ${stockRow ? (stockRow.stock_reservado || 0) : 0}, adicional requerido: ${delta}.`);
                         }
                     } else if (delta < 0) {
                         const absDelta = Math.abs(delta);
@@ -373,7 +376,7 @@ function registerTransferenciasIpc() {
                             [prodId, sucursalOrigenId, absDelta]
                         );
                         await registrarMovimientoInventario({
-                            productoId: prodId, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO',
+                            productoId: prodId, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO_ENTRADA',
                             cantidad: Number(absDelta), referenciaId: id, usuario: auditoriaUsuario
                         });
 
@@ -386,7 +389,7 @@ function registerTransferenciasIpc() {
                             [prodId, oldDestinoId, absDelta]
                         );
                         await registrarMovimientoInventario({
-                            productoId: prodId, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO',
+                            productoId: prodId, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO_SALIDA',
                             cantidad: -Number(absDelta), referenciaId: id, usuario: auditoriaUsuario
                         });
                     }
@@ -410,14 +413,14 @@ function registerTransferenciasIpc() {
                 for (const item of productos) {
                     const pId = item.id || item.producto_id;
                     const stockRow = await new Promise((resolve, reject) => {
-                        db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [pId, sucursalOrigenId], (err, row) => {
+                        db.get(`SELECT stock, stock_reservado FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [pId, sucursalOrigenId], (err, row) => {
                             if (err) reject(err); else resolve(row);
                         });
                     });
-                    const dispOrigen = stockRow ? Number(stockRow.stock) : 0;
+                    const dispOrigen = stockRow ? (Number(stockRow.stock) - Number(stockRow.stock_reservado || 0)) : 0;
                     const oldDevuelto = oldMap.has(pId) ? oldMap.get(pId).cantidad : 0;
                     if ((dispOrigen + oldDevuelto) < Number(item.cantidad)) {
-                        throw new Error(`Stock insuficiente de "${item.nombre || pId}" en origen. Disponible: ${dispOrigen + oldDevuelto}, requerido: ${item.cantidad}.`);
+                        throw new Error(`Stock disponible insuficiente de "${item.nombre || pId}" en origen. Físico: ${stockRow ? stockRow.stock : 0}, Reservado: ${stockRow ? (stockRow.stock_reservado || 0) : 0}, Disponible neto con devolución previa: ${dispOrigen + oldDevuelto}, requerido: ${item.cantidad}.`);
                     }
                 }
 
@@ -431,7 +434,7 @@ function registerTransferenciasIpc() {
                         [det.producto_id, sucursalOrigenId, det.cantidad]
                     );
                     await registrarMovimientoInventario({
-                        productoId: det.producto_id, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO',
+                        productoId: det.producto_id, sucursalId: sucursalOrigenId, tipo: 'ANULACION_TRASLADO_ENTRADA',
                         cantidad: Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
                     });
 
@@ -444,7 +447,7 @@ function registerTransferenciasIpc() {
                         [det.producto_id, oldDestinoId, det.cantidad]
                     );
                     await registrarMovimientoInventario({
-                        productoId: det.producto_id, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO',
+                        productoId: det.producto_id, sucursalId: oldDestinoId, tipo: 'ANULACION_TRASLADO_SALIDA',
                         cantidad: -Number(det.cantidad), referenciaId: id, usuario: auditoriaUsuario
                     });
                 }
@@ -511,6 +514,7 @@ function registerTransferenciasIpc() {
             );
 
             await runQuery("COMMIT", []);
+            notificarInventarioActualizado();
             solicitarSincronizacion('transferencia editada');
             return { success: true, message: '¡Transferencia actualizada con éxito!' };
         } catch (error) {

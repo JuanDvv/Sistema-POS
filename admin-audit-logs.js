@@ -26,13 +26,20 @@ const PAGE_SIZE = 50;
 let paginaActual = 1;
 let totalRegistros = 0;
 let debounceFiltrosAuditoria = null;
+let paginaErroresActual = 1;
+let totalErroresRegistros = 0;
+let debounceFiltrosErrores = null;
+let tabActiva = 'movimientos';
 const mapaProductos = new Map(); // id de producto -> nombre, para mostrar nombres en vez de IDs en los detalles
+const mapaSucursales = new Map();
 
 // Recuerda los filtros seleccionados mientras dura la sesión de la ventana: al navegar a otra
 // pantalla y volver (cada pantalla es una carga de página completa, no una SPA) se restauran en
 // vez de resetearse. sessionStorage y no localStorage para aislar por ventana, igual que el
 // carrito temporal (ver 'carrito_temporal' en ventas.js).
 const STORAGE_KEY_FILTROS_AUDITORIA = 'auditoria_filtros';
+const STORAGE_KEY_FILTROS_ERRORES = 'auditoria_filtros_errores';
+const STORAGE_KEY_TAB_ACTIVA = 'auditoria_tab_activa';
 
 function guardarFiltrosEnStorage() {
     const filtros = {
@@ -46,21 +53,73 @@ function guardarFiltrosEnStorage() {
     sessionStorage.setItem(STORAGE_KEY_FILTROS_AUDITORIA, JSON.stringify(filtros));
 }
 
+function guardarFiltrosErroresEnStorage() {
+    const filtros = {
+        usuario: document.getElementById('filtro-err-usuario').value,
+        sucursal: document.getElementById('filtro-err-sucursal').value,
+        modulo: document.getElementById('filtro-err-modulo').value,
+        busqueda: document.getElementById('filtro-err-busqueda').value,
+        fechaDesde: document.getElementById('filtro-err-fecha-desde').value,
+        fechaHasta: document.getElementById('filtro-err-fecha-hasta').value
+    };
+    sessionStorage.setItem(STORAGE_KEY_FILTROS_ERRORES, JSON.stringify(filtros));
+}
+
 // Se llama después de poblar los <select> con sus opciones dinámicas (usuarios/sucursales/
 // acciones), para que el valor guardado ya tenga un <option> al que engancharse.
 function restaurarFiltrosDesdeStorage() {
     const guardado = sessionStorage.getItem(STORAGE_KEY_FILTROS_AUDITORIA);
-    if (!guardado) return;
-    try {
-        const filtros = JSON.parse(guardado);
-        document.getElementById('filtro-usuario').value = filtros.usuario || '';
-        document.getElementById('filtro-sucursal').value = filtros.sucursal || '';
-        document.getElementById('filtro-accion').value = filtros.accion || '';
-        document.getElementById('filtro-detalles').value = filtros.detalles || '';
-        document.getElementById('filtro-fecha-desde').value = filtros.fechaDesde || '';
-        document.getElementById('filtro-fecha-hasta').value = filtros.fechaHasta || '';
-    } catch {
-        sessionStorage.removeItem(STORAGE_KEY_FILTROS_AUDITORIA);
+    if (guardado) {
+        try {
+            const filtros = JSON.parse(guardado);
+            document.getElementById('filtro-usuario').value = filtros.usuario || '';
+            document.getElementById('filtro-sucursal').value = filtros.sucursal || '';
+            document.getElementById('filtro-accion').value = filtros.accion || '';
+            document.getElementById('filtro-detalles').value = filtros.detalles || '';
+            document.getElementById('filtro-fecha-desde').value = filtros.fechaDesde || '';
+            document.getElementById('filtro-fecha-hasta').value = filtros.fechaHasta || '';
+        } catch {
+            sessionStorage.removeItem(STORAGE_KEY_FILTROS_AUDITORIA);
+        }
+    }
+
+    const guardadoErr = sessionStorage.getItem(STORAGE_KEY_FILTROS_ERRORES);
+    if (guardadoErr) {
+        try {
+            const filtrosErr = JSON.parse(guardadoErr);
+            document.getElementById('filtro-err-usuario').value = filtrosErr.usuario || '';
+            document.getElementById('filtro-err-sucursal').value = filtrosErr.sucursal || '';
+            document.getElementById('filtro-err-modulo').value = filtrosErr.modulo || '';
+            document.getElementById('filtro-err-busqueda').value = filtrosErr.busqueda || '';
+            document.getElementById('filtro-err-fecha-desde').value = filtrosErr.fechaDesde || '';
+            document.getElementById('filtro-err-fecha-hasta').value = filtrosErr.fechaHasta || '';
+        } catch {
+            sessionStorage.removeItem(STORAGE_KEY_FILTROS_ERRORES);
+        }
+    }
+}
+
+function cambiarTab(nuevaTab) {
+    tabActiva = nuevaTab === 'errores' ? 'errores' : 'movimientos';
+    sessionStorage.setItem(STORAGE_KEY_TAB_ACTIVA, tabActiva);
+
+    const btnMov = document.getElementById('tab-btn-movimientos');
+    const btnErr = document.getElementById('tab-btn-errores');
+    const panelMov = document.getElementById('panel-movimientos');
+    const panelErr = document.getElementById('panel-errores');
+
+    if (tabActiva === 'errores') {
+        btnMov.classList.remove('active');
+        btnErr.classList.add('active');
+        panelMov.style.display = 'none';
+        panelErr.style.display = 'block';
+        cargarErroresSistema();
+    } else {
+        btnErr.classList.remove('active');
+        btnMov.classList.add('active');
+        panelErr.style.display = 'none';
+        panelMov.style.display = 'block';
+        cargarAuditoria();
     }
 }
 
@@ -88,9 +147,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    await Promise.all([cargarSucursalesFiltro(), cargarAccionesFiltro(), cargarUsuariosFiltro(), cargarProductosParaAuditoria()]);
+    await Promise.all([
+        cargarSucursalesFiltro(),
+        cargarAccionesFiltro(),
+        cargarUsuariosFiltro(),
+        cargarProductosParaAuditoria(),
+        cargarModulosErroresFiltro(),
+        cargarUsuariosErroresFiltro()
+    ]);
     restaurarFiltrosDesdeStorage();
-    await cargarAuditoria();
+
+    document.getElementById('tab-btn-movimientos').addEventListener('click', () => cambiarTab('movimientos'));
+    document.getElementById('tab-btn-errores').addEventListener('click', () => cambiarTab('errores'));
+
+    const tabGuardada = sessionStorage.getItem(STORAGE_KEY_TAB_ACTIVA) || 'movimientos';
+    cambiarTab(tabGuardada);
 
     const filtroUsuario = document.getElementById('filtro-usuario');
     const filtroSucursal = document.getElementById('filtro-sucursal');
@@ -130,13 +201,55 @@ document.addEventListener('DOMContentLoaded', async () => {
         cargarAuditoria();
     });
 
+    const filtroErrUsuario = document.getElementById('filtro-err-usuario');
+    const filtroErrSucursal = document.getElementById('filtro-err-sucursal');
+    const filtroErrModulo = document.getElementById('filtro-err-modulo');
+    const filtroErrBusqueda = document.getElementById('filtro-err-busqueda');
+    const filtroErrFechaDesde = document.getElementById('filtro-err-fecha-desde');
+    const filtroErrFechaHasta = document.getElementById('filtro-err-fecha-hasta');
+
+    filtroErrUsuario.addEventListener('change', () => recargarErroresConDebounce());
+    filtroErrSucursal.addEventListener('change', () => recargarErroresConDebounce());
+    filtroErrModulo.addEventListener('change', () => recargarErroresConDebounce());
+    filtroErrBusqueda.addEventListener('input', () => recargarErroresConDebounce());
+    filtroErrFechaDesde.addEventListener('change', () => recargarErroresConDebounce());
+    filtroErrFechaHasta.addEventListener('change', () => recargarErroresConDebounce());
+
+    document.getElementById('btn-err-limpiar-filtros').addEventListener('click', () => {
+        filtroErrUsuario.value = '';
+        filtroErrSucursal.value = '';
+        filtroErrModulo.value = '';
+        filtroErrBusqueda.value = '';
+        filtroErrFechaDesde.value = '';
+        filtroErrFechaHasta.value = '';
+        sessionStorage.removeItem(STORAGE_KEY_FILTROS_ERRORES);
+        paginaErroresActual = 1;
+        cargarErroresSistema();
+    });
+
+    document.getElementById('btn-err-pagina-anterior').addEventListener('click', () => {
+        if (paginaErroresActual <= 1) return;
+        paginaErroresActual -= 1;
+        cargarErroresSistema();
+    });
+
+    document.getElementById('btn-err-pagina-siguiente').addEventListener('click', () => {
+        if (paginaErroresActual * PAGE_SIZE >= totalErroresRegistros) return;
+        paginaErroresActual += 1;
+        cargarErroresSistema();
+    });
+
     // Igual que en Reporte Diario: dos vías para invalidar la tabla tras sincronizar, el push IPC
     // 'sincronizacion-completa' (lo emite el proceso principal al terminar CUALQUIER ciclo, manual
     // o automático) y el evento local 'pos-sincronizacion-completa' que dispara el botón del sidebar
     // en esta misma ventana. Sin esto, un registro de auditoría hecho en otro equipo solo aparecía
     // tras salir y volver a entrar a esta pantalla.
-    window.api.onSincronizacionCompleta(() => cargarAuditoria());
-    window.addEventListener('pos-sincronizacion-completa', () => cargarAuditoria());
+    const refrescarVistaActiva = () => {
+        if (tabActiva === 'errores') cargarErroresSistema();
+        else cargarAuditoria();
+    };
+    window.api.onSincronizacionCompleta(refrescarVistaActiva);
+    window.addEventListener('pos-sincronizacion-completa', refrescarVistaActiva);
 });
 
 function recargarConDebounce() {
@@ -148,15 +261,63 @@ function recargarConDebounce() {
     }, 400);
 }
 
-// Rellenar el selector de Sucursal con las sucursales conocidas localmente
+function recargarErroresConDebounce() {
+    guardarFiltrosErroresEnStorage();
+    clearTimeout(debounceFiltrosErrores);
+    debounceFiltrosErrores = setTimeout(() => {
+        paginaErroresActual = 1;
+        cargarErroresSistema();
+    }, 400);
+}
+
+// Rellenar el selector de Sucursal con las sucursales conocidas localmente y canales remotos
 async function cargarSucursalesFiltro() {
     const select = document.getElementById('filtro-sucursal');
+    const selectErr = document.getElementById('filtro-err-sucursal');
     const res = await window.api.obtenerTodasSucursales();
+    [{ id: 'Web-Movil', nombre: '📱 Web Móvil' }, { id: 'Catálogo', nombre: '📦 Catálogo Central' }].forEach(c => {
+        mapaSucursales.set(c.id, c.nombre);
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.innerText = c.nombre;
+        select.appendChild(opt);
+        if (selectErr) selectErr.appendChild(opt.cloneNode(true));
+    });
     if (res.success && res.data) {
         res.data.forEach(suc => {
+            mapaSucursales.set(suc.id, suc.nombre);
             const opt = document.createElement('option');
             opt.value = suc.id;
             opt.innerText = suc.nombre;
+            select.appendChild(opt);
+            if (selectErr) selectErr.appendChild(opt.cloneNode(true));
+        });
+    }
+}
+
+async function cargarModulosErroresFiltro() {
+    const select = document.getElementById('filtro-err-modulo');
+    if (!select || !window.api.obtenerModulosErrores) return;
+    const res = await window.api.obtenerModulosErrores();
+    if (res.success && res.data) {
+        res.data.forEach(mod => {
+            const opt = document.createElement('option');
+            opt.value = mod;
+            opt.innerText = mod;
+            select.appendChild(opt);
+        });
+    }
+}
+
+async function cargarUsuariosErroresFiltro() {
+    const select = document.getElementById('filtro-err-usuario');
+    if (!select || !window.api.obtenerUsuariosErrores) return;
+    const res = await window.api.obtenerUsuariosErrores();
+    if (res.success && res.data) {
+        res.data.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u;
+            opt.innerText = u;
             select.appendChild(opt);
         });
     }
@@ -362,4 +523,145 @@ async function cargarAuditoria() {
 function actualizarBotonesPaginacion() {
     document.getElementById('btn-pagina-anterior').disabled = paginaActual <= 1;
     document.getElementById('btn-pagina-siguiente').disabled = (paginaActual * PAGE_SIZE) >= totalRegistros;
+}
+
+const NOMBRES_DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const NOMBRES_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+function claveDiaWallClock(fechaStr) {
+    if (!fechaStr) return '';
+    return String(fechaStr).trim().slice(0, 10);
+}
+
+function formatearEncabezadoDiaWallClock(fechaStr) {
+    const ymd = claveDiaWallClock(fechaStr);
+    const partes = ymd.split('-').map(Number);
+    if (partes.length !== 3 || partes.some(isNaN)) return ymd || '-';
+    const [y, m, d] = partes;
+    const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    const yCalc = m < 3 ? y - 1 : y;
+    const dow = (yCalc + Math.floor(yCalc / 4) - Math.floor(yCalc / 100) + Math.floor(yCalc / 400) + t[m - 1] + d) % 7;
+    return `${NOMBRES_DIAS_SEMANA[dow]}, ${d} de ${NOMBRES_MESES[m - 1] || ''} de ${y}`;
+}
+
+function formatearFechaHoraWallClock(fechaStr) {
+    if (!fechaStr) return '-';
+    const limpio = String(fechaStr).replace('T', ' ').replace(/Z$/, '').trim();
+    const [fechaParte, horaParte = ''] = limpio.split(' ');
+    const [y, m, d] = (fechaParte || '').split('-');
+    if (!y || !m || !d) return limpio;
+    const [hh = '00', mm = '00', ss = '00'] = horaParte.split(':');
+    const hNum = parseInt(hh, 10);
+    if (isNaN(hNum)) return `${d}/${m}/${y}`;
+    const sufijo = hNum >= 12 ? 'p. m.' : 'a. m.';
+    const h12 = hNum % 12 === 0 ? 12 : hNum % 12;
+    return `${d}/${m}/${y}, ${h12}:${mm}:${ss.slice(0, 2)} ${sufijo}`;
+}
+
+async function cargarErroresSistema() {
+    if (!window.api.obtenerErroresSistema) return;
+
+    const usuario = document.getElementById('filtro-err-usuario').value;
+    const sucursalId = document.getElementById('filtro-err-sucursal').value;
+    const modulo = document.getElementById('filtro-err-modulo').value;
+    const busqueda = document.getElementById('filtro-err-busqueda').value.trim();
+    const fechaDesde = document.getElementById('filtro-err-fecha-desde').value;
+    const fechaHasta = document.getElementById('filtro-err-fecha-hasta').value;
+
+    const filtros = { pagina: paginaErroresActual };
+    if (usuario) filtros.usuario = usuario;
+    if (sucursalId) filtros.sucursalId = sucursalId;
+    if (modulo) filtros.modulo = modulo;
+    if (busqueda) filtros.busqueda = busqueda;
+    if (fechaDesde) filtros.fechaDesde = fechaDesde;
+    if (fechaHasta) filtros.fechaHasta = fechaHasta;
+
+    const tbody = document.querySelector('#table-errores tbody');
+    const res = await window.api.obtenerErroresSistema(filtros);
+
+    if (!res.success) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #ef4444;">Error al cargar el log de errores: ${escapeHtml(res.message || '')}</td></tr>`;
+        document.getElementById('paginacion-err-resumen').innerText = '';
+        actualizarBotonesPaginacionErrores();
+        return;
+    }
+
+    totalErroresRegistros = res.total || 0;
+    const registros = res.data || [];
+
+    if (registros.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #6b7280;">No se encontraron errores registrados con los filtros seleccionados.</td></tr>`;
+    } else {
+        tbody.innerHTML = '';
+        let diaActual = null;
+        registros.forEach(errRow => {
+            const dia = claveDiaWallClock(errRow.fecha);
+            if (dia !== diaActual) {
+                diaActual = dia;
+                const trGrupo = document.createElement('tr');
+                trGrupo.className = 'dia-header-row';
+                trGrupo.innerHTML = `<td colspan="5">${escapeHtml(formatearEncabezadoDiaWallClock(errRow.fecha))}</td>`;
+                tbody.appendChild(trGrupo);
+            }
+
+            const tr = document.createElement('tr');
+            const esAdmin = errRow.rol === 'Administrador';
+            const nombreSucursal = mapaSucursales.get(errRow.sucursal_id) || errRow.sucursal_id || 'Sin Sucursal';
+            const textoSucursal = nombreSucursal !== errRow.sucursal_id && errRow.sucursal_id
+                ? `${nombreSucursal} (${errRow.sucursal_id})`
+                : nombreSucursal;
+
+            tr.innerHTML = `
+                <td style="vertical-align: top; white-space: nowrap;">${escapeHtml(formatearFechaHoraWallClock(errRow.fecha))}</td>
+                <td style="vertical-align: top;">
+                    <div style="margin-bottom: 4px;"><strong>${escapeHtml(errRow.usuario || 'Sistema')}</strong></div>
+                    <div style="margin-bottom: 6px;">
+                        <span class="rol-badge" style="background-color: ${esAdmin ? '#fee2e2' : '#dbeafe'}; color: ${esAdmin ? '#ef4444' : '#2563eb'};">${escapeHtml(errRow.rol || 'Sin Rol')}</span>
+                    </div>
+                    <div style="font-size: 0.82em; color: #475569;">📍 ${escapeHtml(textoSucursal)}</div>
+                </td>
+                <td style="vertical-align: top;">
+                    <span class="modulo-badge">${escapeHtml(errRow.modulo || 'Sistema')}</span>
+                </td>
+                <td style="vertical-align: top;">
+                    <div class="intento-box">${escapeHtml(errRow.intento_usuario || '-')}</div>
+                </td>
+                <td style="vertical-align: top;">
+                    <div class="amigable-msg">${escapeHtml(errRow.mensaje_amigable || '-')}</div>
+                    <details class="dev-error-details">
+                        <summary>
+                            <span>🔧 Ver ficha técnica completa (Desarrollador)</span>
+                            <button type="button" class="btn-copy-error">📋 Copiar</button>
+                        </summary>
+                        <pre class="dev-error-pre">${escapeHtml(errRow.error_tecnico || '')}</pre>
+                    </details>
+                </td>
+            `;
+
+            const btnCopy = tr.querySelector('.btn-copy-error');
+            if (btnCopy) {
+                btnCopy.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(errRow.error_tecnico || '').then(() => {
+                        const originalText = btnCopy.innerText;
+                        btnCopy.innerText = '✅ ¡Copiado!';
+                        setTimeout(() => { btnCopy.innerText = originalText; }, 1800);
+                    }).catch(() => {});
+                });
+            }
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    const inicio = totalErroresRegistros === 0 ? 0 : (paginaErroresActual - 1) * PAGE_SIZE + 1;
+    const fin = Math.min(paginaErroresActual * PAGE_SIZE, totalErroresRegistros);
+    document.getElementById('paginacion-err-resumen').innerText = `Mostrando ${inicio}-${fin} de ${totalErroresRegistros} errores`;
+    actualizarBotonesPaginacionErrores();
+}
+
+function actualizarBotonesPaginacionErrores() {
+    document.getElementById('btn-err-pagina-anterior').disabled = paginaErroresActual <= 1;
+    document.getElementById('btn-err-pagina-siguiente').disabled = (paginaErroresActual * PAGE_SIZE) >= totalErroresRegistros;
 }

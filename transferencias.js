@@ -258,7 +258,8 @@ function renderizarCatalogo(productos) {
     if (productos.length > 0) {
         productos.forEach(prod => {
             const card = document.createElement('div');
-            const sinStock = prod.stock <= 0;
+            const stockDisponible = Math.max(0, (prod.stock || 0) - (prod.stock_reservado || 0));
+            const sinStock = stockDisponible <= 0;
             card.className = `product-card ${sinStock ? 'disabled' : ''}`;
 
             const imgUrl = (prod.foto_path && (prod.foto_path.startsWith('http') || prod.foto_path.startsWith('file:///')))
@@ -279,7 +280,7 @@ function renderizarCatalogo(productos) {
                 </div>
                 <h4 title="${prod.nombre}">${prod.nombre}</h4>
                 <span class="product-price">${formatCOP(prod.precio)}</span>
-                <span class="product-stock">Disp: ${prod.stock}</span>
+                <span class="product-stock">Disp: ${stockDisponible}${prod.stock_reservado > 0 ? ` (${prod.stock_reservado} res.)` : ''}</span>
             `;
 
             // Al hacer clic, agregar a la lista de envíos si hay stock disponible
@@ -297,19 +298,24 @@ function renderizarCatalogo(productos) {
 }
 
 function agregarACanasta(prod) {
+    const stockDisponible = Math.max(0, (prod.stock || 0) - (prod.stock_reservado || 0));
     const existente = transferCart.find(i => i.id === prod.id);
     if (existente) {
-        if (existente.cantidad < prod.stock) {
+        if (existente.cantidad < stockDisponible) {
             existente.cantidad++;
         } else {
-            alert(`No puedes transferir más unidades de las disponibles en origen (${prod.stock}).`);
+            alert(`No puedes transferir más unidades de las disponibles en origen (${stockDisponible}).`);
         }
     } else {
+        if (stockDisponible <= 0) {
+            alert(`El producto "${prod.nombre}" no tiene existencias disponibles para traslado (todo el stock está comprometido o en cero).`);
+            return;
+        }
         transferCart.push({
             id: prod.id,
             nombre: prod.nombre,
             cantidad: 1,
-            stockMaximo: prod.stock
+            stockMaximo: stockDisponible
         });
     }
     renderizarCarrito();

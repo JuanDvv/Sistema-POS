@@ -179,6 +179,133 @@
         .pagination-bar .btn-page:hover:not(:disabled) {
             background-color: #e2e8f0;
         }
+
+        .audit-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 0;
+        }
+
+        .audit-tab-btn {
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            padding: 12px 20px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: -2px;
+        }
+
+        .audit-tab-btn:hover {
+            color: #1e293b;
+            background-color: #f1f5f9;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .audit-tab-btn.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+            background-color: #eff6ff;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .audit-tab-btn.tab-errores.active {
+            color: #dc2626;
+            border-bottom-color: #dc2626;
+            background-color: #fef2f2;
+        }
+
+        .modulo-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.8em;
+            font-weight: 600;
+            background-color: #f1f5f9;
+            color: #334155;
+            border: 1px solid #cbd5e1;
+            white-space: nowrap;
+        }
+
+        .intento-box {
+            background-color: #fffbeb;
+            border-left: 3px solid #f59e0b;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #92400e;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .amigable-msg {
+            font-size: 0.92em;
+            color: #1e293b;
+            font-weight: 500;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        details.dev-error-details {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.82em;
+            border: 1px solid #334155;
+        }
+
+        details.dev-error-details summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #93c5fd;
+            user-select: none;
+            outline: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .dev-error-pre {
+            margin: 8px 0 0 0;
+            padding: 10px;
+            background-color: #020617;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.92em;
+            color: #f8fafc;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 260px;
+            overflow-y: auto;
+            border: 1px solid #1e293b;
+        }
+
+        .btn-copy-error {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .btn-copy-error:hover {
+            background-color: #334155;
+        }
     </style>
 </head>
 
@@ -187,80 +314,161 @@
     <nav id="sidebar-container"></nav>
     <main class="main-content">
         <header class="header-title">
-            <h1 style="margin: 0; color: var(--text-primary);">📜 Logs de Auditoría</h1>
+            <h1 style="margin: 0; color: var(--text-primary);">📜 Logs del Sistema y Auditoría</h1>
             <span
                 style="color: var(--text-secondary); font-weight: bold; background: #e5e7eb; padding: 6px 12px; border-radius: 20px; font-size: 0.9em;">Solo
                 Administradores</span>
         </header>
 
-        <!-- Filtros -->
-        <div class="filters-panel">
-            <div class="filter-group">
-                <label for="filtro-usuario">Usuario</label>
-                <select id="filtro-usuario">
-                    <option value="">-- Todos los Usuarios --</option>
-                </select>
-            </div>
-
-            <div class="filter-group">
-                <label for="filtro-sucursal">Sucursal</label>
-                <select id="filtro-sucursal">
-                    <option value="">-- Todas las Sucursales --</option>
-                </select>
-            </div>
-
-            <div class="filter-group">
-                <label for="filtro-accion">Acción</label>
-                <select id="filtro-accion">
-                    <option value="">-- Todas las Acciones --</option>
-                </select>
-            </div>
-
-            <div class="filter-group">
-                <label for="filtro-detalles">Detalles</label>
-                <input type="text" id="filtro-detalles" placeholder="Buscar texto libre en detalles...">
-            </div>
-
-            <div class="filter-group">
-                <label for="filtro-fecha-desde">Desde</label>
-                <input type="date" id="filtro-fecha-desde">
-            </div>
-
-            <div class="filter-group">
-                <label for="filtro-fecha-hasta">Hasta</label>
-                <input type="date" id="filtro-fecha-hasta">
-            </div>
-
-            <button class="btn-query" id="btn-limpiar-filtros" type="button">✖️ Limpiar Filtros</button>
+        <div class="audit-tabs">
+            <button type="button" class="audit-tab-btn active" id="tab-btn-movimientos">
+                <span>📜</span>
+                <span>Log de Movimientos</span>
+            </button>
+            <button type="button" class="audit-tab-btn tab-errores" id="tab-btn-errores">
+                <span>⚠️</span>
+                <span>Log de Errores del Sistema</span>
+            </button>
         </div>
 
-        <div class="section-card">
-            <div class="table-container">
-                <table id="table-auditoria">
-                    <thead>
-                        <tr>
-                            <th>Fecha (Hora Bogotá)</th>
-                            <th>Usuario</th>
-                            <th>Rol</th>
-                            <th>Sucursal</th>
-                            <th>Acción</th>
-                            <th>Detalles</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Insertado dinámicamente -->
-                    </tbody>
-                </table>
+        <section id="panel-movimientos">
+            <!-- Filtros -->
+            <div class="filters-panel">
+                <div class="filter-group">
+                    <label for="filtro-usuario">Usuario</label>
+                    <select id="filtro-usuario">
+                        <option value="">-- Todos los Usuarios --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-sucursal">Sucursal</label>
+                    <select id="filtro-sucursal">
+                        <option value="">-- Todas las Sucursales --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-accion">Acción</label>
+                    <select id="filtro-accion">
+                        <option value="">-- Todas las Acciones --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-detalles">Detalles</label>
+                    <input type="text" id="filtro-detalles" placeholder="Buscar texto libre en detalles...">
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-fecha-desde">Desde</label>
+                    <input type="date" id="filtro-fecha-desde">
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-fecha-hasta">Hasta</label>
+                    <input type="date" id="filtro-fecha-hasta">
+                </div>
+
+                <button class="btn-query" id="btn-limpiar-filtros" type="button">✖️ Limpiar Filtros</button>
             </div>
 
-            <div class="pagination-bar">
-                <span id="paginacion-resumen" style="font-size: 0.85rem; color: #64748b;"></span>
-                <div style="display: flex; gap: 8px;">
-                    <button class="btn-page" id="btn-pagina-anterior" type="button">⬅️ Anterior</button>
-                    <button class="btn-page" id="btn-pagina-siguiente" type="button">Siguiente ➡️</button>
+            <div class="section-card">
+                <div class="table-container">
+                    <table id="table-auditoria">
+                        <thead>
+                            <tr>
+                                <th>Fecha (Hora Bogotá)</th>
+                                <th>Usuario</th>
+                                <th>Rol</th>
+                                <th>Sucursal</th>
+                                <th>Acción</th>
+                                <th>Detalles</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Insertado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pagination-bar">
+                    <span id="paginacion-resumen" style="font-size: 0.85rem; color: #64748b;"></span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-page" id="btn-pagina-anterior" type="button">⬅️ Anterior</button>
+                        <button class="btn-page" id="btn-pagina-siguiente" type="button">Siguiente ➡️</button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
+
+        <section id="panel-errores" style="display: none;">
+            <div class="filters-panel">
+                <div class="filter-group">
+                    <label for="filtro-err-usuario">Usuario</label>
+                    <select id="filtro-err-usuario">
+                        <option value="">-- Todos los Usuarios --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-err-sucursal">Sucursal</label>
+                    <select id="filtro-err-sucursal">
+                        <option value="">-- Todas las Sucursales --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-err-modulo">Módulo</label>
+                    <select id="filtro-err-modulo">
+                        <option value="">-- Todos los Módulos --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-err-busqueda">Buscar en el error</label>
+                    <input type="text" id="filtro-err-busqueda" placeholder="Acción, mensaje o código técnico...">
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-err-fecha-desde">Desde</label>
+                    <input type="date" id="filtro-err-fecha-desde">
+                </div>
+
+                <div class="filter-group">
+                    <label for="filtro-err-fecha-hasta">Hasta</label>
+                    <input type="date" id="filtro-err-fecha-hasta">
+                </div>
+
+                <button class="btn-query" id="btn-err-limpiar-filtros" type="button">✖️ Limpiar Filtros</button>
+            </div>
+
+            <div class="section-card">
+                <div class="table-container">
+                    <table id="table-errores">
+                        <thead>
+                            <tr>
+                                <th style="width: 150px;">Fecha (Hora Bogotá)</th>
+                                <th style="width: 180px;">Usuario / Sucursal</th>
+                                <th style="width: 130px;">Módulo</th>
+                                <th style="width: 260px;">¿Qué intentaba hacer el usuario?</th>
+                                <th>Explicación del Error y Ficha para el Desarrollador</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pagination-bar">
+                    <span id="paginacion-err-resumen" style="font-size: 0.85rem; color: #64748b;"></span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-page" id="btn-err-pagina-anterior" type="button">⬅️ Anterior</button>
+                        <button class="btn-page" id="btn-err-pagina-siguiente" type="button">Siguiente ➡️</button>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <script src="./sidebar.js"></script>

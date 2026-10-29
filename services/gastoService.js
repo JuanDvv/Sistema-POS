@@ -37,14 +37,15 @@ async function insertarGastoTx({ sucursalId, tipo, descripcion, monto, metodoPag
                 if (!item.id || cantidad <= 0) continue;
 
                 const stockActual = await new Promise((resolve, reject) => {
-                    db.get(`SELECT stock FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [item.id, sucursalId], (err, row) => {
+                    db.get(`SELECT stock, stock_reservado FROM inventario_sucursal WHERE producto_id = ? AND sucursal_id = ?`, [item.id, sucursalId], (err, row) => {
                         if (err) reject(err);
                         else resolve(row);
                     });
                 });
 
-                if (!stockActual || stockActual.stock < cantidad) {
-                    throw new Error(`No hay suficiente stock de ${item.nombre || 'producto'} para descontar ${cantidad} unidades.`);
+                const disponibleReal = stockActual ? (Number(stockActual.stock) - Number(stockActual.stock_reservado || 0)) : 0;
+                if (!stockActual || disponibleReal < cantidad) {
+                    throw new Error(`Stock disponible insuficiente de ${item.nombre || 'producto'}. Físico: ${stockActual ? stockActual.stock : 0}, Reservado: ${stockActual ? (stockActual.stock_reservado || 0) : 0}, Solicitado: ${cantidad}.`);
                 }
 
                 await runQuery(
@@ -57,7 +58,7 @@ async function insertarGastoTx({ sucursalId, tipo, descripcion, monto, metodoPag
                 );
                 await registrarMovimientoInventario({
                     productoId: item.id, sucursalId, tipo: tipoMovimiento,
-                    cantidad: -cantidad, referenciaId: gastoId, usuario: auditoriaUsuario
+                    cantidad: -cantidad, referenciaId: gastoId, usuario: auditoriaUsuario, fecha: fecha || null
                 });
             }
         }
@@ -76,4 +77,4 @@ async function insertarGastoTx({ sucursalId, tipo, descripcion, monto, metodoPag
     }
 }
 
-module.exports = { insertarGastoTx };
+module.exports = { insertarGastoTx, notificarInventarioActualizado };

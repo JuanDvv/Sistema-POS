@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld('api', {
     obtenerAuditoria: (filtros) => ipcRenderer.invoke('obtener-auditoria', filtros),
     obtenerAccionesAuditoria: () => ipcRenderer.invoke('obtener-acciones-auditoria'),
     obtenerUsuariosAuditoria: () => ipcRenderer.invoke('obtener-usuarios-auditoria'),
+    obtenerErroresSistema: (filtros) => ipcRenderer.invoke('obtener-errores-sistema', filtros),
+    obtenerModulosErrores: () => ipcRenderer.invoke('obtener-modulos-errores'),
+    obtenerUsuariosErrores: () => ipcRenderer.invoke('obtener-usuarios-errores'),
+    reportarErrorInterfaz: (datos) => ipcRenderer.invoke('registrar-error-renderer', datos),
 
     // Módulo de impresión térmica
     listarImpresoras: () => ipcRenderer.invoke('listar-impresoras'),

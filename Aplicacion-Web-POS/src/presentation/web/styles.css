@@ -331,6 +331,12 @@ body {
     background: rgba(245, 158, 11, 0.22);
 }
 
+.btn-link:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .summary-strip {
     display: flex;
     align-items: center;
@@ -397,6 +403,14 @@ body {
     color: #f8fafc;
 }
 
+.highlight-cyan {
+    color: #38bdf8;
+}
+
+.highlight-purple {
+    color: #a78bfa;
+}
+
 .resumen-subgrid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -438,6 +452,19 @@ body {
     border-radius: 9px;
     border: 0.5px solid var(--border);
     gap: 2px;
+    flex-shrink: 0;
+}
+
+.search-ventas-input {
+    flex: 1;
+    min-width: 120px;
+    height: 33px;
+    padding: 0 10px;
+    border-radius: 9px;
+    border: 0.5px solid var(--border);
+    background: #090e18;
+    color: var(--text);
+    font-size: 0.78rem;
 }
 
 .subtab-btn {
@@ -896,8 +923,106 @@ select {
 
 .add-item-row {
     display: flex;
+    align-items: center;
     gap: 6px;
     margin-bottom: 12px;
+}
+
+.product-combobox {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.product-combobox input {
+    padding-right: 32px;
+}
+
+.combobox-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--muted-light);
+    font-size: 1rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.combobox-clear:active {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.combobox-dropdown {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+    max-height: 210px;
+    overflow-y: auto;
+    background: #0d1422;
+    border: 0.5px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.65);
+    display: flex;
+    flex-direction: column;
+}
+
+.combobox-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 0.5px solid var(--border);
+    color: var(--text);
+    font-size: 0.84rem;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.combobox-option:last-child {
+    border-bottom: none;
+}
+
+.combobox-option:hover,
+.combobox-option:active {
+    background: var(--surface-hover);
+}
+
+.combobox-option-name {
+    font-weight: 500;
+    color: #f8fafc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.combobox-option-price {
+    font-weight: 700;
+    color: var(--primary);
+    white-space: nowrap;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.combobox-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.8rem;
 }
 
 .total-calc-box {

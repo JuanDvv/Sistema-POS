@@ -103,8 +103,9 @@ function isoToFechaDia(iso) {
     return `${y}-${m}-${day}`;
 }
 
-function obtenerStockDisponible(productoId, stockCatalogo) {
-    return Number(stockCatalogo || 0) + Number(reservaOriginalPorProducto[productoId] || 0);
+function obtenerStockDisponible(productoId, stockCatalogo, stockReservado = 0) {
+    const disponibleFisico = Math.max(0, Number(stockCatalogo || 0) - Number(stockReservado || 0));
+    return disponibleFisico + Number(reservaOriginalPorProducto[productoId] || 0);
 }
 
 const obtenerPorcentajeDescuento = () => {
@@ -507,7 +508,13 @@ function cambiarModo(nuevoModo) {
 
     if (nuevoModo === 'nueva') {
         mostrarPanelCatalogo(true);
-        document.getElementById('editor-banner').style.display = 'none';
+        const banner = document.getElementById('editor-banner');
+        if (banner) {
+            banner.style.display = 'none';
+            banner.style.backgroundColor = '';
+            banner.style.borderColor = '';
+            banner.style.color = '';
+        }
         document.getElementById('btn-guardar-venta').innerText = 'Guardar Venta';
         limpiarCarrito();
     } else if (nuevoModo === 'lista') {
@@ -531,12 +538,72 @@ async function cargarListaVentasDia() {
     }
 
     const ventas = res.ventas || [];
-    if (ventas.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#6b7280;">No hay ventas registradas ese día.</td></tr>`;
+    const solicitudes = res.solicitudesPendientes || [];
+
+    const solPorVenta = {};
+    const nuevasPendientes = [];
+    solicitudes.forEach(sol => {
+        if (sol.tipo === 'nueva') {
+            nuevasPendientes.push(sol);
+        } else if (sol.venta_id) {
+            solPorVenta[sol.venta_id] = sol;
+        }
+    });
+
+    const avisoSolicitudes = document.getElementById('aviso-solicitudes-dia');
+    if (solicitudes.length > 0 && avisoSolicitudes) {
+        avisoSolicitudes.innerHTML = `⚠️ <strong>Solicitudes Pendientes:</strong> Hay ${solicitudes.length} movimiento(s) de este día en espera de confirmación de Administración.`;
+        avisoSolicitudes.style.display = 'block';
+    } else if (avisoSolicitudes) {
+        avisoSolicitudes.style.display = 'none';
+    }
+
+    if (ventas.length === 0 && nuevasPendientes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#6b7280;">No hay ventas registradas ni pendientes ese día.</td></tr>`;
         return;
     }
 
     tbody.innerHTML = '';
+
+    nuevasPendientes.forEach(sol => {
+        let propuesta = {};
+        try {
+            const parsed = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+            propuesta = parsed.propuesta || parsed || {};
+        } catch (e) {
+            propuesta = {};
+        }
+
+        const hora = sol.fecha_solicitud
+            ? new Date(sol.fecha_solicitud).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+            : '--:--';
+        const productosTexto = Array.isArray(propuesta.carrito)
+            ? propuesta.carrito.map(p => `${p.nombre || 'Producto'} (x${p.cantidad})`).join(', ')
+            : 'Sin detalles';
+        const metodoTexto = propuesta.metodoPago || 'Efectivo';
+        const totalTexto = propuesta.total ? formatCOP(propuesta.total) : '$0';
+
+        const tr = document.createElement('tr');
+        tr.style.backgroundColor = '#fffbeb';
+        tr.style.borderLeft = '4px solid #f59e0b';
+        tr.innerHTML = `
+            <td>
+                <div>${hora}</div>
+                <div style="margin-top: 3px;"><span class="pill-estado pill-pendiente">🟡 Nueva Pendiente</span></div>
+            </td>
+            <td>
+                <div>${productosTexto}</div>
+                <div style="font-size: 0.78em; color: #92400e; margin-top: 3px;">Solicitante: <strong>${sol.usuario_solicitante || 'Operador'}</strong></div>
+            </td>
+            <td>${metodoTexto}</td>
+            <td><strong style="color: #b45309;">${totalTexto}</strong></td>
+            <td>
+                <span style="font-size: 0.82em; color: #b45309; font-weight: 600;">En espera de aprobación</span>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
     ventas.forEach(venta => {
         const hora = new Date(venta.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
         const metodoPagoText = (venta.metodo_pago && venta.metodo_pago.startsWith('Crédito'))
@@ -545,17 +612,67 @@ async function cargarListaVentasDia() {
         const esFiscal = Boolean(venta.es_fiscal) ||
             String(venta.cliente_categoria || '').trim().toLowerCase() === 'fiscal' ||
             (Boolean(venta.cliente_id) && !venta.es_credito && !venta.es_pedido && !String(venta.metodo_pago || '').startsWith('Crédito'));
+
+        const sol = solPorVenta[venta.id];
+        let solBadge = '';
+        let detallePropuesta = '';
+        let totalDisplay = `<strong>${formatCOP(venta.total)}</strong>`;
+        let trStyle = '';
+        let accionesHtml = `
+            <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Editar</button>
+            <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>
+            ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id || ''}">🧾 Cuenta de Cobro</button>` : ''}
+        `;
+
+        if (sol) {
+            let solDatos = {};
+            try {
+                solDatos = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+            } catch (e) {
+                solDatos = {};
+            }
+
+            if (sol.tipo === 'edicion') {
+                trStyle = 'background-color: #fffdf5; border-left: 4px solid #f59e0b;';
+                solBadge = `<div style="margin-top: 3px;"><span class="pill-estado pill-pendiente" title="Edición enviada por ${sol.usuario_solicitante || 'operador'}">🟡 Edición Pendiente</span></div>`;
+                if (solDatos.propuesta) {
+                    if (solDatos.propuesta.total !== undefined && Number(solDatos.propuesta.total) !== Number(venta.total)) {
+                        totalDisplay = `<strong>${formatCOP(venta.total)}</strong><div style="font-size:0.8em; color:#b45309; font-weight:600; margin-top:2px;">Propuesto: ${formatCOP(solDatos.propuesta.total)}</div>`;
+                    }
+                    if (Array.isArray(solDatos.propuesta.carrito)) {
+                        const prodsNuevos = solDatos.propuesta.carrito.map(p => `${p.nombre || 'Producto'} (x${p.cantidad})`).join(', ');
+                        detallePropuesta = `<div style="font-size: 0.8em; color: #b45309; margin-top: 3px; font-style: italic;"><strong>Propuesta:</strong> ${prodsNuevos}</div>`;
+                    }
+                }
+                accionesHtml = `
+                    <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Ver / Editar</button>
+                    <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>
+                    ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id || ''}">🧾 Cuenta de Cobro</button>` : ''}
+                `;
+            } else if (sol.tipo === 'eliminacion') {
+                trStyle = 'background-color: #fef2f2; border-left: 4px solid #ef4444;';
+                solBadge = `<div style="margin-top: 3px;"><span class="pill-estado pill-rechazada" title="Eliminación enviada por ${sol.usuario_solicitante || 'operador'}">🔴 Eliminación Pendiente</span></div>`;
+                accionesHtml = `
+                    <span style="font-size: 0.82em; color: #dc2626; font-weight: 600;">En revisión para eliminación</span>
+                    ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id || ''}">🧾 Cuenta de Cobro</button>` : ''}
+                `;
+            }
+        }
+
         const tr = document.createElement('tr');
+        if (trStyle) tr.setAttribute('style', trStyle);
         tr.innerHTML = `
-            <td>${hora}</td>
-            <td>${venta.productos_vendidos || 'Sin detalles'}</td>
-            <td>${metodoPagoText}</td>
-            <td><strong>${formatCOP(venta.total)}</strong></td>
             <td>
-                <button type="button" class="btn-mini btn-mini-edit" data-id="${venta.id}">✏️ Editar</button>
-                <button type="button" class="btn-mini btn-mini-delete" data-id="${venta.id}">🗑️ Eliminar</button>
-                ${esFiscal ? `<button type="button" class="btn-mini btn-mini-cuenta-cobro" data-id="${venta.id}" data-cliente-id="${venta.cliente_id || ''}">🧾 Cuenta de Cobro</button>` : ''}
+                <div>${hora}</div>
+                ${solBadge}
             </td>
+            <td>
+                <div>${venta.productos_vendidos || 'Sin detalles'}</div>
+                ${detallePropuesta}
+            </td>
+            <td>${metodoPagoText}</td>
+            <td>${totalDisplay}</td>
+            <td>${accionesHtml}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -588,7 +705,7 @@ async function iniciarEdicionVenta(ventaId) {
         return;
     }
 
-    const { venta, detalle } = res;
+    const { venta, detalle, solicitudPendiente } = res;
 
     modo = 'editando';
     ventaIdEnEdicion = ventaId;
@@ -597,7 +714,28 @@ async function iniciarEdicionVenta(ventaId) {
         reservaOriginalPorProducto[det.producto_id] = (reservaOriginalPorProducto[det.producto_id] || 0) + Number(det.cantidad || 0);
     });
 
-    carrito = detalle.map(det => {
+    let propuestaParseada = null;
+    if (solicitudPendiente && solicitudPendiente.tipo === 'edicion') {
+        try {
+            const parsed = typeof solicitudPendiente.datos === 'string' ? JSON.parse(solicitudPendiente.datos) : solicitudPendiente.datos;
+            propuestaParseada = parsed.propuesta || null;
+        } catch (e) {
+            propuestaParseada = null;
+        }
+    }
+
+    const itemsFuente = (propuestaParseada && Array.isArray(propuestaParseada.carrito))
+        ? propuestaParseada.carrito.map(p => ({
+            producto_id: p.id,
+            nombre: p.nombre,
+            precio_unitario: p.precio,
+            cantidad: p.cantidad,
+            categoria_id: p.categoria_id,
+            categoria_nombre: p.categoria_nombre
+        }))
+        : detalle;
+
+    carrito = itemsFuente.map(det => {
         const prodCatalogo = productosLocales.find(p => p.id === det.producto_id);
         const stockCatalogo = prodCatalogo ? Number(prodCatalogo.stock || 0) : 0;
         return {
@@ -621,21 +759,26 @@ async function iniciarEdicionVenta(ventaId) {
     document.getElementById('chk-descuento').checked = false;
     document.getElementById('descuento-input-container').style.display = 'none';
 
-    let metodoBase = String(venta.metodo_pago || '');
+    let metodoBase = String(propuestaParseada?.metodoPago !== undefined ? propuestaParseada.metodoPago : (venta.metodo_pago || ''));
+    let esCredito = propuestaParseada?.es_credito !== undefined ? Boolean(propuestaParseada.es_credito) : Boolean(venta.es_credito);
+    let clienteIdCredito = (propuestaParseada?.cliente_id !== undefined ? propuestaParseada.cliente_id : venta.cliente_id) || '';
+
+    let valorDomicilioDetectado = 0;
     const matchDomicilio = metodoBase.match(/\(Domicilio:\s*\$?([\d.,]+)\)/);
-    if (matchDomicilio) {
+    if (matchDomicilio || (propuestaParseada && Number(propuestaParseada.valorDomicilio) > 0)) {
         document.getElementById('chk-domicilio').checked = true;
-        document.getElementById('input-valor-domicilio').value = formatNumberUI(parseNumberUI(matchDomicilio[1]));
+        valorDomicilioDetectado = matchDomicilio ? parseNumberUI(matchDomicilio[1]) : Number(propuestaParseada.valorDomicilio || 0);
+        document.getElementById('input-valor-domicilio').value = formatNumberUI(valorDomicilioDetectado);
         document.getElementById('domicilio-input-container').style.display = 'flex';
         metodoBase = metodoBase.replace(/\s*\(Domicilio:.*?\)/, '').trim();
     }
 
-    // El % de descuento no se persiste; se infiere de la diferencia entre el total real
-    // y la suma de líneas (+domicilio) para que el Total recalculado no quede por encima del real.
-    const valorDomicilioDetectado = matchDomicilio ? parseNumberUI(matchDomicilio[1]) : 0;
+    const totalReferencia = (propuestaParseada && propuestaParseada.total !== undefined)
+        ? Number(propuestaParseada.total)
+        : Number(venta.total || 0);
     const subtotalProductos = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
     const subtotalPasteleria = carrito.reduce((sum, item) => esCategoriaPasteleria(item) ? sum + (item.precio * item.cantidad) : sum, 0);
-    const diferenciaDescuento = subtotalProductos + valorDomicilioDetectado - Number(venta.total || 0);
+    const diferenciaDescuento = subtotalProductos + valorDomicilioDetectado - totalReferencia;
     if (diferenciaDescuento > 0 && subtotalPasteleria > 0) {
         const porcentajeImplicito = (diferenciaDescuento / subtotalPasteleria) * 100;
         const selectDescuento = document.getElementById('select-descuento');
@@ -650,10 +793,10 @@ async function iniciarEdicionVenta(ventaId) {
         }
     }
 
-    if (venta.es_credito) {
+    if (esCredito) {
         document.getElementById('chk-credito').checked = true;
         document.getElementById('credito-input-container').style.display = 'flex';
-        document.getElementById('select-cliente-credito').value = venta.cliente_id || '';
+        document.getElementById('select-cliente-credito').value = clienteIdCredito;
         metodoPagoSelected = 'Crédito';
         const buttons = document.querySelectorAll('#payment-methods-container button');
         buttons.forEach(btn => { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; });
@@ -669,9 +812,30 @@ async function iniciarEdicionVenta(ventaId) {
         window.__selectMethod('Efectivo');
     }
 
-    document.getElementById('editor-banner').style.display = 'flex';
-    document.getElementById('editor-banner-texto').innerText =
-        `Editando venta de ${new Date(venta.fecha).toLocaleString('es-CO')} - Total original: $${formatCOP(venta.total)}`;
+    const banner = document.getElementById('editor-banner');
+    const bannerTexto = document.getElementById('editor-banner-texto');
+    banner.style.display = 'flex';
+    if (solicitudPendiente) {
+        if (solicitudPendiente.tipo === 'edicion') {
+            banner.style.backgroundColor = '#fffbeb';
+            banner.style.borderColor = '#f59e0b';
+            banner.style.color = '#92400e';
+            bannerTexto.innerHTML =
+                `⚠️ <strong>Edición Pendiente (${solicitudPendiente.usuario_solicitante || 'Operador'}):</strong> Mostrando propuesta en revisión administrativa. Total propuesto: $${formatCOP(totalReferencia)} (Original: $${formatCOP(venta.total)})`;
+        } else if (solicitudPendiente.tipo === 'eliminacion') {
+            banner.style.backgroundColor = '#fef2f2';
+            banner.style.borderColor = '#ef4444';
+            banner.style.color = '#991b1b';
+            bannerTexto.innerHTML =
+                `⚠️ <strong>Eliminación Pendiente (${solicitudPendiente.usuario_solicitante || 'Operador'}):</strong> Esta venta tiene una solicitud para ser eliminada pendiente de revisión.`;
+        }
+    } else {
+        banner.style.backgroundColor = '';
+        banner.style.borderColor = '';
+        banner.style.color = '';
+        bannerTexto.innerText =
+            `Editando venta de ${new Date(venta.fecha).toLocaleString('es-CO')} - Total original: $${formatCOP(venta.total)}`;
+    }
     document.getElementById('btn-guardar-venta').innerText = 'Guardar Cambios';
 
     document.getElementById('tab-btn-editar').classList.add('active');
@@ -688,7 +852,13 @@ function cancelarEdicion(volverALista = true) {
     ventaIdEnEdicion = null;
     reservaOriginalPorProducto = {};
     limpiarCarrito();
-    document.getElementById('editor-banner').style.display = 'none';
+    const banner = document.getElementById('editor-banner');
+    if (banner) {
+        banner.style.display = 'none';
+        banner.style.backgroundColor = '';
+        banner.style.borderColor = '';
+        banner.style.color = '';
+    }
     document.getElementById('btn-guardar-venta').innerText = 'Guardar Venta';
     if (volverALista) {
         mostrarPanelCatalogo(false);
@@ -795,7 +965,7 @@ function renderizarCatalogo(productos) {
     if (productos.length > 0) {
         productos.forEach(prod => {
             const card = document.createElement('div');
-            const disponible = obtenerStockDisponible(prod.id, prod.stock);
+            const disponible = obtenerStockDisponible(prod.id, prod.stock, prod.stock_reservado);
             const sinStock = disponible <= 0;
             const stockBajo = disponible <= (Number(prod.stock_minimo) || 2) && !sinStock;
             const productoNombre = prod.nombre || 'Sin nombre';
@@ -855,7 +1025,7 @@ function renderizarCatalogo(productos) {
 }
 
 function agregarAlCarrito(producto) {
-    const disponible = obtenerStockDisponible(producto.id, producto.stock);
+    const disponible = obtenerStockDisponible(producto.id, producto.stock, producto.stock_reservado);
     const itemExistente = carrito.find(item => item.id === producto.id);
 
     if (itemExistente) {
@@ -1098,6 +1268,7 @@ async function guardarVenta() {
             cancelarEdicion(true);
         } else {
             limpiarCarrito();
+            await cargarListaVentasDia();
         }
     } finally {
         setProcessingState(false);

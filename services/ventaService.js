@@ -148,7 +148,7 @@ async function insertarVentaTx({ sucursalId, metodoPago, total, carrito, valorDo
             for (const item of carrito) {
                 await registrarMovimientoInventario({
                     productoId: item.id, sucursalId, tipo: 'VENTA',
-                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario, fecha
                 });
             }
         }
@@ -192,12 +192,16 @@ async function eliminarVentaTx({ ventaId, auditoriaUsuario, auditoriaRol, accion
         );
         for (const det of detalles) {
             await runQuery(
-                `UPDATE inventario_sucursal SET stock = stock + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
-                [det.cantidad, det.producto_id, venta.sucursal_id]
+                `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                 VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                 ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                    stock = stock + excluded.stock,
+                    sync_status = 'pending'`,
+                [det.producto_id, venta.sucursal_id, Number(det.cantidad)]
             );
             await registrarMovimientoInventario({
                 productoId: det.producto_id, sucursalId: venta.sucursal_id, tipo: 'ANULACION',
-                cantidad: Number(det.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                cantidad: Number(det.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario, fecha: venta.fecha
             });
         }
 
@@ -253,12 +257,16 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
         );
         for (const det of detallesOriginales) {
             await runQuery(
-                `UPDATE inventario_sucursal SET stock = stock + ?, sync_status = 'pending' WHERE producto_id = ? AND sucursal_id = ?`,
-                [det.cantidad, det.producto_id, sucursalOriginalId]
+                `INSERT INTO inventario_sucursal (producto_id, sucursal_id, stock, sync_status, updated_at)
+                 VALUES (?, ?, ?, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                 ON CONFLICT(producto_id, sucursal_id) DO UPDATE SET
+                    stock = stock + excluded.stock,
+                    sync_status = 'pending'`,
+                [det.producto_id, sucursalOriginalId, Number(det.cantidad)]
             );
             await registrarMovimientoInventario({
                 productoId: det.producto_id, sucursalId: sucursalOriginalId, tipo: 'EDICION_VENTA',
-                cantidad: Number(det.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                cantidad: Number(det.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario, fecha: ventaOriginal.fecha
             });
         }
 
@@ -320,7 +328,7 @@ async function editarVentaCompletaTx({ ventaId, sucursalId, metodoPago, total, c
             for (const item of carrito) {
                 await registrarMovimientoInventario({
                     productoId: item.id, sucursalId: sucursalFinalId, tipo: 'EDICION_VENTA',
-                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario
+                    cantidad: -Number(item.cantidad), referenciaId: ventaId, usuario: auditoriaUsuario, fecha: fecha || ventaOriginal.fecha
                 });
             }
         }

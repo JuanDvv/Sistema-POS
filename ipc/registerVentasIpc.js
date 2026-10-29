@@ -46,8 +46,8 @@ async function calcularFechaVentaAnterior(fechaDia, sucursalId, excluirVentaId =
         const y = siguiente.getFullYear();
         const m = String(siguiente.getMonth() + 1).padStart(2, '0');
         const d = String(siguiente.getDate()).padStart(2, '0');
-        if (`${y}-${m}-${d}` !== fechaDia) {
-            siguiente.setHours(23, 59, 59, 0);
+        if (`${y}-${m}-${d}` !== fechaDia || siguiente.getTime() > new Date(`${fechaDia}T23:59:59`).getTime()) {
+            return new Date(`${fechaDia}T23:59:59`).toISOString();
         }
 
         return siguiente.toISOString();
@@ -285,6 +285,7 @@ function registerVentasIpc() {
                     COALESCE(MAX(inv.stock), 0) - COALESCE((
                         SELECT SUM(mi.cantidad) FROM movimientos_inventario mi
                         WHERE mi.producto_id = dv.producto_id AND mi.sucursal_id = v.sucursal_id
+                          AND mi.deleted_at IS NULL
                           AND ${sqlFechaDia('mi.fecha')} > ?
                     ), 0) as stock_actual
                  FROM ventas v
@@ -312,6 +313,7 @@ function registerVentasIpc() {
                     COALESCE(inv.stock, 0) - COALESCE((
                         SELECT SUM(mi.cantidad) FROM movimientos_inventario mi
                         WHERE mi.producto_id = p.id AND mi.sucursal_id = inv.sucursal_id
+                          AND mi.deleted_at IS NULL
                           AND ${sqlFechaDia('mi.fecha')} > ?
                     ), 0) as stock_actual
                  FROM inventario_sucursal inv
@@ -331,7 +333,15 @@ function registerVentasIpc() {
                 queryParamsNoVendidos
             );
 
-            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, productosNoVendidos, abonosPedido };
+            const solicitudesPendientes = await allQuery(
+                `SELECT * FROM solicitudes_venta 
+                 WHERE sucursal_id = ? AND fecha_venta = ? AND estado = 'pendiente' 
+                   AND (sync_status IS NULL OR sync_status <> 'deleted')
+                 ORDER BY fecha_solicitud DESC`,
+                [sucursalId, fecha]
+            );
+
+            return { success: true, ventas, gastos, categoriasResumen, transferencias, productosResumen, productosNoVendidos, abonosPedido, solicitudesPendientes };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -399,7 +409,14 @@ function registerVentasIpc() {
                  WHERE dv.venta_id = ?`,
                 [ventaId]
             );
-            return { success: true, venta, detalle };
+            const solicitudPendiente = await new Promise((resolve) => {
+                db.get(
+                    `SELECT * FROM solicitudes_venta WHERE venta_id = ? AND estado = 'pendiente' AND (sync_status IS NULL OR sync_status <> 'deleted') ORDER BY fecha_solicitud DESC LIMIT 1`,
+                    [ventaId],
+                    (err, row) => resolve(row || null)
+                );
+            });
+            return { success: true, venta, detalle, solicitudPendiente };
         } catch (err) {
             return { success: false, message: 'Error al obtener el detalle de la venta: ' + err.message };
         }

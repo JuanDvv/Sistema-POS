@@ -371,7 +371,7 @@ const remoteDbClient = {
             const res = await pool.query(sql, params);
 
             // Si la función devuelve una tabla/filas
-            if (funcion === 'buscar_auditoria') {
+            if (funcion === 'buscar_auditoria' || funcion === 'buscar_errores_sistema') {
                 return { data: res.rows, error: null };
             }
             // Funciones escalares / void (ej. aplicar_correccion_stock devuelve un integer delta)

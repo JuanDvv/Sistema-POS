@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db, runQuery, allQuery } = require('../db/connection');
 const { registrarAuditoria } = require('../services/auditService');
 const { registrarMovimientoInventario } = require('../services/inventarioMovimientoService');
-const { insertarGastoTx } = require('../services/gastoService');
+const { insertarGastoTx, notificarInventarioActualizado } = require('../services/gastoService');
 const { esFechaAnteriorValida, construirFechaISODeDia, obtenerFechaHoyYYYYMMDD } = require('../services/fechaService');
 const { solicitarSincronizacion } = require('../sync/syncService');
 const { TIPOS_GASTO, ESTADOS_DEVOLUCION, requiereAjusteInventario } = require('../utils/gastos');
@@ -76,6 +76,12 @@ function registerGastosIpc() {
             if (gasto && gasto.descripcion === 'Domicilio (Descuento de Caja)') {
                 return { success: false, message: 'Este gasto se gestiona automáticamente desde la venta asociada y no se puede editar aquí.' };
             }
+            if (gasto && requiereAjusteInventario(gasto.tipo)) {
+                return { success: false, message: 'Los gastos de inventario y devoluciones no se pueden modificar desde este formulario.' };
+            }
+            if (requiereAjusteInventario(tipo)) {
+                return { success: false, message: 'No se puede reclasificar un gasto financiero a gasto de inventario o devolución.' };
+            }
             // Un gasto de un día anterior solo lo puede editar un Administrador; el día actual sigue
             // abierto para cualquier rol. Reportes.js ya oculta el botón, esto es la defensa real.
             if (gasto && auditoriaRol !== 'Administrador' && gasto.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
@@ -110,7 +116,7 @@ function registerGastosIpc() {
         try {
             // Obtener datos del gasto antes de marcar como eliminado
             const gasto = await new Promise((resolve) => {
-                db.get(`SELECT sucursal_id, tipo, monto, descripcion, ${sqlFechaDia('fecha')} as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
+                db.get(`SELECT sucursal_id, tipo, monto, descripcion, estado, ${sqlFechaDia('fecha')} as fecha_dia FROM gastos WHERE id = ?`, [id], (err, row) => resolve(row));
             });
             // Igual que en editar-gasto: este gasto se borra automáticamente al quitar el domicilio
             // de su venta (ver editarVentaCompletaTx en services/ventaService.js), no manualmente aquí.
@@ -122,6 +128,9 @@ function registerGastosIpc() {
             if (gasto && auditoriaRol !== 'Administrador' && gasto.fecha_dia !== obtenerFechaHoyYYYYMMDD()) {
                 return { success: false, message: 'Solo un Administrador puede borrar un gasto de un día anterior.' };
             }
+            if (gasto && gasto.tipo === TIPOS_GASTO.DEVOLUCION && gasto.estado && gasto.estado !== ESTADOS_DEVOLUCION.PENDIENTE) {
+                return { success: false, message: `No se puede eliminar una devolución que ya fue resuelta (${gasto.estado}).` };
+            }
             const sucId = gasto ? gasto.sucursal_id : 'Desconocida';
 
             await runQuery('BEGIN TRANSACTION', []);
@@ -130,7 +139,7 @@ function registerGastosIpc() {
             // se revierte cada movimiento asociado para que el stock quede como antes de registrarlo.
             if (gasto && requiereAjusteInventario(gasto.tipo)) {
                 const movimientos = await new Promise((resolve, reject) => {
-                    db.all(`SELECT producto_id, sucursal_id, cantidad FROM movimientos_inventario WHERE referencia_id = ?`, [id], (err, rows) => {
+                    db.all(`SELECT producto_id, sucursal_id, cantidad FROM movimientos_inventario WHERE referencia_id = ? AND tipo IN ('BAJA_INVENTARIO', 'BAJA_DEVOLUCION')`, [id], (err, rows) => {
                         if (err) reject(err);
                         else resolve(rows || []);
                     });
@@ -153,6 +162,9 @@ function registerGastosIpc() {
             // Registrar en logs de auditoría
             if (gasto) {
                 await registrarAuditoria(auditoriaUsuario, auditoriaRol, sucId, 'Eliminar Gasto', `Gasto ID: ${id} - Monto: $${gasto.monto} - Desc: ${gasto.descripcion}`);
+            }
+            if (gasto && requiereAjusteInventario(gasto.tipo)) {
+                notificarInventarioActualizado();
             }
             solicitarSincronizacion('gasto eliminado');
             return { success: true, message: 'Gasto eliminado exitosamente.' };
@@ -208,6 +220,9 @@ function registerGastosIpc() {
             await runQuery('COMMIT', []);
 
             await registrarAuditoria(auditoriaUsuario, auditoriaRol, devolucion.sucursal_id, 'Actualizar Estado Devolución', `Gasto ID: ${id} - Estado: ${estadoActual} -> ${nuevoEstado} - Desc: ${devolucion.descripcion}`);
+            if (nuevoEstado === ESTADOS_DEVOLUCION.DEVUELTA) {
+                notificarInventarioActualizado();
+            }
             solicitarSincronizacion('estado de devolución actualizado');
             return { success: true, message: 'Estado de la devolución actualizado.' };
         } catch (err) {

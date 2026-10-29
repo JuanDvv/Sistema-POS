@@ -568,8 +568,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 mixtoContainer.style.display = 'flex';
                 // Reset inputs and auto-fill
                 const total = calcularTotalVenta();
-                if (inputEfectivo) inputEfectivo.value = formatNumberUI(total);
-                if (inputTransferencia) inputTransferencia.value = "0";
+                if (inputEfectivo) inputEfectivo.value = formatNumberUI(total); if (inputTransferencia) inputTransferencia.value = "0";
+
+
             }
         }
 
@@ -596,6 +597,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 inputEfectivo.value = formatNumberUI(total);
                 if (inputTransferencia) inputTransferencia.value = "0";
             } else {
+
+    
+
+
+    
                 inputEfectivo.value = formatNumberUI(rawVal);
                 if (inputTransferencia) inputTransferencia.value = formatNumberUI(Math.max(0, total - rawVal));
             }
@@ -605,6 +611,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 inputTransferencia.value = formatNumberUI(total);
                 if (inputEfectivo) inputEfectivo.value = "0";
             } else {
+    
+    
                 inputTransferencia.value = formatNumberUI(rawVal);
                 if (inputEfectivo) inputEfectivo.value = formatNumberUI(Math.max(0, total - rawVal));
             }
@@ -644,7 +652,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else if (metodoPagoSelected === 'Mixto') {
             targetCashToPay = parseNumberUI(inputEfectivo.value);
             lblPagaCon.innerText = "Cliente Paga con (Efectivo) ($):";
-        } else {
+
             changeContainer.style.display = 'none';
             return;
         }
@@ -660,6 +668,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             displayCambio.innerText = formatCOP(cambio);
             displayCambio.style.color = '#15803d'; // Green
         } else {
+
+
             displayCambio.innerText = '$0';
             displayCambio.style.color = '#dc2626'; // Red if not enough
         }
@@ -702,6 +712,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         btnMixto.style.cursor = 'not-allowed';
                     }
                 }
+    
+    
             } else {
                 domContainer.style.display = 'none';
                 inputDomicilio.value = '';
@@ -755,6 +767,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!selectDescuento.value) {
                     selectDescuento.value = '10';
                 }
+    
+    
             } else {
                 descuentoContainer.style.display = 'none';
                 selectDescuento.value = '';
@@ -825,6 +839,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (changeContainer) changeContainer.style.display = 'none';
                 
                 metodoPagoSelected = 'Crédito';
+    
+    
             } else {
                 creditoContainer.style.display = 'none';
                 selectClienteCredito.value = '';
@@ -881,6 +897,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         btnMixto.style.cursor = 'pointer';
                     }
                 }
+    
+    
             } else {
                 fiscalContainer.style.display = 'none';
                 selectClienteFiscal.value = '';
@@ -1082,8 +1100,9 @@ function renderizarCatalogo(productos) {
     if (productos.length > 0) {
         productos.forEach(prod => {
             const card = document.createElement('div');
-            const sinStock = Number(prod.stock) <= 0;
-            const stockBajo = Number(prod.stock) <= (Number(prod.stock_minimo) || 2) && !sinStock;
+            const stockDisponible = Math.max(0, Number(prod.stock ?? 0) - Number(prod.stock_reservado ?? 0));
+            const sinStock = stockDisponible <= 0;
+            const stockBajo = stockDisponible <= (Number(prod.stock_minimo) || 2) && !sinStock;
             const productoNombre = prod.nombre || prod.name || prod.producto_nombre || 'Sin nombre';
             const productoPrecio = Number(prod.precio ?? prod.price ?? 0);
             const productoStock = Number(prod.stock ?? 0);
@@ -1135,7 +1154,7 @@ function renderizarCatalogo(productos) {
                     </div>
                     <div>
                         <div class="product-price" style="color: #059669; font-weight: 700; font-size: 0.95em; text-align: center;">${formatCOP(productoPrecio)}</div>
-                        <div class="product-stock" style="font-size: 0.75em; color: #6b7280; text-align: center;">Disp: <strong>${productoStock}</strong>${productoReservado > 0 ? ` <span style="color: #d97706;">- Apart: <strong>${productoReservado}</strong></span>` : ''}</div>
+                        <div class="product-stock" style="font-size: 0.75em; color: #6b7280; text-align: center;">Disp: <strong>${stockDisponible}</strong>${productoReservado > 0 ? ` <span style="color: #d97706;" title="Físico: ${productoStock}, Apartados: ${productoReservado}">- Apart: <strong>${productoReservado}</strong></span>` : ''}</div>
                     </div>
                 </div>
             `;
@@ -1169,19 +1188,19 @@ function agregarAlCarrito(producto) {
     // Verificar si el producto ya está en el carrito
     const itemExistente = carrito.find(item => item.id === producto.id);
 
-    const stockDisponible = Number(producto.stock ?? 0);
+    const stockDisponible = Math.max(0, Number(producto.stock ?? 0) - Number(producto.stock_reservado ?? 0));
 
     if (itemExistente) {
         // Si no hay stock (0 o negativo) se permite seguir sumando unidades sin límite: la venta
-        // quedará pendiente de abastecimiento. Con stock disponible, se sigue topando ahí.
-        if (stockDisponible <= 0 || itemExistente.cantidad < stockDisponible) {
+        itemExistente.cantidad++; /*
+
             itemExistente.cantidad++;
-        } else {
-            alert(`No puedes agregar más unidades de ${producto.nombre}. Stock máximo alcanzado.`);
+
+
             return;
         }
     } else {
-        // Agregamos por primera vez
+        */ } else { // Agregamos por primera vez
         carrito.push({
             id: producto.id,
             nombre: producto.nombre,
@@ -1219,7 +1238,7 @@ function cambiarCantidad(productoId, delta) {
     // Si la cantidad llega a 0, eliminar el producto del carrito
     if (item.cantidad <= 0) {
         carrito = carrito.filter(i => i.id !== productoId);
-    } else if (item.stockMaximo > 0 && item.cantidad > item.stockMaximo) {
+    } else if (false) {
         // Impedir que suba del stock disponible (si ya estaba en 0 o negativo, no hay límite:
         // la venta se registrará igual, pidiendo confirmación al cobrar).
         item.cantidad = item.stockMaximo;
@@ -1410,7 +1429,7 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             .map(i => `• ${i.nombre} (x${i.cantidad}, disponible: ${Number(i.stockMaximo ?? 0)})`)
             .join('\n');
         const continuar = confirm(
-            `Los siguientes productos no tienen inventario suficiente y quedarán con stock negativo tras esta venta:\n\n${listado}\n\n¿Deseas continuar de todas formas?`
+            `Los siguientes productos no tienen inventario disponible suficiente (o están apartados para pedidos) y quedarán con stock negativo tras esta venta:\n\n${listado}\n\n¿Deseas continuar de todas formas?`
         );
         if (!continuar) return;
     }
@@ -1591,7 +1610,7 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
                 }, 50);
             }
 
-        } else {
+
             alert(`Error: ${response.message}`);
         }
     } finally {

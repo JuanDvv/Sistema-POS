@@ -25,6 +25,7 @@ window.confirm = (msg) => {
 let sucursalId = 'sucursal-norte'; // Dinámico a partir de la DB
 let sucursalLocalId = 'sucursal-norte';
 let editingProductId = null; // ID del producto en edición (null si es creación)
+let editingInitialStock = null;
 let productosCargados = []; // Copia local para búsqueda offline
 let categoriasCargadas = [];
 // IDs de productos cuyo stock/precio cambió en la última carga por sincronización (no por una
@@ -493,6 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnNuevo) {
         btnNuevo.addEventListener('click', async () => {
             editingProductId = null;
+            editingInitialStock = null;
             const modalTitle = modal.querySelector('.modal-header h3');
             const submitBtn = formProducto.querySelector('button[type="submit"]');
             if (modalTitle) modalTitle.innerText = "Agregar Nuevo Producto";
@@ -508,6 +510,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             modal.style.display = 'none';
             formProducto.reset();
             editingProductId = null;
+            editingInitialStock = null;
         });
     }
 
@@ -516,6 +519,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             modal.style.display = 'none';
             formProducto.reset();
             editingProductId = null;
+            editingInitialStock = null;
         }
     });
 
@@ -565,6 +569,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     descripcion,
                     precio,
                     stock,
+                    stockModificado: Number(stock) !== Number(editingInitialStock),
                     stockMinimo,
                     sucursalId,
                     fotoPath,
@@ -592,6 +597,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 modal.style.display = 'none';
                 formProducto.reset();
                 editingProductId = null;
+                editingInitialStock = null;
                 await cargarProductos();
             } else {
                 alert(response.message);
@@ -782,6 +788,7 @@ window.abastecerStock = (id, nombre) => {
 
 window.iniciarEdicion = async (id, nombre, descripcion, precio, stock, stockMinimo, fotoPath, categoriaId) => {
     editingProductId = id;
+    editingInitialStock = Number(stock);
     const modal = document.getElementById('modal-producto');
     const formProducto = document.getElementById('form-producto');
     if (modal && formProducto) {

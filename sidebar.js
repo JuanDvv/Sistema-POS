@@ -468,9 +468,13 @@
         isPedidos ? 'Pedidos / Apartados' :
         'Sistema Principal';
 
+    let sucursalActivaSidebar = 'Sin Sucursal';
+    let ultimoIntentoUsuario = `Navegación en pantalla ${paginaActual}`;
+
     if (window.api && window.api.obtenerSucursalId) {
         window.api.obtenerSucursalId().then(res => {
             const nombreSucursal = (res && res.success && res.id) ? res.id : 'Sin asignar';
+            sucursalActivaSidebar = nombreSucursal;
             document.title = `POS Delipostres Turbaco - ${paginaActual} | Sucursal: ${nombreSucursal}`;
         }).catch(() => { });
     }
@@ -842,6 +846,58 @@
 
     if (window.api && window.api.onTransferenciaEntrante) {
         window.api.onTransferenciaEntrante(mostrarTransferenciaEntrante);
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!e.target || typeof e.target.closest !== 'function') return;
+        const accionable = e.target.closest('button, a, [role="button"], input[type="submit"]');
+        if (!accionable) return;
+        const texto = (accionable.innerText || accionable.value || accionable.title || accionable.id || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 80);
+        if (texto) {
+            ultimoIntentoUsuario = `Pantalla ${paginaActual} → Click en "${texto}"`;
+        }
+    }, true);
+
+    document.addEventListener('submit', (e) => {
+        const formId = e.target?.id || e.target?.getAttribute?.('name') || 'formulario';
+        ultimoIntentoUsuario = `Pantalla ${paginaActual} → Envío de ${formId}`;
+    }, true);
+
+    if (window.api && window.api.reportarErrorInterfaz) {
+        window.addEventListener('error', (event) => {
+            const err = event.error;
+            const msg = event.message || err?.message || 'Error en interfaz gráfica';
+            const origenArchivo = event.filename ? `${event.filename.split(/[\\/]/).pop()}:${event.lineno || 0}` : paginaActual;
+            window.api.reportarErrorInterfaz({
+                usuario: sessionStorage.getItem('currentUser') || currentUser || 'Sistema',
+                rol: sessionStorage.getItem('currentRole') || currentRole || 'Sin Rol',
+                sucursalId: sucursalActivaSidebar,
+                modulo: paginaActual,
+                origen: `UI:${origenArchivo}`,
+                intentoUsuario: ultimoIntentoUsuario,
+                errorMensaje: msg,
+                errorStack: err?.stack || `${msg} (${origenArchivo})`
+            }).catch(() => {});
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason;
+            if (reason && reason.sinConexion) return;
+            const msg = reason?.message || String(reason || 'Promesa rechazada en interfaz');
+            window.api.reportarErrorInterfaz({
+                usuario: sessionStorage.getItem('currentUser') || currentUser || 'Sistema',
+                rol: sessionStorage.getItem('currentRole') || currentRole || 'Sin Rol',
+                sucursalId: sucursalActivaSidebar,
+                modulo: paginaActual,
+                origen: `UI:Promise (${paginaActual})`,
+                intentoUsuario: ultimoIntentoUsuario,
+                errorMensaje: msg,
+                errorStack: reason?.stack || msg
+            }).catch(() => {});
+        });
     }
 
     // Seleccionar automáticamente todo el texto al enfocar inputs numéricos y buscadores

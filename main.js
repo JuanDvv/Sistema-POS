@@ -1,10 +1,15 @@
-const { app, BrowserWindow, protocol, screen } = require('electron');
+const { app, BrowserWindow, protocol, screen, ipcMain } = require('electron');
 const path = require('path');
 
 const { db } = require('./db/connection');
 const { initDB } = require('./db/schema');
 const { imagenesAppDir } = require('./services/imagenService');
-const { procesarSincronizacion } = require('./sync/syncService');
+const { procesarSincronizacion, solicitarSincronizacion } = require('./sync/syncService');
+const {
+    instalarInterceptorErroresIpc,
+    configurarCallbackSincronizacionErrores,
+    registrarErrorSistema
+} = require('./services/errorLogService');
 
 const { registerVentasIpc } = require('./ipc/registerVentasIpc');
 const { registerProductosIpc } = require('./ipc/registerProductosIpc');
@@ -25,6 +30,26 @@ const { registerPedidoSugeridoIpc } = require('./ipc/registerPedidoSugeridoIpc')
 // main.js es exclusivamente el "composition root": ciclo de vida de la app/ventanas y el cableado
 // de los módulos de dominio (db, servicios, sincronización, handlers IPC). La lógica de negocio y
 // de sincronización vive en services/ y sync/; los canales IPC están agrupados por dominio en ipc/.
+
+app.on('browser-window-created', (_event, win) => {
+    const versionTag = `v${app.getVersion()}`;
+    const formatTitle = (rawTitle) => {
+        if (!rawTitle || rawTitle.includes(versionTag)) return rawTitle;
+        if (rawTitle.startsWith('POS Delipostres Turbaco')) {
+            return rawTitle.replace('POS Delipostres Turbaco', `POS Delipostres Turbaco ${versionTag}`);
+        }
+        return `POS Delipostres Turbaco ${versionTag} - ${rawTitle}`;
+    };
+
+    win.on('page-title-updated', (event, title) => {
+        event.preventDefault();
+        win.setTitle(formatTitle(title));
+    });
+
+    win.webContents.on('did-finish-load', () => {
+        win.setTitle(formatTitle(win.webContents.getTitle()));
+    });
+});
 
 function createWindow() {
     const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
@@ -69,7 +94,30 @@ function registerAllIpcHandlers() {
 
 app.whenReady().then(async () => {
     initDB(db);
+    configurarCallbackSincronizacionErrores(() => solicitarSincronizacion('nuevo error de sistema'));
+    instalarInterceptorErroresIpc(ipcMain);
     registerAllIpcHandlers();
+
+    process.on('uncaughtException', (err) => {
+        console.error('[Main] Excepción no controlada:', err);
+        registrarErrorSistema({
+            modulo: 'Proceso Principal',
+            origen: 'process.uncaughtException',
+            intentoUsuario: 'Ejecución interna del sistema principal (proceso de fondo)',
+            error: err
+        });
+    });
+
+    process.on('unhandledRejection', (reason) => {
+        if (reason && reason.sinConexion) return;
+        console.error('[Main] Promesa rechazada no controlada:', reason);
+        registrarErrorSistema({
+            modulo: 'Proceso Principal',
+            origen: 'process.unhandledRejection',
+            intentoUsuario: 'Operación asíncrona interna del sistema',
+            error: reason instanceof Error ? reason : new Error(String(reason || 'Promesa rechazada'))
+        });
+    });
 
     // Registrar protocolo seguro local app-image mapeado a imagenesAppDir
     protocol.registerFileProtocol('app-image', (request, callback) => {

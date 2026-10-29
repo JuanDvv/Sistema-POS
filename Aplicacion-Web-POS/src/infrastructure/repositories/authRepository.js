@@ -18,7 +18,7 @@ const TAG_ORIGEN_WEB = '[Realizado desde la aplicación web]';
 async function registrarAuditoriaRemota({ usuario, rol, sucursalId, accion, detalles }) {
     try {
         const id = uuidv4();
-        const fecha = obtenerFechaWallClock();
+        const fecha = `${obtenerFechaWallClock()}-05:00`;
         let detallesTexto = typeof detalles === 'object' ? JSON.stringify(detalles) : String(detalles || '').trim();
         if (!detallesTexto.includes(TAG_ORIGEN_WEB)) {
             detallesTexto = detallesTexto ? `${detallesTexto} ${TAG_ORIGEN_WEB}` : TAG_ORIGEN_WEB;
@@ -29,6 +29,7 @@ async function registrarAuditoriaRemota({ usuario, rol, sucursalId, accion, deta
              ON CONFLICT (id) DO NOTHING`,
             [id, fecha, usuario || 'Sistema', rol || 'Sin Rol', sucursalId || 'Web-Movil', accion, detallesTexto]
         );
+        console.log(`[authRepository] Auditoría web registrada: '${accion}' por '${usuario || 'Sistema'}'`);
     } catch (err) {
         console.error('[authRepository] No se pudo escribir en auditoria:', err.message);
     }

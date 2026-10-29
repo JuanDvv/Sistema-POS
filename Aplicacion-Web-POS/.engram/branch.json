@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "branchName": "delipostres-turbaco",
+  "worktreePath": "C:\\Users\\juan.vergara\\Music\\Sistema-POS - Copy",
+  "upstream": "origin/delipostres-turbaco",
+  "mergeBase": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+  "firstSeenHead": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+  "lastSeenHead": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+  "lastAnalyzedHead": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+  "stale": false,
+  "staleReason": null,
+  "staleSince": null,
+  "lifecycleEvent": null,
+  "createdAt": "2026-10-28T21:52:48.897Z",
+  "updatedAt": "2026-10-28T21:52:48.897Z"
+}

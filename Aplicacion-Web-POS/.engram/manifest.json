@@ -1,0 +1,66 @@
+{
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/domain/admin/turnosDomain.js": {
+    "mtime": 1792788236389.6672,
+    "hash": "220d5285415c994cd959c32c64578268"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/domain/auth/authDomain.js": {
+    "mtime": 1792700614325.8975,
+    "hash": "0a18f30f8f75dacfb89c0d815b8fa380"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/domain/catalogo/catalogoDomain.js": {
+    "mtime": 1792760905930.2012,
+    "hash": "87dfebfaec895fac2a084578bd9a9174"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/domain/reportes/reporteDiarioDomain.js": {
+    "mtime": 1792797343146.9895,
+    "hash": "22eab01ef8d8407c1fd618720776fa25"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/domain/shared/clock.js": {
+    "mtime": 1792700614384.1401,
+    "hash": "3f65f15b3aa66c627b5bad5b702b97b1"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/config/envConfig.js": {
+    "mtime": 1792700614710.9824,
+    "hash": "57e68cc46c319b33e4ed5fab432ac018"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/db/postgresClient.js": {
+    "mtime": 1792809436303.0183,
+    "hash": "40db87189f7eda78ea3c88704c7b81e9"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/auditoriaRepository.js": {
+    "mtime": 1792773761779.6494,
+    "hash": "6e0ba536fdc012e7d9c678ff24d6c20d"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/authRepository.js": {
+    "mtime": 1792808005692.0454,
+    "hash": "2f9a50042d8ee7a69882874d4875d4e0"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/catalogoRepository.js": {
+    "mtime": 1792760906934.5044,
+    "hash": "e05833c33b123df6bf930421de6982bc"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/reporteDiarioRepository.js": {
+    "mtime": 1792768991777.4067,
+    "hash": "4d4ca9ba4bb55394ad573e9a5579e1f6"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/solicitudesRepository.js": {
+    "mtime": 1792788236721.3325,
+    "hash": "0f5c678a9e8a4d692b6c5e14ca4819cb"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/infrastructure/repositories/sucursalRepository.js": {
+    "mtime": 1792760487557.2715,
+    "hash": "0e351e757d036ecdc888c839991fa05c"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/presentation/http/server.js": {
+    "mtime": 1792795222325.187,
+    "hash": "c78ef1d00bed6e732d37bd29387572db"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/presentation/web/app.js": {
+    "mtime": 1792808594240.6328,
+    "hash": "422af2648a8bc6f476057c353fb65dfc"
+  },
+  "C:/Users/juan.vergara/Music/Sistema-POS - Copy/Aplicacion-Web-POS/src/presentation/web/index.html": {
+    "mtime": 1792808594390.9177,
+    "hash": "d21ab3915b1d473857543420af090670"
+  }
+}

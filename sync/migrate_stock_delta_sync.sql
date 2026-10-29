@@ -10,10 +10,10 @@
 -- una foto del contador, subimos el movimiento y dejamos que la nube lo sume de forma atómica:
 -- conmutativo, sin importar el orden de llegada de cada terminal.
 --
--- Ejecutar este script completo en el SQL Editor de AMBOS proyectos de Supabase
+-- Ejecutar este script en la base de datos PostgreSQL del servidor Linux (vía psql o cliente SQL):
 -- (el de datos, no el de logs de auditoría):
---   - PRUEBA:     https://supabase.com/dashboard/project/kfcaaiyzdmcdccmhqemf/sql/new
---   - PRODUCCIÓN: https://supabase.com/dashboard/project/mkbwfypxupebulwhijgw/sql/new
+--   - Servidor PostgreSQL (producción / pruebas)
+--   - Idempotente: CREATE OR REPLACE / CREATE TABLE IF NOT EXISTS
 -- Es idempotente (CREATE OR REPLACE / DROP...IF EXISTS / CREATE...IF NOT EXISTS): se puede
 -- correr más de una vez sin problema. Si ya corriste una versión anterior de este archivo (solo
 -- con el fix de lww_guard + aplicar_movimiento_inventario), correr esta versión completa
@@ -68,6 +68,8 @@ begin
     if v_insertado then
         insert into public.inventario_sucursal (producto_id, sucursal_id, stock, updated_at)
         values (p_producto_id, p_sucursal_id, p_cantidad, now())
+
+
         on conflict (producto_id, sucursal_id) do update
             set stock = public.inventario_sucursal.stock + excluded.stock,
                 updated_at = now();
@@ -77,7 +79,7 @@ $function$;
 
 -- Permite invocar la función a través del cliente publishable/anon (mismo modelo de
 -- permisos abierto que ya usan las policies "Permitir todo a anon" del resto de la app).
-GRANT EXECUTE ON FUNCTION public.aplicar_movimiento_inventario(text, text, text, text, integer, text, text, timestamptz) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.aplicar_movimiento_inventario(text, text, text, text, integer, text, text, timestamptz) TO PUBLIC;
 
 -- 3) Mismo arreglo para inventario_sucursal.stock_reservado (hold de Pedidos/Apartados): también
 --    es un contador que varias terminales incrementan/decrementan de forma concurrente (crear,
@@ -131,12 +133,14 @@ begin
 
     if v_insertado then
         insert into public.inventario_sucursal (producto_id, sucursal_id, stock_reservado, updated_at)
-        values (p_producto_id, p_sucursal_id, p_cantidad, now())
+        values (p_producto_id, p_sucursal_id, GREATEST(0, p_cantidad), now())
+
+
         on conflict (producto_id, sucursal_id) do update
-            set stock_reservado = public.inventario_sucursal.stock_reservado + excluded.stock_reservado,
+            set stock_reservado = GREATEST(0, COALESCE(public.inventario_sucursal.stock_reservado, 0) + excluded.stock_reservado),
                 updated_at = now();
     end if;
 end;
 $function$;
 
-GRANT EXECUTE ON FUNCTION public.aplicar_reserva_inventario(text, text, text, text, integer, text, text, timestamptz) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.aplicar_reserva_inventario(text, text, text, text, integer, text, text, timestamptz) TO PUBLIC;

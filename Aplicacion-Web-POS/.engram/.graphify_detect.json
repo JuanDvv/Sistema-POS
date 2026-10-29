@@ -1,0 +1,60 @@
+{
+  "files": {
+    "code": [
+      "src/domain/admin/turnosDomain.js",
+      "src/domain/auth/authDomain.js",
+      "src/domain/catalogo/catalogoDomain.js",
+      "src/domain/reportes/reporteDiarioDomain.js",
+      "src/domain/shared/clock.js",
+      "src/infrastructure/config/envConfig.js",
+      "src/infrastructure/db/postgresClient.js",
+      "src/infrastructure/repositories/auditoriaRepository.js",
+      "src/infrastructure/repositories/authRepository.js",
+      "src/infrastructure/repositories/catalogoRepository.js",
+      "src/infrastructure/repositories/reporteDiarioRepository.js",
+      "src/infrastructure/repositories/solicitudesRepository.js",
+      "src/infrastructure/repositories/sucursalRepository.js",
+      "src/presentation/http/server.js",
+      "src/presentation/web/app.js"
+    ],
+    "document": [
+      "src/presentation/web/index.html"
+    ],
+    "paper": [],
+    "image": [],
+    "video": []
+  },
+  "total_files": 16,
+  "total_words": 14153,
+  "needs_graph": false,
+  "warning": "Corpus is ~14,153 words - fits in a single context window. You may not need a graph.",
+  "skipped_sensitive": [],
+  "graphifyignore_patterns": 8,
+  "git": {
+    "source_owner": "git",
+    "source_hash": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+    "branches": [
+      "Tienda-Kary",
+      "delipostres-turbaco",
+      "main"
+    ],
+    "max_commits": 200,
+    "active_within_days": 30
+  },
+  "scope": {
+    "requested_mode": "auto",
+    "resolved_mode": "committed",
+    "source": "default-auto",
+    "root": ".",
+    "git_root": "..",
+    "head": "b4f4e10afec3542d7a9a4dce22390ee6e628a7b6",
+    "candidate_count": 21,
+    "included_count": 16,
+    "excluded_untracked_count": 0,
+    "excluded_ignored_count": 213,
+    "excluded_sensitive_count": 0,
+    "missing_committed_count": 0,
+    "warnings": [],
+    "recommendation": "Use --scope all or graphify.yaml inputs.corpus for a knowledge-base folder."
+  }
+}

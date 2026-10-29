@@ -64,7 +64,10 @@ const MIME_TYPES = {
 function enviarJson(res, status, payload, extraHeaders = {}) {
     res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store',
         ...extraHeaders
     });
     res.end(JSON.stringify(payload));
@@ -123,7 +126,14 @@ function servirArchivoEstatico(reqPath, res) {
     }
     const ext = path.extname(rutaSegura).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
+    const cacheHeader = (ext === '.html' || ext === '.js' || ext === '.css')
+        ? 'no-cache, must-revalidate'
+        : 'public, max-age=86400';
+    res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': cacheHeader,
+        'Pragma': 'no-cache'
+    });
     fs.createReadStream(rutaSegura).pipe(res);
 }
 

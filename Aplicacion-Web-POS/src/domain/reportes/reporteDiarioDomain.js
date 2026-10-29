@@ -183,6 +183,7 @@ function calcularResumenFinancieroDia({ ventas = [], gastos = [], abonosPedido =
     const totalIngresosRecibidos = ventasEfectivo + ventasTransferencia;
     const totalGastosCaja = gastosEfectivo + gastosTransferencia;
     const efectivoEnCaja = ventasEfectivo - gastosEfectivo;
+    const cajaNeta = totalIngresosRecibidos - totalGastosCaja;
 
     return {
         ventasEfectivo,
@@ -193,6 +194,7 @@ function calcularResumenFinancieroDia({ ventas = [], gastos = [], abonosPedido =
         gastosTransferencia,
         gastosNoFinancieros,
         totalGastosCaja,
+        cajaNeta,
         efectivoEnCaja
     };
 }

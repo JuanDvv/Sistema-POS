@@ -11,9 +11,12 @@ const state = {
     tabActiva: 'reporte',
     fechaReporte: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()),
     subtabReporte: 'ventas',
+    filtroBusquedaVentas: '',
     reporte: null,
     editingVenta: null,
     editingVentaItems: [],
+    ultimoCampoMixtoEditado: 'efectivo',
+    productoSeleccionadoVenta: null,
     subtabAdmin: 'turnos',
     fechaInicioTurnos: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()),
     diasTurnos: 14,
@@ -46,14 +49,17 @@ const els = {
     btnFechaAyer: document.getElementById('btn-fecha-ayer'),
     btnFechaHoy: document.getElementById('btn-fecha-hoy'),
     btnRefreshReporte: document.getElementById('btn-refresh-reporte'),
+    resCajaNeta: document.getElementById('res-caja-neta'),
+    resDesgloseCajaNeta: document.getElementById('res-desglose-caja-neta'),
     resEfectivoCaja: document.getElementById('res-efectivo-caja'),
     resDesgloseEfectivo: document.getElementById('res-desglose-efectivo'),
-    resTotalRecibido: document.getElementById('res-total-recibido'),
-    resDesgloseIngresos: document.getElementById('res-desglose-ingresos'),
+    resVentasEfectivo: document.getElementById('res-ventas-efectivo'),
+    resVentasTransferencia: document.getElementById('res-ventas-transferencia'),
     resTotalGastos: document.getElementById('res-total-gastos'),
     resVentasCredito: document.getElementById('res-ventas-credito'),
     countVentas: document.getElementById('count-ventas'),
     countGastos: document.getElementById('count-gastos'),
+    searchVentas: document.getElementById('search-ventas'),
     btnNuevoGasto: document.getElementById('btn-nuevo-gasto'),
     listaVentas: document.getElementById('lista-ventas'),
     listaGastos: document.getElementById('lista-gastos'),
@@ -107,7 +113,10 @@ const els = {
     editVentaEfectivo: document.getElementById('edit-venta-efectivo'),
     editVentaTransferencia: document.getElementById('edit-venta-transferencia'),
     editVentaItemsList: document.getElementById('edit-venta-items-list'),
-    editVentaAddProdSelect: document.getElementById('edit-venta-add-prod-select'),
+    editVentaProdCombobox: document.getElementById('edit-venta-prod-combobox'),
+    editVentaAddProdSearch: document.getElementById('edit-venta-add-prod-search'),
+    btnClearProdSearch: document.getElementById('btn-clear-prod-search'),
+    editVentaProdDropdown: document.getElementById('edit-venta-prod-dropdown'),
     editVentaAddCant: document.getElementById('edit-venta-add-cant'),
     btnEditVentaAddItem: document.getElementById('btn-edit-venta-add-item'),
     editVentaTotalCalc: document.getElementById('edit-venta-total-calc'),
@@ -177,11 +186,29 @@ function mostrarToast(mensaje) {
 }
 
 async function apiFetch(url, options = {}) {
-    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+    const headers = {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        ...(options.headers || {})
+    };
     if (state.token) {
         headers['Authorization'] = `Bearer ${state.token}`;
     }
-    const res = await fetch(url, { ...options, headers });
+    const sep = url.includes('?') ? '&' : '?';
+    const cacheBustedUrl = `${url}${sep}_ts=${Date.now()}`;
+    const res = await fetch(cacheBustedUrl, {
+        cache: 'no-store',
+        ...options,
+        headers
+    });
+    if (res.status === 401 && !url.includes('/api/auth/session')) {
+        state.token = null;
+        state.usuario = null;
+        localStorage.removeItem('pos_mobile_token');
+        restaurarSesion();
+        return { status: 401, data: { ok: false, error: 'Sesión expirada' } };
+    }
     const data = await res.json().catch(() => ({ ok: false, error: 'Error de respuesta' }));
     return { status: res.status, data };
 }
@@ -524,10 +551,24 @@ els.btnFilterBajoStock.addEventListener('click', () => {
     renderProductos();
 });
 
-els.btnRefreshCatalogo.addEventListener('click', async () => {
-    await cargarCatalogo();
-    mostrarToast('Catálogo actualizado');
-});
+if (els.btnRefreshCatalogo) {
+    els.btnRefreshCatalogo.addEventListener('click', async () => {
+        const btn = els.btnRefreshCatalogo;
+        btn.disabled = true;
+        const txtOriginal = btn.textContent;
+        btn.textContent = 'Actualizando...';
+        try {
+            await verificarSaludServidor();
+            await cargarCatalogo();
+            mostrarToast('Catálogo actualizado');
+        } catch (_) {
+            mostrarToast('Error al actualizar catálogo');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = txtOriginal;
+        }
+    });
+}
 
 els.btnNuevoProducto.addEventListener('click', () => abrirModalProducto(null));
 els.btnCerrarModalProducto.addEventListener('click', () => els.modalProducto.classList.add('hidden'));
@@ -686,29 +727,59 @@ function obtenerFechaAyerString() {
 }
 
 async function cargarReporteDiario() {
-    if (!state.usuario || !state.sucursalActivaId) return;
-    els.reporteFecha.value = state.fechaReporte;
+    if (!state.usuario || !state.sucursalActivaId) return false;
+    if (els.reporteFecha && els.reporteFecha.value) {
+        state.fechaReporte = els.reporteFecha.value;
+    } else if (els.reporteFecha) {
+        els.reporteFecha.value = state.fechaReporte;
+    }
 
     const qs = `sucursalId=${encodeURIComponent(state.sucursalActivaId)}&fecha=${encodeURIComponent(state.fechaReporte)}`;
     const { status, data } = await apiFetch(`/api/reporte-diario?${qs}`);
     if (status === 200 && data.ok) {
         state.reporte = data;
         renderReporteDiario();
+        return true;
     }
+    return false;
 }
 
 function renderReporteDiario() {
     if (!state.reporte) return;
     const { resumen, ventas, gastos } = state.reporte;
 
-    els.resEfectivoCaja.textContent = formatoMoneda.format(resumen.efectivoEnCaja || 0);
-    els.resDesgloseEfectivo.textContent = `Ventas Ef: ${formatoMoneda.format(resumen.ventasEfectivo || 0)} - Gastos Ef: ${formatoMoneda.format(resumen.gastosEfectivo || 0)}`;
+    const cajaNeta = resumen.cajaNeta !== undefined
+        ? resumen.cajaNeta
+        : ((resumen.totalIngresosRecibidos || 0) - (resumen.totalGastosCaja || 0));
 
-    els.resTotalRecibido.textContent = formatoMoneda.format(resumen.totalIngresosRecibidos || 0);
-    els.resDesgloseIngresos.textContent = `Ef: ${formatoMoneda.format(resumen.ventasEfectivo || 0)} · Tr: ${formatoMoneda.format(resumen.ventasTransferencia || 0)}`;
+    if (els.resCajaNeta) {
+        els.resCajaNeta.textContent = formatoMoneda.format(cajaNeta);
+        els.resCajaNeta.style.color = cajaNeta >= 0 ? '#38bdf8' : '#ef4444';
+    }
+    if (els.resDesgloseCajaNeta) {
+        els.resDesgloseCajaNeta.textContent = `Ingresos: ${formatoMoneda.format(resumen.totalIngresosRecibidos || 0)} - Gastos: ${formatoMoneda.format(resumen.totalGastosCaja || 0)}`;
+    }
 
-    els.resTotalGastos.textContent = formatoMoneda.format(resumen.totalGastosCaja || 0);
-    els.resVentasCredito.textContent = formatoMoneda.format(resumen.ventasCredito || 0);
+    if (els.resEfectivoCaja) {
+        els.resEfectivoCaja.textContent = formatoMoneda.format(resumen.efectivoEnCaja || 0);
+        els.resEfectivoCaja.style.color = (resumen.efectivoEnCaja || 0) >= 0 ? '#10b981' : '#ef4444';
+    }
+    if (els.resDesgloseEfectivo) {
+        els.resDesgloseEfectivo.textContent = `Ventas Ef: ${formatoMoneda.format(resumen.ventasEfectivo || 0)} - Gastos Ef: ${formatoMoneda.format(resumen.gastosEfectivo || 0)}`;
+    }
+
+    if (els.resVentasEfectivo) {
+        els.resVentasEfectivo.textContent = formatoMoneda.format(resumen.ventasEfectivo || 0);
+    }
+    if (els.resVentasTransferencia) {
+        els.resVentasTransferencia.textContent = formatoMoneda.format(resumen.ventasTransferencia || 0);
+    }
+    if (els.resTotalGastos) {
+        els.resTotalGastos.textContent = formatoMoneda.format(resumen.totalGastosCaja || 0);
+    }
+    if (els.resVentasCredito) {
+        els.resVentasCredito.textContent = formatoMoneda.format(resumen.ventasCredito || 0);
+    }
 
     els.countVentas.textContent = ventas ? ventas.length : 0;
     els.countGastos.textContent = gastos ? gastos.length : 0;
@@ -722,11 +793,40 @@ function renderVentas() {
     els.listaVentas.innerHTML = '';
 
     if (ventas.length === 0) {
+        els.countVentas.textContent = 0;
         els.listaVentas.innerHTML = '<div class="card empty-state">No se registraron ventas en esta fecha.</div>';
         return;
     }
 
-    for (const v of ventas) {
+    const termino = normalizarTextoBusqueda(state.filtroBusquedaVentas).replace(/\s+/g, ' ');
+    const terminoNumerico = termino.replace(/[$.\s]/g, '');
+
+    const filtradas = !termino ? ventas : ventas.filter(v => {
+        const hora = formatearHoraVenta(v.fecha).replace(/\s+/g, ' ');
+        const horaCompacta = hora.replace(/[.\s]/g, '');
+        const totalNum = String(Number(v.total || 0));
+        const subtotalNum = String(Number(v.subtotal_productos || v.total || 0));
+        const domNum = String(Number(v.valor_domicilio || 0));
+        const totalFmt = formatoMoneda.format(Number(v.total || 0)).replace(/\s+/g, ' ');
+        const subtotalFmt = formatoMoneda.format(Number(v.subtotal_productos || v.total || 0)).replace(/\s+/g, ' ');
+
+        const textoIndexado = normalizarTextoBusqueda(
+            `${v.productos_vendidos || ''} ${v.cliente_nombre || ''} ${hora} ${horaCompacta} ${v.fecha || ''} ${v.metodo_pago || 'Efectivo'} ${totalFmt} ${subtotalFmt} ${totalNum} ${subtotalNum} ${domNum}`
+        ).replace(/\s+/g, ' ');
+
+        if (textoIndexado.includes(termino)) return true;
+        if (terminoNumerico && (totalNum.includes(terminoNumerico) || subtotalNum.includes(terminoNumerico))) return true;
+        return false;
+    });
+
+    els.countVentas.textContent = filtradas.length;
+
+    if (filtradas.length === 0) {
+        els.listaVentas.innerHTML = '<div class="card empty-state">No se encontraron ventas con este filtro.</div>';
+        return;
+    }
+
+    for (const v of filtradas) {
         const item = document.createElement('div');
         item.className = 'product-item';
 
@@ -811,16 +911,62 @@ function renderGastos() {
 // MODAL EDICION DE VENTA
 // ------------------------------------------
 
-function poblarSelectProductosEnVenta() {
-    els.editVentaAddProdSelect.innerHTML = '<option value="">-- Seleccionar producto para agregar --</option>';
-    for (const p of state.productos) {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.nombre} (${formatoMoneda.format(Number(p.precio || 0))})`;
-        opt.dataset.precio = p.precio;
-        opt.dataset.nombre = p.nombre;
-        els.editVentaAddProdSelect.appendChild(opt);
+function normalizarTextoBusqueda(texto) {
+    return String(texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function limpiarBuscadorProductoVenta() {
+    state.productoSeleccionadoVenta = null;
+    if (els.editVentaAddProdSearch) els.editVentaAddProdSearch.value = '';
+    if (els.btnClearProdSearch) els.btnClearProdSearch.classList.add('hidden');
+    if (els.editVentaProdDropdown) els.editVentaProdDropdown.classList.add('hidden');
+}
+
+function seleccionarProductoParaVenta(prod) {
+    state.productoSeleccionadoVenta = prod;
+    if (els.editVentaAddProdSearch) {
+        els.editVentaAddProdSearch.value = `${prod.nombre} (${formatoMoneda.format(Number(prod.precio || 0))})`;
     }
+    if (els.btnClearProdSearch) els.btnClearProdSearch.classList.remove('hidden');
+    if (els.editVentaProdDropdown) els.editVentaProdDropdown.classList.add('hidden');
+}
+
+function renderDropdownProductosVenta(terminoRaw = '') {
+    if (!els.editVentaProdDropdown) return;
+    const termino = normalizarTextoBusqueda(terminoRaw);
+    const coincidencias = state.productos.filter(p => {
+        if (!termino) return true;
+        return normalizarTextoBusqueda(p.nombre).includes(termino);
+    });
+
+    els.editVentaProdDropdown.innerHTML = '';
+
+    if (coincidencias.length === 0) {
+        els.editVentaProdDropdown.innerHTML = '<div class="combobox-empty">No se encontraron productos</div>';
+        return;
+    }
+
+    for (const p of coincidencias) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'combobox-option';
+        btn.innerHTML = `
+            <span class="combobox-option-name"></span>
+            <span class="combobox-option-price">${formatoMoneda.format(Number(p.precio || 0))}</span>
+        `;
+        btn.querySelector('.combobox-option-name').textContent = p.nombre;
+        btn.addEventListener('click', () => seleccionarProductoParaVenta(p));
+        els.editVentaProdDropdown.appendChild(btn);
+    }
+}
+
+function poblarSelectProductosEnVenta() {
+    limpiarBuscadorProductoVenta();
+    renderDropdownProductosVenta('');
 }
 
 function renderEditingVentaItems() {
@@ -870,22 +1016,38 @@ function renderEditingVentaItems() {
     });
 }
 
-function recalcularTotalVentaModal() {
+function calcularTotalVentaModal() {
     const subtotal = state.editingVentaItems.reduce((acc, it) => acc + (it.cantidad * it.precio), 0);
     const dom = Number(els.editVentaDomicilio.value || 0);
-    const total = subtotal + dom;
+    return subtotal + dom;
+}
+
+function recalcularTotalVentaModal() {
+    const total = calcularTotalVentaModal();
     els.editVentaTotalCalc.textContent = formatoMoneda.format(total);
 
     if (els.editVentaMetodoPago.value === 'Mixto') {
-        const ef = Number(els.editVentaEfectivo.value || 0);
-        if (ef <= total) {
-            els.editVentaTransferencia.value = Math.max(0, total - ef);
+        const tieneEfectivo = els.editVentaEfectivo.value !== '';
+        const tieneTransferencia = els.editVentaTransferencia.value !== '';
+        if (!tieneEfectivo && !tieneTransferencia) return;
+
+        if (state.ultimoCampoMixtoEditado === 'transferencia' || (!tieneEfectivo && tieneTransferencia)) {
+            const tr = Number(els.editVentaTransferencia.value || 0);
+            if (tr <= total) {
+                els.editVentaEfectivo.value = Math.max(0, total - tr);
+            }
+        } else {
+            const ef = Number(els.editVentaEfectivo.value || 0);
+            if (ef <= total) {
+                els.editVentaTransferencia.value = Math.max(0, total - ef);
+            }
         }
     }
 }
 
 async function abrirModalEditarVenta(ventaId) {
     els.editVentaError.classList.add('hidden');
+    state.ultimoCampoMixtoEditado = 'efectivo';
     poblarSelectProductosEnVenta();
 
     const { status, data } = await apiFetch(`/api/ventas/${encodeURIComponent(ventaId)}`);
@@ -939,20 +1101,83 @@ els.editVentaMetodoPago.addEventListener('change', (e) => {
 els.editVentaDomicilio.addEventListener('input', recalcularTotalVentaModal);
 
 els.editVentaEfectivo.addEventListener('input', () => {
-    const subtotal = state.editingVentaItems.reduce((acc, it) => acc + (it.cantidad * it.precio), 0);
-    const total = subtotal + Number(els.editVentaDomicilio.value || 0);
+    state.ultimoCampoMixtoEditado = 'efectivo';
+    const total = calcularTotalVentaModal();
     const ef = Number(els.editVentaEfectivo.value || 0);
     els.editVentaTransferencia.value = Math.max(0, total - ef);
 });
 
-els.btnEditVentaAddItem.addEventListener('click', () => {
-    const prodId = els.editVentaAddProdSelect.value;
-    const cant = Number(els.editVentaAddCant.value || 1);
-    if (!prodId) return;
+els.editVentaTransferencia.addEventListener('input', () => {
+    state.ultimoCampoMixtoEditado = 'transferencia';
+    const total = calcularTotalVentaModal();
+    const tr = Number(els.editVentaTransferencia.value || 0);
+    els.editVentaEfectivo.value = Math.max(0, total - tr);
+});
 
-    const opt = els.editVentaAddProdSelect.selectedOptions[0];
-    const nombre = opt.dataset.nombre || 'Producto';
-    const precio = Number(opt.dataset.precio || 0);
+function resolverProductoSeleccionadoOEscrito() {
+    if (state.productoSeleccionadoVenta) return state.productoSeleccionadoVenta;
+    const termino = normalizarTextoBusqueda(els.editVentaAddProdSearch ? els.editVentaAddProdSearch.value : '');
+    if (!termino) return null;
+    const exacto = state.productos.find(p => normalizarTextoBusqueda(p.nombre) === termino);
+    if (exacto) return exacto;
+    const filtrados = state.productos.filter(p => normalizarTextoBusqueda(p.nombre).includes(termino));
+    return filtrados.length === 1 ? filtrados[0] : null;
+}
+
+if (els.editVentaAddProdSearch) {
+    els.editVentaAddProdSearch.addEventListener('focus', () => {
+        const filtro = state.productoSeleccionadoVenta ? '' : els.editVentaAddProdSearch.value;
+        renderDropdownProductosVenta(filtro);
+        els.editVentaProdDropdown.classList.remove('hidden');
+    });
+
+    els.editVentaAddProdSearch.addEventListener('input', (e) => {
+        state.productoSeleccionadoVenta = null;
+        const val = e.target.value;
+        els.btnClearProdSearch.classList.toggle('hidden', !val);
+        renderDropdownProductosVenta(val);
+        els.editVentaProdDropdown.classList.remove('hidden');
+    });
+
+    els.editVentaAddProdSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const prod = resolverProductoSeleccionadoOEscrito();
+            if (prod) {
+                seleccionarProductoParaVenta(prod);
+                els.btnEditVentaAddItem.click();
+            }
+        }
+    });
+}
+
+if (els.btnClearProdSearch) {
+    els.btnClearProdSearch.addEventListener('click', () => {
+        limpiarBuscadorProductoVenta();
+        renderDropdownProductosVenta('');
+        els.editVentaProdDropdown.classList.remove('hidden');
+        els.editVentaAddProdSearch.focus();
+    });
+}
+
+document.addEventListener('click', (e) => {
+    if (els.editVentaProdCombobox && !els.editVentaProdCombobox.contains(e.target)) {
+        els.editVentaProdDropdown.classList.add('hidden');
+    }
+});
+
+els.btnEditVentaAddItem.addEventListener('click', () => {
+    const prod = resolverProductoSeleccionadoOEscrito();
+    const cant = Number(els.editVentaAddCant.value || 1);
+    if (!prod) {
+        mostrarToast('Selecciona un producto de la lista');
+        if (els.editVentaAddProdSearch) els.editVentaAddProdSearch.focus();
+        return;
+    }
+
+    const prodId = prod.id;
+    const nombre = prod.nombre || 'Producto';
+    const precio = Number(prod.precio || 0);
 
     const existente = state.editingVentaItems.find(it => it.id === prodId);
     if (existente) {
@@ -962,7 +1187,7 @@ els.btnEditVentaAddItem.addEventListener('click', () => {
     }
 
     els.editVentaAddCant.value = '1';
-    els.editVentaAddProdSelect.value = '';
+    limpiarBuscadorProductoVenta();
     renderEditingVentaItems();
     recalcularTotalVentaModal();
 });
@@ -1114,10 +1339,35 @@ els.btnFechaAyer.addEventListener('click', async () => {
     await cargarReporteDiario();
 });
 
-els.btnRefreshReporte.addEventListener('click', async () => {
-    await cargarReporteDiario();
-    mostrarToast('Reporte diario actualizado');
-});
+if (els.btnRefreshReporte) {
+    els.btnRefreshReporte.addEventListener('click', async () => {
+        const btn = els.btnRefreshReporte;
+        btn.disabled = true;
+        const txtOriginal = btn.textContent;
+        btn.textContent = 'Actualizando...';
+        try {
+            await verificarSaludServidor();
+            const ok = await cargarReporteDiario();
+            if (ok) {
+                mostrarToast('Reporte diario actualizado');
+            } else {
+                mostrarToast('No se pudo actualizar el reporte');
+            }
+        } catch (_) {
+            mostrarToast('Error de conexión al actualizar');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = txtOriginal;
+        }
+    });
+}
+
+if (els.searchVentas) {
+    els.searchVentas.addEventListener('input', (e) => {
+        state.filtroBusquedaVentas = e.target.value;
+        renderVentas();
+    });
+}
 
 document.querySelectorAll('.subtab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1127,6 +1377,9 @@ document.querySelectorAll('.subtab-btn').forEach(btn => {
         state.subtabReporte = subtab;
         els.listaVentas.classList.toggle('hidden', subtab !== 'ventas');
         els.listaGastos.classList.toggle('hidden', subtab !== 'gastos');
+        if (els.searchVentas) {
+            els.searchVentas.classList.toggle('hidden', subtab !== 'ventas');
+        }
         els.btnNuevoGasto.classList.toggle('hidden', subtab !== 'gastos');
     });
 });
@@ -1645,6 +1898,22 @@ if (els.btnCerrarModalAdminSolVentaPie) els.btnCerrarModalAdminSolVentaPie.addEv
 
 if (els.btnCerrarModalAdminSolGasto) els.btnCerrarModalAdminSolGasto.addEventListener('click', () => els.modalAdminSolGasto.classList.add('hidden'));
 if (els.btnCerrarModalAdminSolGastoPie) els.btnCerrarModalAdminSolGastoPie.addEventListener('click', () => els.modalAdminSolGasto.classList.add('hidden'));
+
+const btnReloadApp = document.getElementById('btn-reload-app');
+if (btnReloadApp) {
+    btnReloadApp.addEventListener('click', () => {
+        window.location.reload();
+    });
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.token) {
+        verificarSaludServidor();
+        if (state.tabActiva === 'reporte') {
+            cargarReporteDiario();
+        }
+    }
+});
 
 verificarSaludServidor();
 restaurarSesion();

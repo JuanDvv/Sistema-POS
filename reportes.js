@@ -24,7 +24,138 @@ window.confirm = (msg) => {
 
 let sucursalId = 'sucursal-norte';
 let sucursalDetalle = null; // { id, nombre, direccion, telefono } para el ticket de impresión
-let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], abonosPedido: [], cierresCaja: [], productosResumen: [], productosNoVendidos: [] };
+let datosReporteGlobal = { ventas: [], gastos: [], transferencias: [], abonosPedido: [], cierresCaja: [], productosResumen: [], productosNoVendidos: [], solicitudesPendientes: [] };
+
+function calcularImpactoProductosPendientes(solicitudesPendientes) {
+    const impactoPorProducto = {};
+    const impactoPorCategoria = {};
+    const solPorVenta = {};
+    const nuevasPendientes = [];
+
+    (solicitudesPendientes || []).forEach(sol => {
+        if (sol.tipo === 'nueva') {
+            nuevasPendientes.push(sol);
+            let propuesta = {};
+            try {
+                const parsed = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+                propuesta = parsed.propuesta || parsed || {};
+            } catch (e) {
+                propuesta = {};
+            }
+            if (Array.isArray(propuesta.carrito)) {
+                propuesta.carrito.forEach(item => {
+                    const pid = String(item.id || item.producto_id || '');
+                    const pnom = normalizeStr(item.nombre || '');
+                    const cid = String(item.categoria_id || '');
+                    const cnom = normalizeStr(item.categoria_nombre || item.categoria || '');
+                    const cant = Number(item.cantidad || 0);
+                    const precio = Number(item.precio || item.precio_unitario || 0);
+                    const ingreso = cant * precio;
+
+                    [pid, pnom].filter(Boolean).forEach(key => {
+                        if (!impactoPorProducto[key]) {
+                            impactoPorProducto[key] = { deltaCantidad: 0, deltaIngreso: 0, count: 0 };
+                        }
+                        impactoPorProducto[key].deltaCantidad += cant;
+                        impactoPorProducto[key].deltaIngreso += ingreso;
+                        impactoPorProducto[key].count++;
+                    });
+
+                    [cid, cnom].filter(Boolean).forEach(key => {
+                        if (!impactoPorCategoria[key]) {
+                            impactoPorCategoria[key] = { deltaCantidad: 0, deltaIngreso: 0 };
+                        }
+                        impactoPorCategoria[key].deltaCantidad += cant;
+                        impactoPorCategoria[key].deltaIngreso += ingreso;
+                    });
+                });
+            }
+        } else if (sol.venta_id) {
+            solPorVenta[sol.venta_id] = sol;
+            let solDatos = {};
+            try {
+                solDatos = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+            } catch (e) {
+                solDatos = {};
+            }
+
+            if (sol.tipo === 'edicion') {
+                const propuesta = solDatos.propuesta || {};
+                const snapshot = solDatos.snapshotOriginal || {};
+                const detalleOriginal = snapshot.detalle || [];
+                const carritoPropuesto = propuesta.carrito || [];
+
+                const cantOriginal = {};
+                detalleOriginal.forEach(d => {
+                    const pid = String(d.producto_id || '');
+                    const pnom = normalizeStr(d.nombre || '');
+                    const cant = Number(d.cantidad || 0);
+                    const precio = Number(d.precio_unitario || 0);
+                    if (pid) cantOriginal[pid] = { cant, precio };
+                    if (pnom) cantOriginal[pnom] = { cant, precio };
+                });
+
+                carritoPropuesto.forEach(p => {
+                    const pid = String(p.id || p.producto_id || '');
+                    const pnom = normalizeStr(p.nombre || '');
+                    const cid = String(p.categoria_id || '');
+                    const cnom = normalizeStr(p.categoria_nombre || p.categoria || '');
+                    const cantNueva = Number(p.cantidad || 0);
+                    const precioNuevo = Number(p.precio || p.precio_unitario || 0);
+                    const orig = (pid && cantOriginal[pid]) || (pnom && cantOriginal[pnom]) || { cant: 0, precio: precioNuevo };
+                    const diffCant = cantNueva - orig.cant;
+                    const diffIngreso = (cantNueva * precioNuevo) - (orig.cant * orig.precio);
+
+                    if (diffCant !== 0 || diffIngreso !== 0) {
+                        [pid, pnom].filter(Boolean).forEach(key => {
+                            if (!impactoPorProducto[key]) {
+                                impactoPorProducto[key] = { deltaCantidad: 0, deltaIngreso: 0, count: 0 };
+                            }
+                            impactoPorProducto[key].deltaCantidad += diffCant;
+                            impactoPorProducto[key].deltaIngreso += diffIngreso;
+                            impactoPorProducto[key].count++;
+                        });
+                        [cid, cnom].filter(Boolean).forEach(key => {
+                            if (!impactoPorCategoria[key]) {
+                                impactoPorCategoria[key] = { deltaCantidad: 0, deltaIngreso: 0 };
+                            }
+                            impactoPorCategoria[key].deltaCantidad += diffCant;
+                            impactoPorCategoria[key].deltaIngreso += diffIngreso;
+                        });
+                    }
+                });
+            } else if (sol.tipo === 'eliminacion') {
+                const snapshot = solDatos.snapshotOriginal || {};
+                const detalleOriginal = snapshot.detalle || [];
+                detalleOriginal.forEach(d => {
+                    const pid = String(d.producto_id || '');
+                    const pnom = normalizeStr(d.nombre || '');
+                    const cid = String(d.categoria_id || '');
+                    const cnom = normalizeStr(d.categoria_nombre || d.categoria || '');
+                    const cant = Number(d.cantidad || 0);
+                    const precio = Number(d.precio_unitario || 0);
+                    [pid, pnom].filter(Boolean).forEach(key => {
+                        if (!impactoPorProducto[key]) {
+                            impactoPorProducto[key] = { deltaCantidad: 0, deltaIngreso: 0, count: 0 };
+                        }
+                        impactoPorProducto[key].deltaCantidad -= cant;
+                        impactoPorProducto[key].deltaIngreso -= (cant * precio);
+                        impactoPorProducto[key].count++;
+                    });
+                    [cid, cnom].filter(Boolean).forEach(key => {
+                        if (!impactoPorCategoria[key]) {
+                            impactoPorCategoria[key] = { deltaCantidad: 0, deltaIngreso: 0 };
+                        }
+                        impactoPorCategoria[key].deltaCantidad -= cant;
+                        impactoPorCategoria[key].deltaIngreso -= (cant * precio);
+                    });
+                });
+            }
+        }
+    });
+
+    return { impactoPorProducto, impactoPorCategoria, solPorVenta, nuevasPendientes };
+}
 const formatCOP = (val) => `${Math.round(val).toLocaleString('es-CO')}`;
 const normalizeStr = (value) => {
     if (value == null) return '';
@@ -315,15 +446,40 @@ function renderizarTablaVentas() {
     const inputBuscar = document.getElementById('filtro-buscar-ventas');
     const term = normalizeStr(inputBuscar?.value || '');
 
+    const { impactoPorProducto, solPorVenta, nuevasPendientes } = calcularImpactoProductosPendientes(datosReporteGlobal.solicitudesPendientes);
+
+    const nuevasFiltradas = nuevasPendientes.filter(sol => {
+        let propuesta = {};
+        try {
+            const parsed = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+            propuesta = parsed.propuesta || parsed || {};
+        } catch (e) {
+            propuesta = {};
+        }
+        const metodo = propuesta.metodoPago || 'Efectivo';
+        if (metodoFiltroVentas === 'Efectivo' && !metodo.startsWith('Efectivo')) return false;
+        if (metodoFiltroVentas === 'Transferencia' && !metodo.startsWith('Transferencia')) return false;
+        if (metodoFiltroVentas === 'Mixto' && !metodo.startsWith('Mixto')) return false;
+        if (metodoFiltroVentas === 'Crédito' && !metodo.startsWith('Crédito')) return false;
+        if (term) {
+            const prods = Array.isArray(propuesta.carrito) ? propuesta.carrito.map(p => p.nombre).join(' ') : '';
+            const matchProd = normalizeStr(prods).includes(term);
+            const matchTotal = coincideTotalBusqueda(propuesta.total, term);
+            if (!matchProd && !matchTotal) return false;
+        }
+        return true;
+    });
+
     const ventasFiltradas = term ? ventasVisibles.filter(v => coincideVentaFiltro(v, term)) : ventasVisibles;
     const abonosFiltrados = term ? abonosPedidoVisibles.filter(a => coincideAbonoFiltro(a, term)) : abonosPedidoVisibles;
 
     const movimientosVisibles = [
+        ...nuevasFiltradas.map(sol => ({ tipo: 'solicitud_nueva', fecha: sol.fecha_solicitud || '9999', sol })),
         ...ventasFiltradas.map(venta => ({ tipo: 'venta', fecha: venta.fecha, venta })),
         ...abonosFiltrados.map(abono => ({ tipo: 'abono', fecha: abono.fecha, abono }))
     ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
-    const totalMovimientos = ventasVisibles.length + abonosPedidoVisibles.length;
+    const totalMovimientos = ventasVisibles.length + abonosPedidoVisibles.length + nuevasFiltradas.length;
     if (contadorVentasDia) {
         if (term) {
             contadorVentasDia.textContent = `(${movimientosVisibles.length} de ${totalMovimientos} movimientos)`;
@@ -342,6 +498,44 @@ function renderizarTablaVentas() {
                 tbodyVentas.appendChild(crearFilaSeparadorCierre(cierresDelDia[idxCierre]));
                 idxCierre++;
             }
+        }
+
+        if (movimiento.tipo === 'solicitud_nueva') {
+            const sol = movimiento.sol;
+            let propuesta = {};
+            try {
+                const parsed = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+                propuesta = parsed.propuesta || parsed || {};
+            } catch (e) {
+                propuesta = {};
+            }
+            const hora = sol.fecha_solicitud
+                ? new Date(sol.fecha_solicitud).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+                : '--:--';
+            const productosTexto = Array.isArray(propuesta.carrito)
+                ? propuesta.carrito.map(p => `${p.nombre || 'Producto'} (x${p.cantidad})`).join(', ')
+                : 'Sin detalles';
+            const metodoTexto = propuesta.metodoPago || 'Efectivo';
+            const totalTexto = propuesta.total ? formatCOP(propuesta.total) : '$0';
+
+            const tr = document.createElement('tr');
+            tr.style.backgroundColor = '#fffbeb';
+            tr.style.borderLeft = '4px solid #f59e0b';
+            tr.innerHTML = `
+                <td style="white-space: nowrap;">
+                    <div>${hora}</div>
+                    <div style="margin-top: 3px;"><span style="background:#fef3c7; color:#92400e; font-size:0.75em; font-weight:700; padding:2px 6px; border-radius:4px;">🟡 Nueva Pendiente</span></div>
+                </td>
+                <td>
+                    <div>${productosTexto}</div>
+                    <div style="font-size: 0.78em; color: #92400e; margin-top: 3px;">Solicitante: <strong>${sol.usuario_solicitante || 'Operador'}</strong></div>
+                </td>
+                <td>${metodoTexto}</td>
+                <td><strong style="color: #b45309;">${totalTexto}</strong></td>
+                <td><span style="font-size: 0.82em; color: #b45309; font-weight: 600;">En espera de aprobación</span></td>
+            `;
+            tbodyVentas.appendChild(tr);
+            return;
         }
 
         if (movimiento.tipo === 'abono') {
@@ -473,14 +667,51 @@ function renderizarTablaVentas() {
             `;
         }
 
+        const sol = solPorVenta[venta.id];
+        let solBadge = '';
+        let infoPropuesta = '';
+        let trEstiloSol = '';
+        let celdaAccionesFinal = tdVentaAcciones;
+
+        if (sol) {
+            let solDatos = {};
+            try {
+                solDatos = typeof sol.datos === 'string' ? JSON.parse(sol.datos) : sol.datos;
+            } catch (e) {
+                solDatos = {};
+            }
+
+            if (sol.tipo === 'edicion') {
+                trEstiloSol = 'background-color: #fffdf5; border-left: 4px solid #f59e0b;';
+                solBadge = `<div><span style="background:#fef3c7; color:#92400e; font-size:0.75em; font-weight:700; padding:2px 6px; border-radius:4px;" title="Edición en revisión administrativa">🟡 Edición Pendiente</span></div>`;
+                if (solDatos.propuesta) {
+                    if (solDatos.propuesta.total !== undefined && Number(solDatos.propuesta.total) !== Number(venta.total)) {
+                        totalColHtml = `<td><strong>${formatCOP(venta.total)}</strong><div style="font-size:0.8em; color:#b45309; font-weight:600; margin-top:2px;">Propuesto: ${formatCOP(solDatos.propuesta.total)}</div></td>`;
+                    }
+                    if (Array.isArray(solDatos.propuesta.carrito)) {
+                        const prodsProp = solDatos.propuesta.carrito.map(p => `${p.nombre || 'Producto'} (x${p.cantidad})`).join(', ');
+                        infoPropuesta = `<div style="font-size:0.8em; color:#b45309; margin-top:3px; font-style:italic;"><strong>Propuesta:</strong> ${prodsProp}</div>`;
+                    }
+                }
+            } else if (sol.tipo === 'eliminacion') {
+                trEstiloSol = 'background-color: #fef2f2; border-left: 4px solid #ef4444;';
+                solBadge = `<div><span style="background:#fee2e2; color:#991b1b; font-size:0.75em; font-weight:700; padding:2px 6px; border-radius:4px;" title="Eliminación en revisión administrativa">🔴 Eliminación Pendiente</span></div>`;
+                celdaAccionesFinal = `<td><div class="actions-cell"><span style="font-size:0.8em; color:#dc2626; font-weight:600;">En revisión para eliminación</span></div></td>`;
+            }
+        }
+
         const tr = document.createElement('tr');
         if (esVentaFiscal) {
             tr.classList.add('fila-venta-fiscal');
+        }
+        if (trEstiloSol) {
+            tr.setAttribute('style', trEstiloSol);
         }
         tr.innerHTML = `
             <td style="white-space: nowrap;">
                 <div>${hora}</div>
                 ${badgeFiscal}
+                ${solBadge}
             </td>
             <td>
                 ${(venta.productos_vendidos || 'Sin detalles')
@@ -490,10 +721,11 @@ function renderizarTablaVentas() {
                             • ${prod}
                         </div>
                     `).join('')}
+                ${infoPropuesta}
             </td>
             <td>${metodoPagoText}${clienteFiscalHtml}${checkboxVerificada}</td>
             ${totalColHtml}
-            ${tdVentaAcciones}
+            ${celdaAccionesFinal}
         `;
         tbodyVentas.appendChild(tr);
     });
@@ -529,6 +761,8 @@ function renderizarReporteBiBi() {
         return;
     }
 
+    const { impactoPorProducto } = calcularImpactoProductosPendientes(datosReporteGlobal.solicitudesPendientes);
+
     const inputBuscar = document.getElementById('filtro-buscar-bibi');
     const term = normalizeStr(inputBuscar?.value || '');
 
@@ -560,12 +794,38 @@ function renderizarReporteBiBi() {
         tbodyProds.appendChild(trCat);
 
         agrupadosPorCategoria[catName].forEach(item => {
+            const pnom = normalizeStr(item.producto_nombre);
+            const pid = String(item.producto_id || '');
+            const impacto = impactoPorProducto[pid] || impactoPorProducto[pnom];
+
+            let badgeCant = '';
+            let badgeIng = '';
+            let estiloFila = '';
+
+            if (impacto) {
+                if (impacto.deltaCantidad !== 0) {
+                    estiloFila = 'background-color: #fffdf5;';
+                    const sCant = impacto.deltaCantidad > 0 ? `+${impacto.deltaCantidad}` : `${impacto.deltaCantidad}`;
+                    const cCant = impacto.deltaCantidad > 0 ? '#b45309' : '#dc2626';
+                    badgeCant = `<span style="color:${cCant}; font-size:0.82em; font-weight:700; margin-left:4px;" title="Unidades en revisión administrativa">(${sCant} pend.)</span>`;
+                }
+                if (impacto.deltaIngreso !== 0) {
+                    const sIng = impacto.deltaIngreso > 0 ? `+$${formatCOP(impacto.deltaIngreso)}` : `-$${formatCOP(Math.abs(impacto.deltaIngreso))}`;
+                    const cIng = impacto.deltaIngreso > 0 ? '#b45309' : '#dc2626';
+                    badgeIng = `<div style="color:${cIng}; font-size:0.8em; font-weight:700;">(${sIng} pend.)</div>`;
+                }
+            }
+
             const tr = document.createElement('tr');
+            if (estiloFila) tr.setAttribute('style', estiloFila);
             tr.innerHTML = `
                 <td style="padding-left: 30px;">${item.producto_nombre}</td>
-                <td>${item.total_cantidad} unidades</td>
+                <td>${item.total_cantidad} unidades ${badgeCant}</td>
                 <td>${item.stock_actual} unidades</td>
-                <td><strong>${formatCOP(item.total_ingreso)}</strong></td>
+                <td>
+                    <strong>${formatCOP(item.total_ingreso)}</strong>
+                    ${badgeIng}
+                </td>
             `;
             tbodyProds.appendChild(tr);
         });
@@ -582,6 +842,8 @@ function renderizarProductosNoVendidos() {
         tbodyNoVendidos.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#9ca3af;">Todos los productos de la sucursal tuvieron al menos una venta hoy.</td></tr>';
         return;
     }
+
+    const { impactoPorProducto } = calcularImpactoProductosPendientes(datosReporteGlobal.solicitudesPendientes);
 
     const inputBuscar = document.getElementById('filtro-buscar-no-vendidos');
     const term = normalizeStr(inputBuscar?.value || '');
@@ -614,9 +876,24 @@ function renderizarProductosNoVendidos() {
         tbodyNoVendidos.appendChild(trCat);
 
         agrupadosPorCategoriaNoVendidos[catName].forEach(item => {
+            const pnom = normalizeStr(item.producto_nombre);
+            const pid = String(item.producto_id || '');
+            const impacto = impactoPorProducto[pid] || impactoPorProducto[pnom];
+            let badgePendiente = '';
+            let estiloFila = '';
+
+            if (impacto && impacto.deltaCantidad > 0) {
+                estiloFila = 'background-color: #fffbeb;';
+                badgePendiente = `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:0.8em; font-weight:600; margin-left:8px;" title="Venta pendiente de aprobación">⚠️ Venta de ${impacto.deltaCantidad} ud(s) pendiente de aprobación</span>`;
+            }
+
             const tr = document.createElement('tr');
+            if (estiloFila) tr.setAttribute('style', estiloFila);
             tr.innerHTML = `
-                <td style="padding-left: 30px;">${item.producto_nombre}</td>
+                <td style="padding-left: 30px;">
+                    <span>${item.producto_nombre}</span>
+                    ${badgePendiente}
+                </td>
                 <td>${item.stock_actual} unidades</td>
             `;
             tbodyNoVendidos.appendChild(tr);
@@ -664,8 +941,20 @@ async function cargarReporte(fecha) {
             // el separador visual de cada cierre en el punto correcto de Detalle de Ventas.
             cierresCaja: (cierresResponse.success ? cierresResponse.data : []) || [],
             productosResumen: response.productosResumen || [],
-            productosNoVendidos: response.productosNoVendidos || []
+            productosNoVendidos: response.productosNoVendidos || [],
+            solicitudesPendientes: response.solicitudesPendientes || []
         };
+
+        const avisoSol = document.getElementById('aviso-solicitudes-reportes');
+        if (avisoSol) {
+            const countSol = (datosReporteGlobal.solicitudesPendientes || []).length;
+            if (countSol > 0) {
+                avisoSol.innerHTML = `⚠️ <strong>Solicitudes pendientes de revisión:</strong> Este día tiene ${countSol} movimiento(s) retroactivo(s) en cola de aprobación administrativa. Los totales oficiales reflejan ventas consolidadas; las unidades e importes propuestos en revisión se indican con distintivo en cada reporte.`;
+                avisoSol.style.display = 'block';
+            } else {
+                avisoSol.style.display = 'none';
+            }
+        }
 
         const ventasVisibles = filtrarVentasPorMetodo(datosReporteGlobal.ventas, metodoFiltroVentas);
 
@@ -903,24 +1192,58 @@ async function cargarReporte(fecha) {
                 });
 
                 // 3. Renderizar en orden
+                const { impactoPorCategoria } = calcularImpactoProductosPendientes(datosReporteGlobal.solicitudesPendientes);
+
                 Object.values(parentMap).forEach(parent => {
+                    const pnom = normalizeStr(parent.nombre);
+                    const pid = String(parent.id || '');
+                    const impactoPadre = impactoPorCategoria[pid] || impactoPorCategoria[pnom];
+                    let badgePadreCant = '';
+                    let badgePadreIng = '';
+                    if (impactoPadre) {
+                        if (impactoPadre.deltaCantidad !== 0) {
+                            const s = impactoPadre.deltaCantidad > 0 ? `+${impactoPadre.deltaCantidad}` : `${impactoPadre.deltaCantidad}`;
+                            badgePadreCant = ` <span style="color:#b45309; font-size:0.82em; font-weight:700;">(${s} pend.)</span>`;
+                        }
+                        if (impactoPadre.deltaIngreso !== 0) {
+                            const s = impactoPadre.deltaIngreso > 0 ? `+$${formatCOP(impactoPadre.deltaIngreso)}` : `-$${formatCOP(Math.abs(impactoPadre.deltaIngreso))}`;
+                            badgePadreIng = ` <span style="color:#b45309; font-size:0.82em; font-weight:700;">(${s} pend.)</span>`;
+                        }
+                    }
+
                     // Renderizar la Categoría General (Padre)
                     const trParent = document.createElement('tr');
                     const folderIcon = parent.id === 'sin-categoria' ? '' : '📁 ';
                     trParent.innerHTML = `
                         <td><strong>${folderIcon}${parent.nombre} (General)</strong></td>
-                        <td><strong>${parent.total_cantidad} unidades</strong></td>
-                        <td><strong>${formatCOP(parent.total_ingreso)}</strong></td>
+                        <td><strong>${parent.total_cantidad} unidades${badgePadreCant}</strong></td>
+                        <td><strong>${formatCOP(parent.total_ingreso)}${badgePadreIng}</strong></td>
                     `;
                     tbodyCats.appendChild(trParent);
 
                     // Renderizar sus Subcategorías
                     parent.subcategorias.forEach(sub => {
+                        const snom = normalizeStr(sub.nombre);
+                        const sid = String(sub.id || '');
+                        const impactoSub = impactoPorCategoria[sid] || impactoPorCategoria[snom];
+                        let badgeSubCant = '';
+                        let badgeSubIng = '';
+                        if (impactoSub) {
+                            if (impactoSub.deltaCantidad !== 0) {
+                                const s = impactoSub.deltaCantidad > 0 ? `+${impactoSub.deltaCantidad}` : `${impactoSub.deltaCantidad}`;
+                                badgeSubCant = ` <span style="color:#b45309; font-size:0.82em; font-weight:700;">(${s} pend.)</span>`;
+                            }
+                            if (impactoSub.deltaIngreso !== 0) {
+                                const s = impactoSub.deltaIngreso > 0 ? `+$${formatCOP(impactoSub.deltaIngreso)}` : `-$${formatCOP(Math.abs(impactoSub.deltaIngreso))}`;
+                                badgeSubIng = ` <span style="color:#b45309; font-size:0.82em; font-weight:700;">(${s} pend.)</span>`;
+                            }
+                        }
+
                         const trSub = document.createElement('tr');
                         trSub.innerHTML = `
                             <td style="padding-left: 25px; color: #4b5563;">↳ ${sub.nombre}</td>
-                            <td style="color: #4b5563;">${sub.total_cantidad} unidades</td>
-                            <td style="color: #4b5563;">${formatCOP(sub.total_ingreso)}</td>
+                            <td style="color: #4b5563;">${sub.total_cantidad} unidades${badgeSubCant}</td>
+                            <td style="color: #4b5563;">${formatCOP(sub.total_ingreso)}${badgeSubIng}</td>
                         `;
                         tbodyCats.appendChild(trSub);
                     });

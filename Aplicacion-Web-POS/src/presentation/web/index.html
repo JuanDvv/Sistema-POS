@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Delipostres POS · Móvil</title>
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
 </head>
 <body>
     <header class="topbar">
@@ -16,6 +16,7 @@
             </div>
         </div>
         <div class="topbar-actions">
+            <button id="btn-reload-app" class="btn-ghost" type="button" title="Recargar aplicación" aria-label="Recargar aplicación">🔄</button>
             <button id="btn-ver-auditoria" class="btn-ghost-subtle hidden" type="button" title="Logs de Auditoría" aria-label="Ver Logs de Auditoría">📜 Logs</button>
             <button id="btn-logout" class="btn-ghost hidden" type="button">Salir</button>
         </div>
@@ -70,7 +71,6 @@
                         <div class="date-quick-actions">
                             <button type="button" class="chip-btn" id="btn-fecha-ayer">Ayer</button>
                             <button type="button" class="chip-btn" id="btn-fecha-hoy">Hoy</button>
-                            <button type="button" class="btn-link" id="btn-refresh-reporte">Actualizar</button>
                         </div>
                     </div>
                 </div>
@@ -78,19 +78,27 @@
                 <div class="card resumen-card" id="card-resumen-financiero">
                     <div class="resumen-grid-hero">
                         <div class="resumen-hero-item">
+                            <span>Caja Neta</span>
+                            <strong id="res-caja-neta" class="highlight-cyan">$ 0</strong>
+                            <small id="res-desglose-caja-neta">Ingresos: $0 - Gastos: $0</small>
+                        </div>
+                        <div class="resumen-hero-item">
                             <span>Efectivo en Caja</span>
                             <strong id="res-efectivo-caja" class="highlight-green">$ 0</strong>
                             <small id="res-desglose-efectivo">Ventas Ef: $0 - Gastos Ef: $0</small>
                         </div>
-                        <div class="resumen-hero-item">
-                            <span>Total Recibido</span>
-                            <strong id="res-total-recibido" class="highlight-amber">$ 0</strong>
-                            <small id="res-desglose-ingresos">Ef: $0 · Tr: $0</small>
-                        </div>
                     </div>
                     <div class="resumen-subgrid">
                         <div class="resumen-mini-item">
-                            <span>Gastos de Caja</span>
+                            <span>Ventas Efectivo</span>
+                            <strong id="res-ventas-efectivo">$ 0</strong>
+                        </div>
+                        <div class="resumen-mini-item">
+                            <span>Ventas Transferencia</span>
+                            <strong id="res-ventas-transferencia">$ 0</strong>
+                        </div>
+                        <div class="resumen-mini-item">
+                            <span>Egresos / Gastos</span>
                             <strong id="res-total-gastos">$ 0</strong>
                         </div>
                         <div class="resumen-mini-item">
@@ -106,6 +114,7 @@
                             <button type="button" class="subtab-btn active" data-subtab="ventas">Ventas (<span id="count-ventas">0</span>)</button>
                             <button type="button" class="subtab-btn" data-subtab="gastos">Gastos (<span id="count-gastos">0</span>)</button>
                         </div>
+                        <input type="search" id="search-ventas" class="search-ventas-input" placeholder="Buscar producto, hora, valor o pago..." />
                         <button type="button" class="btn-primary btn-inline hidden" id="btn-nuevo-gasto">+ Gasto</button>
                     </div>
                 </div>
@@ -128,7 +137,6 @@
                     </div>
                     <div class="summary-strip">
                         <span id="productos-count-label">0 productos</span>
-                        <button type="button" id="btn-refresh-catalogo" class="btn-link">Actualizar</button>
                     </div>
                 </div>
 
@@ -367,7 +375,16 @@
                 <div id="edit-venta-items-list" class="edit-items-container"></div>
 
                 <div class="add-item-row">
-                    <select id="edit-venta-add-prod-select"></select>
+                    <div class="product-combobox" id="edit-venta-prod-combobox">
+                        <input
+                            type="text"
+                            id="edit-venta-add-prod-search"
+                            placeholder="Escribir o buscar producto..."
+                            autocomplete="off"
+                        />
+                        <button type="button" class="combobox-clear hidden" id="btn-clear-prod-search" aria-label="Limpiar búsqueda">&times;</button>
+                        <div id="edit-venta-prod-dropdown" class="combobox-dropdown hidden"></div>
+                    </div>
                     <input type="number" id="edit-venta-add-cant" min="1" step="1" value="1" style="max-width: 65px;" />
                     <button type="button" class="btn-primary btn-inline" id="btn-edit-venta-add-item">+ Añadir</button>
                 </div>
@@ -479,6 +496,6 @@
         </div>
     </div>
 
-    <script src="/app.js?v=2"></script>
+    <script src="/app.js?v=9"></script>
 </body>
 </html>
