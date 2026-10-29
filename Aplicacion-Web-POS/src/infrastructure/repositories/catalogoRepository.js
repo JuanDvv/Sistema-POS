@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { obtenerPool, ejecutarQuery } = require('../db/postgresClient');
 const { registrarAuditoriaRemota } = require('./authRepository');
+const { obtenerTimestampLWW } = require('../../domain/shared/clock');
 
 async function listarCatalogoPorSucursal(sucursalId) {
     const [productosRes, categoriasRes] = await Promise.all([
@@ -49,28 +50,29 @@ async function crearProductoConInventario({ datos, usuario }) {
     const pool = obtenerPool();
     const client = await pool.connect();
     const productoId = 'p-' + uuidv4().substring(0, 8);
+    const timestampLWW = obtenerTimestampLWW();
 
     try {
         await client.query('BEGIN');
 
         await client.query(
             `INSERT INTO "productos" (id, nombre, descripcion, precio, stock_minimo, categoria_id, updated_at, deleted_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NULL)`,
-            [productoId, datos.nombre, datos.descripcion, datos.precio, datos.stockMinimo, datos.categoriaId]
+             VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, NULL)`,
+            [productoId, datos.nombre, datos.descripcion, datos.precio, datos.stockMinimo, datos.categoriaId, timestampLWW]
         );
 
         await client.query(
             `INSERT INTO "inventario_sucursal" (producto_id, sucursal_id, stock, stock_reservado, updated_at, deleted_at)
-             VALUES ($1, $2, 0, 0, NOW(), NULL)
+             VALUES ($1, $2, 0, 0, $3::timestamptz, NULL)
              ON CONFLICT (producto_id, sucursal_id) DO NOTHING`,
-            [productoId, datos.sucursalId]
+            [productoId, datos.sucursalId, timestampLWW]
         );
 
         if (datos.stock > 0) {
             const movId = uuidv4();
             await client.query(
-                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-                [movId, productoId, datos.sucursalId, 'ENTRADA', datos.stock, productoId, usuario.username]
+                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+                [movId, productoId, datos.sucursalId, 'ENTRADA', datos.stock, productoId, usuario.username, timestampLWW]
             );
         }
 
@@ -86,7 +88,7 @@ async function crearProductoConInventario({ datos, usuario }) {
 
         return { id: productoId };
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         throw err;
     } finally {
         client.release();
@@ -96,6 +98,7 @@ async function crearProductoConInventario({ datos, usuario }) {
 async function editarProductoConInventario({ productoId, datos, usuario }) {
     const pool = obtenerPool();
     const client = await pool.connect();
+    const timestampLWW = obtenerTimestampLWW();
 
     try {
         await client.query('BEGIN');
@@ -107,10 +110,10 @@ async function editarProductoConInventario({ productoId, datos, usuario }) {
                  precio = $3,
                  stock_minimo = $4,
                  categoria_id = $5,
-                 updated_at = NOW()
+                 updated_at = $7::timestamptz
              WHERE id = $6 AND deleted_at IS NULL
              RETURNING id`,
-            [datos.nombre, datos.descripcion, datos.precio, datos.stockMinimo, datos.categoriaId, productoId]
+            [datos.nombre, datos.descripcion, datos.precio, datos.stockMinimo, datos.categoriaId, productoId, timestampLWW]
         );
 
         if (updateRes.rowCount === 0) {
@@ -130,8 +133,8 @@ async function editarProductoConInventario({ productoId, datos, usuario }) {
             if (datos.stock !== stockAnterior || stockPrevioRes.rowCount === 0) {
                 const movId = uuidv4();
                 const corrRes = await client.query(
-                    `SELECT public.aplicar_correccion_stock($1, $2, $3, $4, $5, $6, NOW()) AS delta`,
-                    [movId, productoId, datos.sucursalId, datos.stock, productoId, usuario.username]
+                    `SELECT public.aplicar_correccion_stock($1, $2, $3, $4, $5, $6, $7::timestamptz) AS delta`,
+                    [movId, productoId, datos.sucursalId, datos.stock, productoId, usuario.username, timestampLWW]
                 );
                 deltaReal = Number(corrRes.rows[0]?.delta || 0);
             }
@@ -155,7 +158,7 @@ async function editarProductoConInventario({ productoId, datos, usuario }) {
 
         return { id: productoId, deltaReal };
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         throw err;
     } finally {
         client.release();
@@ -172,10 +175,11 @@ async function abastecerStockProducto({ productoId, sucursalId, cantidad, usuari
     }
     const nombreProducto = prodRes.rows[0].nombre;
     const movId = uuidv4();
+    const timestampLWW = obtenerTimestampLWW();
 
     await ejecutarQuery(
-        `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [movId, productoId, sucursalId, 'ABASTECIMIENTO', cantidad, null, usuario.username]
+        `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+        [movId, productoId, sucursalId, 'ABASTECIMIENTO', cantidad, null, usuario.username, timestampLWW]
     );
 
     const stockRes = await ejecutarQuery(
@@ -196,13 +200,14 @@ async function abastecerStockProducto({ productoId, sucursalId, cantidad, usuari
 }
 
 async function eliminarProductoSoftDelete({ productoId, sucursalId, usuario }) {
+    const timestampLWW = obtenerTimestampLWW();
     const res = await ejecutarQuery(
         `UPDATE "productos"
-         SET deleted_at = NOW(),
-             updated_at = NOW()
+         SET deleted_at = $2::timestamptz,
+             updated_at = $2::timestamptz
          WHERE id = $1 AND deleted_at IS NULL
          RETURNING id, nombre`,
-        [productoId]
+        [productoId, timestampLWW]
     );
     if (res.rowCount === 0) {
         throw new Error('El producto no existe o ya fue eliminado.');
@@ -220,15 +225,16 @@ async function eliminarProductoSoftDelete({ productoId, sucursalId, usuario }) {
 }
 
 async function guardarCategoria({ categoriaId, datos, usuario }) {
+    const timestampLWW = obtenerTimestampLWW();
     if (categoriaId) {
         const res = await ejecutarQuery(
             `UPDATE "categorias"
              SET nombre = $1,
                  categoria_padre_id = $2,
-                 updated_at = NOW()
+                 updated_at = $4::timestamptz
              WHERE id = $3 AND deleted_at IS NULL
              RETURNING id`,
-            [datos.nombre, datos.categoriaPadreId, categoriaId]
+            [datos.nombre, datos.categoriaPadreId, categoriaId, timestampLWW]
         );
         if (res.rowCount === 0) {
             throw new Error('La categoría no existe.');
@@ -246,8 +252,8 @@ async function guardarCategoria({ categoriaId, datos, usuario }) {
     const nuevoId = 'cat-' + uuidv4().substring(0, 8);
     await ejecutarQuery(
         `INSERT INTO "categorias" (id, nombre, categoria_padre_id, updated_at, deleted_at)
-         VALUES ($1, $2, $3, NOW(), NULL)`,
-        [nuevoId, datos.nombre, datos.categoriaPadreId]
+         VALUES ($1, $2, $3, $4::timestamptz, NULL)`,
+        [nuevoId, datos.nombre, datos.categoriaPadreId, timestampLWW]
     );
     await registrarAuditoriaRemota({
         usuario: usuario.username,
@@ -260,13 +266,14 @@ async function guardarCategoria({ categoriaId, datos, usuario }) {
 }
 
 async function eliminarCategoriaSoftDelete({ categoriaId, usuario }) {
+    const timestampLWW = obtenerTimestampLWW();
     const res = await ejecutarQuery(
         `UPDATE "categorias"
-         SET deleted_at = NOW(),
-             updated_at = NOW()
+         SET deleted_at = $2::timestamptz,
+             updated_at = $2::timestamptz
          WHERE id = $1 AND deleted_at IS NULL
          RETURNING id, nombre`,
-        [categoriaId]
+        [categoriaId, timestampLWW]
     );
     if (res.rowCount === 0) {
         throw new Error('La categoría no existe o ya fue eliminada.');

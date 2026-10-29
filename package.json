@@ -1,25 +1,36 @@
 {
   "name": "pos-delipostresturbaco",
-
-  "version": "4.9.6",
+  "version": "4.9.9",
   "description": "Sistema POS offline-first para Delipostres Turbaco",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "cross-env APP_ENV=production nodemon --legacy-watch --ext js,html,css --exec electron .",
-    "build": "electron-builder --win",
-    "build:mac": "electron-builder --mac --arm64",
-    "build-mac": "electron-builder --mac --arm64"
+    "build": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 electron-builder --win",
+    "build:mac": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 electron-builder --mac --arm64",
+    "build-mac": "electron-builder --mac --arm64",
+    "clean": "node scripts/clean-dist.js",
+    "deploy:win": "node scripts/deploy-updates.js --win",
+    "release:win": "npm run clean && npm run build && npm run deploy:win",
+    "deploy:mac": "node scripts/deploy-updates.js --mac",
+    "release:mac": "npm run clean && npm run build:mac && npm run deploy:mac"
   },
   "build": {
     "appId": "com.delipostres.pos",
     "productName": "POSDelipostresTurbaco",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "http://100.100.163.62:8088"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
@@ -54,6 +65,7 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.110.5",
+    "electron-updater": "^6.8.11",
     "exceljs": "^4.4.0",
     "pg": "^8.23.1",
     "sqlite3": "^6.0.1",

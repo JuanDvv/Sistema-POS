@@ -1,7 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { obtenerPool, ejecutarQuery } = require('../db/postgresClient');
 const { registrarAuditoriaRemota } = require('./authRepository');
-const { obtenerSoloFechaWallClock, obtenerFechaWallClock } = require('../../domain/shared/clock');
+const { obtenerSoloFechaWallClock, obtenerFechaWallClock, obtenerTimestampLWW } = require('../../domain/shared/clock');
 const { calcularResumenFinancieroDia } = require('../../domain/reportes/reporteDiarioDomain');
 
 const SQL_FECHA_BOGOTA = `(
@@ -59,9 +59,10 @@ async function buscarGastoDomicilioTx(client, { ventaId, sucursalId, fecha }) {
     );
     if (porFecha.rowCount > 0) {
         const gasto = porFecha.rows[0];
+        const timestampLWW = obtenerTimestampLWW();
         await client.query(
-            `UPDATE "gastos" SET venta_id = $1, updated_at = NOW() WHERE id = $2`,
-            [ventaId, gasto.id]
+            `UPDATE "gastos" SET venta_id = $1, updated_at = $3::timestamptz WHERE id = $2`,
+            [ventaId, gasto.id, timestampLWW]
         );
         return gasto;
     }
@@ -242,17 +243,19 @@ async function editarVentaEnReporte({ ventaId, datos, usuario }) {
         );
         const detallesOriginales = detallesOrigRes.rows;
 
+        const timestampLWW = obtenerTimestampLWW();
+
         for (const det of detallesOriginales) {
             const movId = uuidv4();
             await client.query(
-                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-                [movId, det.producto_id, sucursalId, 'EDICION_VENTA', Number(det.cantidad), ventaId, usuario.username]
+                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+                [movId, det.producto_id, sucursalId, 'EDICION_VENTA', Number(det.cantidad), ventaId, usuario.username, ventaOriginal.fecha]
             );
             await client.query(
                 `UPDATE "detalle_ventas"
-                 SET deleted_at = NOW(), updated_at = NOW()
+                 SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz
                  WHERE id = $1`,
-                [det.id]
+                [det.id, timestampLWW]
             );
         }
 
@@ -271,14 +274,14 @@ async function editarVentaEnReporte({ ventaId, datos, usuario }) {
             const detId = uuidv4();
             await client.query(
                 `INSERT INTO "detalle_ventas" (id, venta_id, producto_id, cantidad, precio_unitario, updated_at, deleted_at)
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NULL)`,
-                [detId, ventaId, item.id, item.cantidad, item.precio]
+                 VALUES ($1, $2, $3, $4, $5, $6::timestamptz, NULL)`,
+                [detId, ventaId, item.id, item.cantidad, item.precio, timestampLWW]
             );
 
             const movId = uuidv4();
             await client.query(
-                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-                [movId, item.id, sucursalId, 'EDICION_VENTA', -Number(item.cantidad), ventaId, usuario.username]
+                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+                [movId, item.id, sucursalId, 'EDICION_VENTA', -Number(item.cantidad), ventaId, usuario.username, ventaOriginal.fecha]
             );
         }
 
@@ -286,9 +289,9 @@ async function editarVentaEnReporte({ ventaId, datos, usuario }) {
             `UPDATE "ventas"
              SET total = $1,
                  metodo_pago = $2,
-                 updated_at = NOW()
+                 updated_at = $4::timestamptz
              WHERE id = $3`,
-            [datos.total, datos.metodoPago, ventaId]
+            [datos.total, datos.metodoPago, ventaId, timestampLWW]
         );
 
         const gastoDomicilio = await buscarGastoDomicilioTx(client, {
@@ -301,24 +304,24 @@ async function editarVentaEnReporte({ ventaId, datos, usuario }) {
             if (gastoDomicilio) {
                 await client.query(
                     `UPDATE "gastos"
-                     SET monto = $1, updated_at = NOW()
+                     SET monto = $1, updated_at = $3::timestamptz
                      WHERE id = $2`,
-                    [datos.valorDomicilio, gastoDomicilio.id]
+                    [datos.valorDomicilio, gastoDomicilio.id, timestampLWW]
                 );
             } else {
                 const nuevoGastoId = uuidv4();
                 await client.query(
                     `INSERT INTO "gastos" (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, venta_id, updated_at, deleted_at)
-                     VALUES ($1, $2, 'Operativo', 'Domicilio (Descuento de Caja)', $3, $4, 'Efectivo', $5, NOW(), NULL)`,
-                    [nuevoGastoId, sucursalId, datos.valorDomicilio, ventaOriginal.fecha, ventaId]
+                     VALUES ($1, $2, 'Operativo', 'Domicilio (Descuento de Caja)', $3, $4, 'Efectivo', $5, $6::timestamptz, NULL)`,
+                    [nuevoGastoId, sucursalId, datos.valorDomicilio, ventaOriginal.fecha, ventaId, timestampLWW]
                 );
             }
         } else if (gastoDomicilio) {
             await client.query(
                 `UPDATE "gastos"
-                 SET deleted_at = NOW(), updated_at = NOW()
+                 SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz
                  WHERE id = $1`,
-                [gastoDomicilio.id]
+                [gastoDomicilio.id, timestampLWW]
             );
         }
 
@@ -344,7 +347,7 @@ async function editarVentaEnReporte({ ventaId, datos, usuario }) {
 
         return { id: ventaId };
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         throw err;
     } finally {
         client.release();
@@ -378,15 +381,17 @@ async function eliminarVentaEnReporte({ ventaId, usuario }) {
             [ventaId]
         );
 
+        const timestampLWW = obtenerTimestampLWW();
+
         for (const det of detallesRes.rows) {
             const movId = uuidv4();
             await client.query(
-                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-                [movId, det.producto_id, venta.sucursal_id, 'ANULACION', Number(det.cantidad), ventaId, usuario.username]
+                `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+                [movId, det.producto_id, venta.sucursal_id, 'ANULACION_VENTA', Number(det.cantidad), ventaId, usuario.username, venta.fecha]
             );
             await client.query(
-                `UPDATE "detalle_ventas" SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-                [det.id]
+                `UPDATE "detalle_ventas" SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz WHERE id = $1`,
+                [det.id, timestampLWW]
             );
         }
 
@@ -397,14 +402,14 @@ async function eliminarVentaEnReporte({ ventaId, usuario }) {
         });
         if (gastoDomicilio) {
             await client.query(
-                `UPDATE "gastos" SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-                [gastoDomicilio.id]
+                `UPDATE "gastos" SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz WHERE id = $1`,
+                [gastoDomicilio.id, timestampLWW]
             );
         }
 
         await client.query(
-            `UPDATE "ventas" SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-            [ventaId]
+            `UPDATE "ventas" SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz WHERE id = $1`,
+            [ventaId, timestampLWW]
         );
 
         await client.query('COMMIT');
@@ -420,7 +425,7 @@ async function eliminarVentaEnReporte({ ventaId, usuario }) {
 
         return { id: ventaId };
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         throw err;
     } finally {
         client.release();
@@ -442,10 +447,11 @@ async function crearGastoEnReporte({ sucursalId, fechaDia, datos, usuario }) {
     const id = uuidv4();
     const fechaRegistro = construirTimestampParaDia(fechaDia);
 
+    const timestampLWW = obtenerTimestampLWW();
     await ejecutarQuery(
         `INSERT INTO "gastos" (id, sucursal_id, tipo, descripcion, monto, fecha, metodo_pago, updated_at, deleted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NULL)`,
-        [id, sucursalId, datos.tipo, datos.descripcion, datos.monto, fechaRegistro, datos.metodoPago]
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, NULL)`,
+        [id, sucursalId, datos.tipo, datos.descripcion, datos.monto, fechaRegistro, datos.metodoPago, timestampLWW]
     );
 
     await registrarAuditoriaRemota({
@@ -479,15 +485,16 @@ async function editarGastoEnReporte({ gastoId, datos, usuario }) {
         throw new Error('Solo un Administrador puede editar un gasto de un día anterior.');
     }
 
+    const timestampLWW = obtenerTimestampLWW();
     await ejecutarQuery(
         `UPDATE "gastos"
          SET tipo = $1,
              descripcion = $2,
              monto = $3,
              metodo_pago = $4,
-             updated_at = NOW()
+             updated_at = $6::timestamptz
          WHERE id = $5`,
-        [datos.tipo, datos.descripcion, datos.monto, datos.metodoPago, gastoId]
+        [datos.tipo, datos.descripcion, datos.monto, datos.metodoPago, gastoId, timestampLWW]
     );
 
     const detallesAuditoria = [
@@ -535,6 +542,7 @@ async function eliminarGastoEnReporte({ gastoId, usuario }) {
             throw new Error('Solo un Administrador puede borrar un gasto de un día anterior.');
         }
 
+        const timestampLWW = obtenerTimestampLWW();
         if (gasto.tipo === 'Gasto de Inventario' || gasto.tipo === 'Devolución de Producto') {
             const movsRes = await client.query(
                 `SELECT producto_id, sucursal_id, cantidad
@@ -545,15 +553,15 @@ async function eliminarGastoEnReporte({ gastoId, usuario }) {
             for (const mov of movsRes.rows) {
                 const revId = uuidv4();
                 await client.query(
-                    `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, NOW())`,
-                    [revId, mov.producto_id, mov.sucursal_id, 'REVERSION_ELIMINACION_GASTO', -Number(mov.cantidad), gastoId, usuario.username]
+                    `SELECT public.aplicar_movimiento_inventario($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+                    [revId, mov.producto_id, mov.sucursal_id, 'REVERSION_ELIMINACION_GASTO', -Number(mov.cantidad), gastoId, usuario.username, timestampLWW]
                 );
             }
         }
 
         await client.query(
-            `UPDATE "gastos" SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-            [gastoId]
+            `UPDATE "gastos" SET deleted_at = $2::timestamptz, updated_at = $2::timestamptz WHERE id = $1`,
+            [gastoId, timestampLWW]
         );
 
         await client.query('COMMIT');
@@ -568,7 +576,7 @@ async function eliminarGastoEnReporte({ gastoId, usuario }) {
 
         return { id: gastoId };
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         throw err;
     } finally {
         client.release();

@@ -48,7 +48,35 @@ async function listarLogsAuditoria({ limite = 50, offset = 0, busqueda = '', acc
     };
 }
 
+async function obtenerDiscrepanciasStock() {
+    const res = await ejecutarQuery(`
+        SELECT 
+            i.sucursal_id,
+            i.producto_id,
+            p.nombre AS producto_nombre,
+            i.stock AS stock_actual,
+            (COALESCE(kc.suma_podada, 0) + COALESCE(SUM(m.cantidad), 0)) AS suma_kardex_total,
+            i.stock - (COALESCE(kc.suma_podada, 0) + COALESCE(SUM(m.cantidad), 0)) AS discrepancia
+        FROM inventario_sucursal i
+        JOIN productos p ON p.id = i.producto_id
+        LEFT JOIN kardex_checkpoints kc 
+            ON kc.tabla = 'movimientos_inventario' 
+           AND kc.producto_id = i.producto_id 
+           AND kc.sucursal_id = i.sucursal_id
+        LEFT JOIN movimientos_inventario m 
+            ON m.producto_id = i.producto_id 
+           AND m.sucursal_id = i.sucursal_id
+           AND m.deleted_at IS NULL
+        WHERE i.deleted_at IS NULL
+        GROUP BY i.sucursal_id, i.producto_id, p.nombre, i.stock, kc.suma_podada
+        HAVING i.stock <> (COALESCE(kc.suma_podada, 0) + COALESCE(SUM(m.cantidad), 0))
+        ORDER BY ABS(i.stock - (COALESCE(kc.suma_podada, 0) + COALESCE(SUM(m.cantidad), 0))) DESC
+    `);
+    return res.rows;
+}
+
 module.exports = {
-    listarLogsAuditoria
+    listarLogsAuditoria,
+    obtenerDiscrepanciasStock
 };
 

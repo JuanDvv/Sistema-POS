@@ -26,6 +26,8 @@ const { registerPedidosIpc } = require('./ipc/registerPedidosIpc');
 const { registerCierresCajaIpc } = require('./ipc/registerCierresCajaIpc');
 const { registerAbonosIpc } = require('./ipc/registerAbonosIpc');
 const { registerPedidoSugeridoIpc } = require('./ipc/registerPedidoSugeridoIpc');
+const { registerUpdaterIpc } = require('./ipc/registerUpdaterIpc');
+const { iniciarServicioActualizaciones } = require('./services/updaterService');
 
 // main.js es exclusivamente el "composition root": ciclo de vida de la app/ventanas y el cableado
 // de los módulos de dominio (db, servicios, sincronización, handlers IPC). La lógica de negocio y
@@ -90,6 +92,7 @@ function registerAllIpcHandlers() {
     registerCierresCajaIpc();
     registerAbonosIpc();
     registerPedidoSugeridoIpc();
+    registerUpdaterIpc();
 }
 
 app.whenReady().then(async () => {
@@ -127,6 +130,7 @@ app.whenReady().then(async () => {
     });
 
     createWindow();
+    iniciarServicioActualizaciones();
 
     // Sincronización inicial a los 2 segundos de iniciar la app (catch-up antes de login,
     // ej. para tener credenciales de usuarios actualizadas sin conexión). El polling periódico

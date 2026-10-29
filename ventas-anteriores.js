@@ -104,7 +104,7 @@ function isoToFechaDia(iso) {
 }
 
 function obtenerStockDisponible(productoId, stockCatalogo, stockReservado = 0) {
-    const disponibleFisico = Math.max(0, Number(stockCatalogo || 0) - Number(stockReservado || 0));
+    const disponibleFisico = Math.max(0, Number(stockCatalogo || 0) - Math.max(0, Number(stockReservado || 0)));
     return disponibleFisico + Number(reservaOriginalPorProducto[productoId] || 0);
 }
 

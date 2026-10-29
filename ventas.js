@@ -1100,7 +1100,7 @@ function renderizarCatalogo(productos) {
     if (productos.length > 0) {
         productos.forEach(prod => {
             const card = document.createElement('div');
-            const stockDisponible = Math.max(0, Number(prod.stock ?? 0) - Number(prod.stock_reservado ?? 0));
+            const stockDisponible = Math.max(0, Number(prod.stock ?? 0) - Math.max(0, Number(prod.stock_reservado ?? 0)));
             const sinStock = stockDisponible <= 0;
             const stockBajo = stockDisponible <= (Number(prod.stock_minimo) || 2) && !sinStock;
             const productoNombre = prod.nombre || prod.name || prod.producto_nombre || 'Sin nombre';
@@ -1188,7 +1188,7 @@ function agregarAlCarrito(producto) {
     // Verificar si el producto ya está en el carrito
     const itemExistente = carrito.find(item => item.id === producto.id);
 
-    const stockDisponible = Math.max(0, Number(producto.stock ?? 0) - Number(producto.stock_reservado ?? 0));
+    const stockDisponible = Math.max(0, Number(producto.stock ?? 0) - Math.max(0, Number(producto.stock_reservado ?? 0)));
 
     if (itemExistente) {
         // Si no hay stock (0 o negativo) se permite seguir sumando unidades sin límite: la venta
@@ -1611,8 +1611,13 @@ document.getElementById('btn-cobrar').addEventListener('click', async () => {
             }
 
 
-            alert(`Error: ${response.message}`);
+
         }
+        if (!response?.success) {
+            alert('Error: ' + (response?.message || 'Error al procesar la venta'));
+        }
+    } catch (err) {
+        alert('Error al registrar la venta: ' + (err.message || err));
     } finally {
         setProcessingState(false);
     }

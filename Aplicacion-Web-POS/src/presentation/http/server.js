@@ -4,7 +4,7 @@ const path = require('path');
 const { obtenerConfiguracionEntorno } = require('../../infrastructure/config/envConfig');
 const { verificarConexionDb } = require('../../infrastructure/db/postgresClient');
 const { buscarUsuarioPorUsername, registrarAuditoriaRemota } = require('../../infrastructure/repositories/authRepository');
-const { listarLogsAuditoria } = require('../../infrastructure/repositories/auditoriaRepository');
+const { listarLogsAuditoria, obtenerDiscrepanciasStock } = require('../../infrastructure/repositories/auditoriaRepository');
 const { listarSucursalesVigentes } = require('../../infrastructure/repositories/sucursalRepository');
 const {
     listarSolicitudesVenta,
@@ -233,6 +233,14 @@ const server = http.createServer(async (req, res) => {
 
                 const resultado = await listarLogsAuditoria({ limite, offset, busqueda, accion, usuario });
                 return enviarJson(res, 200, { ok: true, ...resultado });
+            }
+
+            if (req.method === 'GET' && pathname === '/api/admin/diagnostico-stock') {
+                if (sesion.rol !== 'Administrador') {
+                    return enviarJson(res, 403, { ok: false, error: 'Acceso denegado. Solo administradores pueden ver diagnósticos de stock.' });
+                }
+                const discrepancias = await obtenerDiscrepanciasStock();
+                return enviarJson(res, 200, { ok: true, discrepancias, total: discrepancias.length });
             }
 
             if (req.method === 'GET' && pathname === '/api/admin/turnos') {

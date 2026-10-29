@@ -135,5 +135,15 @@ contextBridge.exposeInMainWorld('api', {
     obtenerConfigServidor: () => ipcRenderer.invoke('obtener-config-servidor'),
     guardarConfigServidor: (datos) => ipcRenderer.invoke('guardar-config-servidor', datos),
     probarConexionServidor: (datos) => ipcRenderer.invoke('probar-conexion-servidor', datos),
-    marcarDatosLocalesPendientes: () => ipcRenderer.invoke('marcar-datos-locales-pendientes')
+    marcarDatosLocalesPendientes: () => ipcRenderer.invoke('marcar-datos-locales-pendientes'),
+
+    // Módulo de Actualizaciones Automáticas On-Premise
+    verificarActualizacion: () => ipcRenderer.invoke('verificar-actualizacion'),
+    aplicarActualizacion: () => ipcRenderer.invoke('aplicar-actualizacion'),
+    obtenerEstadoActualizacion: () => ipcRenderer.invoke('obtener-estado-actualizacion'),
+    onEstadoActualizacion: (callback) => {
+        const handler = (_event, estado) => callback(estado);
+        ipcRenderer.on('estado-actualizacion-cambio', handler);
+        return () => ipcRenderer.removeListener('estado-actualizacion-cambio', handler);
+    }
 });

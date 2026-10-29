@@ -927,5 +927,7 @@
             }
         }
     }, true);
+    // Carga desacoplada del notificador de actualizaciones automáticas
+    document.head.appendChild(Object.assign(document.createElement('script'), { src: './updaterToast.js' }));
 })();
 
