@@ -1,6 +1,6 @@
 {
   "name": "pos-delipostresturbaco",
-  "version": "4.9.9",
+  "version": "4.9.10",
   "description": "Sistema POS offline-first para Delipostres Turbaco",
   "main": "main.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "build-mac": "electron-builder --mac --arm64",
     "clean": "node scripts/clean-dist.js",
     "deploy:win": "node scripts/deploy-updates.js --win",
+    "release": "node scripts/trigger-release.js",
     "release:win": "npm run clean && npm run build && npm run deploy:win",
     "deploy:mac": "node scripts/deploy-updates.js --mac",
     "release:mac": "npm run clean && npm run build:mac && npm run deploy:mac"
