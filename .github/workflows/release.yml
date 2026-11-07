@@ -45,11 +45,12 @@ jobs:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           cat <<EOF > ~/.ssh/config
           Host 100.100.163.62
             StrictHostKeyChecking accept-new
+            BatchMode yes
             IdentityFile ~/.ssh/id_rsa
           EOF
 
