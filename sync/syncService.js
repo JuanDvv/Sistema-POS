@@ -1029,6 +1029,53 @@ async function liberarInventarioPendienteHuerfano() {
     }
 }
 
+async function repararStockReservadoDesincronizado() {
+    try {
+        const resultado = await runQuery(
+            `UPDATE inventario_sucursal
+             SET stock_reservado = COALESCE((
+                 SELECT SUM(dp.cantidad)
+                 FROM detalle_pedidos dp
+                 JOIN pedidos p ON dp.pedido_id = p.id
+                 WHERE p.sucursal_id = inventario_sucursal.sucursal_id
+                   AND dp.producto_id = inventario_sucursal.producto_id
+                   AND p.estado = 'pendiente'
+                   AND (p.sync_status IS NULL OR p.sync_status <> 'deleted')
+                   AND p.deleted_at IS NULL
+                   AND dp.deleted_at IS NULL
+             ), 0)
+             WHERE stock_reservado <> COALESCE((
+                 SELECT SUM(dp.cantidad)
+                 FROM detalle_pedidos dp
+                 JOIN pedidos p ON dp.pedido_id = p.id
+                 WHERE p.sucursal_id = inventario_sucursal.sucursal_id
+                   AND dp.producto_id = inventario_sucursal.producto_id
+                   AND p.estado = 'pendiente'
+                   AND (p.sync_status IS NULL OR p.sync_status <> 'deleted')
+                   AND p.deleted_at IS NULL
+                   AND dp.deleted_at IS NULL
+             ), 0)
+             AND NOT EXISTS (
+                 SELECT 1 FROM movimientos_reserva_inventario r
+                 WHERE r.producto_id = inventario_sucursal.producto_id
+                   AND r.sucursal_id = inventario_sucursal.sucursal_id
+                   AND r.sync_status = 'pending'
+             )`,
+            []
+        );
+        if (resultado.changes > 0) {
+            console.log(`[Sincronizador] ${resultado.changes} fila(s) de inventario_sucursal con stock_reservado desincronizado reconciliadas localmente.`);
+            BrowserWindow.getAllWindows().forEach(win => {
+                if (win && !win.isDestroyed()) {
+                    win.webContents.send('inventario-actualizado');
+                }
+            });
+        }
+    } catch (err) {
+        console.log("[Sincronizador] No se pudo ejecutar la reconciliación de stock reservado:", err.message);
+    }
+}
+
 // --- 3.6. SUBIR MOVIMIENTOS DE INVENTARIO (Local -> Supabase, aplicados como delta atómico) ---
 // Append-only (Kardex): nunca se editan ni se eliminan localmente, por eso no tiene una función
 // de "eliminaciones" propia como ventas/transferencias.
@@ -2511,6 +2558,7 @@ async function procesarSincronizacion() {
         await syncAbonos();
         await syncPedidosSubir();
         await syncPedidosDescargar();
+        await repararStockReservadoDesincronizado();
         await syncAbonosPedido();
         await purgarAbonosEliminadosNube();
         await syncCierresCaja();

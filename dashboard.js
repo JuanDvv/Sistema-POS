@@ -239,7 +239,7 @@ function renderizarProductos(productos) {
                 <td>${formatCOP(prod.precio)}</td>
                 <td style="${stockBajo ? 'color: #dc2626; font-weight: bold;' : ''}">
                     ${prod.stock} unidades
-                    ${Number(prod.stock_reservado || 0) > 0 ? `<br><span style="font-size: 0.8em; font-weight: normal; color: #d97706;">📦 Apartado: ${prod.stock_reservado} (disp: ${Number(prod.stock) - Number(prod.stock_reservado)})</span>` : ''}
+                    ${Number(prod.stock_reservado || 0) > 0 ? `<br><span style="font-size: 0.8em; font-weight: normal; color: #d97706;">📦 Apartado: ${prod.stock_reservado} (disp: ${Math.max(0, Number(prod.stock) - Number(prod.stock_reservado))})</span>` : ''}
                 </td>
                 <td>${badge}</td>
             `;

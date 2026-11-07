@@ -137,7 +137,7 @@ begin
 
 
         on conflict (producto_id, sucursal_id) do update
-            set stock_reservado = GREATEST(0, COALESCE(public.inventario_sucursal.stock_reservado, 0) + excluded.stock_reservado),
+            set stock_reservado = GREATEST(0, COALESCE(public.inventario_sucursal.stock_reservado, 0) + p_cantidad),
                 updated_at = now();
     end if;
 end;
