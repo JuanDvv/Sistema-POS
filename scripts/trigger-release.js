@@ -21,7 +21,7 @@ try {
     execSync(`git tag -f -a ${tag} -m "Release ${tag}"`, { stdio: 'ignore' });
 } catch (e) {
     // Si falla crear tag anotado, intentar tag ligero
-    try { execSync(`git tag -f ${tag}`, { stdio: 'ignore' }); } catch (_) {}
+    try { execSync(`git tag -f ${tag}`, { stdio: 'ignore' }); } catch (_) { }
 }
 
 try {

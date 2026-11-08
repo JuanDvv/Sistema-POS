@@ -14,8 +14,7 @@ const filesToUpload = [];
 if (isMac) {
     filesToUpload.push(
         path.join(distDir, 'latest-mac.yml'),
-        path.join(distDir, `POSDelipostresTurbaco-${pkg.version}-arm64.dmg`),
-        path.join(distDir, `POSDelipostresTurbaco-${pkg.version}-arm64-mac.zip`)
+        path.join(distDir, `POSDelipostresTurbaco-${pkg.version}-arm64.dmg`)
     );
 } else {
     filesToUpload.push(

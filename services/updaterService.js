@@ -66,11 +66,14 @@ function verificarMacEnServidor() {
             res.on('data', chunk => { data += chunk; });
             res.on('end', () => {
                 const matchVersion = data.match(/version:\s*['"]?([^'"\r\n]+)['"]?/);
-                const matchPath = data.match(/path:\s*['"]?([^'"\r\n]+)['"]?/);
+                const matchDmg = data.match(/url:\s*['"]?([^'"\r\n]+\.dmg)['"]?/i) ||
+                                 data.match(/path:\s*['"]?([^'"\r\n]+\.dmg)['"]?/i);
 
                 if (matchVersion && matchVersion[1]) {
                     const versionRemota = matchVersion[1].trim();
-                    const pathRelativo = matchPath ? matchPath[1].trim() : `POSDelipostresTurbaco-${versionRemota}-arm64.dmg`;
+                    const pathRelativo = (matchDmg && matchDmg[1])
+                        ? matchDmg[1].trim()
+                        : `POSDelipostresTurbaco-${versionRemota}-arm64.dmg`;
                     resolve({ version: versionRemota, path: pathRelativo });
                 } else {
                     resolve(null);
