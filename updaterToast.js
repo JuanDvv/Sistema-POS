@@ -96,10 +96,16 @@
             if (btnUpdate.dataset.ready !== 'true') return;
 
             btnUpdate.disabled = true;
-            titleEl.innerText = 'Reiniciando...';
-            subtitleEl.innerText = 'Aplicando versión...';
+            const esMac = btnUpdate.dataset.plataforma === 'darwin';
+            titleEl.innerText = esMac ? 'Abriendo...' : 'Reiniciando...';
+            subtitleEl.innerText = esMac ? 'Montando DMG...' : 'Aplicando versión...';
             try {
                 await window.api.aplicarActualizacion();
+                if (esMac) {
+                    btnUpdate.disabled = false;
+                    titleEl.innerText = `Actualizar v${btnUpdate.dataset.version || ''}`;
+                    subtitleEl.innerText = 'Instalador abierto';
+                }
             } catch (err) {
                 btnUpdate.disabled = false;
                 titleEl.innerText = 'Error al actualizar';
@@ -114,6 +120,8 @@
             }
 
             widget.style.display = 'block';
+            btnUpdate.dataset.plataforma = estado.plataforma || '';
+            btnUpdate.dataset.version = estado.version || '';
 
             if (!estado.descargada) {
                 // Estado: Descargando en segundo plano
@@ -142,7 +150,7 @@
 
                 iconEl.innerText = '🚀';
                 titleEl.innerText = `Actualizar v${estado.version || ''}`;
-                subtitleEl.innerText = estado.plataforma === 'darwin' ? 'Descargar instalador' : 'Clic para reiniciar';
+                subtitleEl.innerText = estado.plataforma === 'darwin' ? 'Abrir instalador' : 'Clic para reiniciar';
                 subtitleEl.style.color = 'rgba(16, 185, 129, 0.8)';
 
                 progressContainer.style.display = 'none';

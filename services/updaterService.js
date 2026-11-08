@@ -1,6 +1,9 @@
 const { app, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
 
 const UPDATE_SERVER_HOST = '100.100.163.62';
 const UPDATE_SERVER_PORT = 8088;
@@ -12,11 +15,13 @@ let estadoActualizacion = {
     version: null,
     progreso: 0,
     error: null,
-    plataforma: process.platform
+    plataforma: process.platform,
+    rutaDmgLocal: null
 };
 
 let listenersNotificacion = [];
 let intervaloSondeo = null;
+let descargaEnCursoMac = false;
 
 function notificarCambioEstado() {
     for (const listener of listenersNotificacion) {
@@ -81,28 +86,105 @@ function verificarMacEnServidor() {
     });
 }
 
+function descargarDmgMac(infoRemota) {
+    if (descargaEnCursoMac) return;
+    descargaEnCursoMac = true;
+
+    const downloadsDir = app.getPath('downloads');
+    const rutaFinal = path.join(downloadsDir, infoRemota.path);
+    const rutaTmp = `${rutaFinal}.tmp`;
+
+    estadoActualizacion = {
+        disponible: true,
+        descargada: false,
+        version: infoRemota.version,
+        progreso: 0,
+        error: null,
+        plataforma: 'darwin',
+        rutaDmgLocal: null
+    };
+    notificarCambioEstado();
+
+    const fileStream = fs.createWriteStream(rutaTmp);
+    const req = http.get(`${UPDATE_URL}/${infoRemota.path}`, (res) => {
+        if (res.statusCode !== 200) {
+            fileStream.close();
+            fs.unlink(rutaTmp, () => { });
+            descargaEnCursoMac = false;
+            estadoActualizacion.error = `Error HTTP ${res.statusCode} al descargar actualización.`;
+            notificarCambioEstado();
+            return;
+        }
+
+        const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
+        let bytesRecibidos = 0;
+
+        res.on('data', (chunk) => {
+            bytesRecibidos += chunk.length;
+            if (totalBytes > 0) {
+                const nuevoProgreso = Math.min(99, Math.round((bytesRecibidos / totalBytes) * 100));
+                if (nuevoProgreso !== estadoActualizacion.progreso) {
+                    estadoActualizacion.progreso = nuevoProgreso;
+                    notificarCambioEstado();
+                }
+            }
+        });
+
+        res.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+            fileStream.close(() => {
+                fs.rename(rutaTmp, rutaFinal, (errRename) => {
+                    if (errRename) {
+                        descargaEnCursoMac = false;
+                        estadoActualizacion.error = errRename.message;
+                        notificarCambioEstado();
+                        return;
+                    }
+
+                    execFile('xattr', ['-cr', rutaFinal], () => {
+                        descargaEnCursoMac = false;
+                        estadoActualizacion.descargada = true;
+                        estadoActualizacion.progreso = 100;
+                        estadoActualizacion.rutaDmgLocal = rutaFinal;
+                        notificarCambioEstado();
+                    });
+                });
+            });
+        });
+    });
+
+    req.on('error', (err) => {
+        fileStream.close();
+        fs.unlink(rutaTmp, () => { });
+        descargaEnCursoMac = false;
+        estadoActualizacion.error = err.message;
+        notificarCambioEstado();
+    });
+}
+
 async function verificarActualizaciones() {
     if (process.platform === 'darwin') {
         try {
             const infoRemota = await verificarMacEnServidor();
             if (infoRemota && esVersionMayor(infoRemota.version, app.getVersion())) {
-                estadoActualizacion = {
-                    disponible: true,
-                    descargada: true, // En Mac no firmado el instalador se descarga directamente
-                    version: infoRemota.version,
-                    urlDmg: `${UPDATE_URL}/${infoRemota.path}`,
-                    progreso: 100,
-                    error: null,
-                    plataforma: 'darwin'
-                };
+                const downloadsDir = app.getPath('downloads');
+                const rutaFinal = path.join(downloadsDir, infoRemota.path);
+
+                if (estadoActualizacion.version === infoRemota.version && estadoActualizacion.descargada && fs.existsSync(rutaFinal)) {
+                    estadoActualizacion.rutaDmgLocal = rutaFinal;
+                } else if (!descargaEnCursoMac) {
+                    descargarDmgMac(infoRemota);
+                }
             } else {
                 estadoActualizacion.disponible = false;
                 estadoActualizacion.error = null;
+                notificarCambioEstado();
             }
         } catch (err) {
             estadoActualizacion.error = err.message;
+            notificarCambioEstado();
         }
-        notificarCambioEstado();
         return estadoActualizacion;
     }
 
@@ -161,21 +243,27 @@ function iniciarServicioActualizaciones() {
 
     // Sondeo inicial a los 10 segundos del arranque
     setTimeout(() => {
-        verificarActualizaciones().catch(() => {});
+        verificarActualizaciones().catch(() => { });
     }, 10000);
 
     // Sondeo recurrente cada 15 minutos (900,000 ms)
     intervaloSondeo = setInterval(() => {
-        verificarActualizaciones().catch(() => {});
+        verificarActualizaciones().catch(() => { });
     }, 15 * 60 * 1000);
 }
 
 function aplicarActualizacion() {
     if (process.platform === 'darwin') {
-        if (estadoActualizacion.urlDmg) {
-            shell.openExternal(estadoActualizacion.urlDmg);
+        if (estadoActualizacion.descargada && estadoActualizacion.rutaDmgLocal && fs.existsSync(estadoActualizacion.rutaDmgLocal)) {
+            execFile('xattr', ['-cr', estadoActualizacion.rutaDmgLocal], () => {
+                shell.openPath(estadoActualizacion.rutaDmgLocal);
+            });
+            return { success: true, plataforma: 'darwin' };
         }
-        return { success: true, plataforma: 'darwin' };
+        if (descargaEnCursoMac) {
+            return { success: false, message: 'La descarga de la actualización aún está en progreso.' };
+        }
+        return { success: false, message: 'La actualización aún no se ha descargado completamente.' };
     }
 
     if (estadoActualizacion.descargada) {
